@@ -22,24 +22,31 @@ pub fn unpacked_multi_src_k_hop<G: Graph, R: PartitionedResource<Res = G>>(
                 .apply(|sub| {
                     let count_or_limit = if use_loop {
                         sub.iterate(k_hop, |start| {
-                            let graph =
-                                pegasus::resource::get_resource::<R::Res>().expect("Graph not found");
                             start
                                 .repartition(|id| Ok(*id))
-                                .flat_map(move |id| Ok(one_hop(id, &*graph)))
+                                .flat_map(move |id| {
+                                    let graph = pegasus::resource::get_resource::<R::Res>()
+                                        .expect("Graph not found");
+                                    Ok(one_hop(id, &*graph))
+                                })
                         })?
                     } else {
-                        let graph = pegasus::resource::get_resource::<G>().expect("Graph not found");
                         let mut stream = sub
                             .repartition(|id| Ok(*id))
-                            .flat_map(move |id| Ok(one_hop(id, &*graph)))?;
+                            .flat_map(move |id| {
+                                let graph =
+                                    pegasus::resource::get_resource::<G>().expect("Graph not found");
+                                Ok(one_hop(id, &*graph))
+                            })?;
 
                         for _i in 1..k_hop {
-                            let graph =
-                                pegasus::resource::get_resource::<R::Res>().expect("Graph not found");
                             stream = stream
                                 .repartition(|id| Ok(*id))
-                                .flat_map(move |id| Ok(one_hop(id, &*graph)))?;
+                                .flat_map(move |id| {
+                                    let graph = pegasus::resource::get_resource::<R::Res>()
+                                        .expect("Graph not found");
+                                    Ok(one_hop(id, &*graph))
+                                })?;
                         }
                         stream
                     };

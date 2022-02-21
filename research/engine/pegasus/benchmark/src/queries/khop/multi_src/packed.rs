@@ -34,10 +34,13 @@ pub fn packed_multi_src_k_hop<G: Graph, R: PartitionedResource<Res = G>>(
                 })?
             } else {
                 for _i in 0..k_hop {
-                    let graph = pegasus::resource::get_resource::<R::Res>().expect("Graph not found");
                     right = right
                         .repartition(|(_, id)| Ok(*id))
-                        .flat_map(move |(src, id)| Ok(one_hop(id, &*graph).map(move |id| (src, id))))?;
+                        .flat_map(move |(src, id)| {
+                            let graph =
+                                pegasus::resource::get_resource::<R::Res>().expect("Graph not found");
+                            Ok(one_hop(id, &*graph).map(move |id| (src, id)))
+                        })?;
                     if is_limit_one {
                         right = right.limit(1)?;
                     }
