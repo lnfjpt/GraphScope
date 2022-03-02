@@ -25,12 +25,12 @@ pub fn is2(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, String, 
                     for i in message_vertices {
                         let message_internal_id = i.get_id();
                         let message_id = i.get_property("id").unwrap().as_u64().unwrap();
-                        let create_date = mv
+                        let create_date = i
                             .get_property("creationDate")
                             .unwrap()
                             .as_u64()
                             .unwrap();
-                        lists.push((create_date, message_id, message_internal_id));
+                        lists.push((create_date, message_id, message_internal_id as u64));
                     }
                     Ok(lists.into_iter())
                 })?
@@ -45,7 +45,7 @@ pub fn is2(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, String, 
                 .map(move |source| {
 
                     let mv = super::graph::GRAPH
-                        .get_vertex(internal_id)
+                        .get_vertex(source.2 as DefaultId)
                         .unwrap();
                     match mv.get_label()[0] {
                         _ => Ok((source.1, "1".to_string(), "1".to_string(), source.0)),
