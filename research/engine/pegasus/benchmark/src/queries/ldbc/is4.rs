@@ -1,4 +1,3 @@
-use graph_store::config::{DIR_GRAPH_SCHEMA, FILE_SCHEMA};
 use graph_store::prelude::*;
 use pegasus::api::{Binary, Branch, IterCondition, Iteration, Map, Sink, Sort, Unary};
 use pegasus::resource::PartitionedResource;
@@ -8,9 +7,7 @@ use pegasus::JobConf;
 
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
-pub fn is4(
-    conf: JobConf, graph: LargeGraphDB<DefaultId, InternalId>, person_id: u64,
-) -> ResultStream<(u64, String)> {
+pub fn is4(conf: JobConf, person_id: u64) -> ResultStream<(u64, String)> {
     pegasus::run(conf, || {
         let worker_id = pegasus::get_current_worker().index;
         let start = if worker_id == 0 { Some(vec![person_id]) } else { None };
@@ -23,7 +20,7 @@ pub fn is4(
                     let comment_id = ((2 as usize) << LABEL_SHIFT_BITS) | vertex_id;
                     let mut date = 0;
                     let mut content = "".to_string();
-                    if let Some(vertex) = graph.get_vertex(post_id) {
+                    if let Some(vertex) = super::graph::GRAPH.get_vertex(post_id) {
                         date = vertex
                             .get_property("creationDate")
                             .unwrap()
@@ -35,7 +32,7 @@ pub fn is4(
                             .as_str()
                             .unwrap()
                             .into_owned();
-                    } else if let Some(vertex) = graph.get_vertex(comment_id) {
+                    } else if let Some(vertex) = super::graph::GRAPH.get_vertex(comment_id) {
                         date = vertex
                             .get_property("creationDate")
                             .unwrap()

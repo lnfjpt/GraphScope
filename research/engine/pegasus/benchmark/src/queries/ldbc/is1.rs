@@ -1,14 +1,12 @@
-use graph_store::config::{DIR_GRAPH_SCHEMA, FILE_SCHEMA};
 use graph_store::prelude::*;
 use pegasus::api::{Binary, Branch, IterCondition, Iteration, Map, Sink, Unary};
 use pegasus::result::ResultStream;
 use pegasus::JobConf;
 
-static LABEL_SHIFT_BITS: usize =
-    8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
+static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
 pub fn is1(
-    conf: JobConf, graph: LargeGraphDB<DefaultId, InternalId>, person_id: u64,
+    conf: JobConf, person_id: u64,
 ) -> ResultStream<(String, String, u64, String, String, i32, String, u64)> {
     pegasus::run(conf, || {
         let worker_id = pegasus::get_current_worker().index;
@@ -19,7 +17,9 @@ pub fn is1(
                 .map(move |source| {
                     let vertex_id = source[0] as DefaultId;
                     let internal_id = ((1 as usize) << LABEL_SHIFT_BITS) | vertex_id;
-                    let lv = graph.get_vertex(internal_id).unwrap();
+                    let lv = super::graph::GRAPH
+                        .get_vertex(internal_id)
+                        .unwrap();
                     let first_name = lv
                         .get_property("firstName")
                         .unwrap()
@@ -27,7 +27,7 @@ pub fn is1(
                         .unwrap()
                         .into_owned();
                     let second_name = lv
-                        .get_property("secondName")
+                        .get_property("lastName")
                         .unwrap()
                         .as_str()
                         .unwrap()
@@ -49,7 +49,7 @@ pub fn is1(
                         .as_str()
                         .unwrap()
                         .into_owned();
-                    let located = graph.get_out_vertices(internal_id, Some(&vec![11]));
+                    let located = super::graph::GRAPH.get_out_vertices(internal_id, Some(&vec![0]));
                     let mut city_id = 0;
                     for v in located {
                         city_id = v.get_property("id").unwrap().as_i32().unwrap();
