@@ -27,11 +27,7 @@ pub fn is3(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, String, 
                             .unwrap()
                             .as_u64()
                             .unwrap();
-                        let person_inner_id = i
-                            .get_property("end_id")
-                            .unwrap()
-                            .as_u64()
-                            .unwrap();
+                        let person_inner_id = i.get_dst_id();
                         let pv = super::graph::GRAPH
                             .get_vertex(person_inner_id as DefaultId)
                             .unwrap();
@@ -59,7 +55,7 @@ pub fn is3(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, String, 
                         .unwrap()
                         .into_owned();
                     let second_name = lv
-                        .get_property("secondName")
+                        .get_property("lastName")
                         .unwrap()
                         .as_str()
                         .unwrap()

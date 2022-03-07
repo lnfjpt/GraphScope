@@ -29,11 +29,11 @@ pub fn is5(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, String)>
                     let person =
                         super::graph::GRAPH.get_out_vertices(vertex.unwrap().get_id(), Some(&vec![0]));
                     for i in person {
-                        person_id = i
-                            .get_property("personId")
-                            .unwrap()
-                            .as_u64()
-                            .unwrap();
+                        let properties = i.clone_all_properties().unwrap();
+                        for j in properties.keys() {
+                            println!("has key {}", j);
+                        }
+                        person_id = i.get_property("id").unwrap().as_u64().unwrap();
                         first_name = i
                             .get_property("firstName")
                             .unwrap()
