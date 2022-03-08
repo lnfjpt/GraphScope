@@ -6,6 +6,8 @@ mod is4;
 mod is5;
 mod is6;
 mod is7;
+// mod ic1_ln;
+
 pub mod graph;
 
 pub use ic1::ic1;
