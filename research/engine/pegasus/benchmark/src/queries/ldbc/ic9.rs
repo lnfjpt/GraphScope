@@ -20,7 +20,7 @@ use pegasus::JobConf;
 
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
-pub fn ic9(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, String, u64, u64, String)> {
+pub fn ic9(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, String, u64, String, u64)> {
     pegasus::run(conf, || {
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {
@@ -46,7 +46,7 @@ pub fn ic9(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, String, 
                 .flat_map(move |person_id| {
                     Ok(super::graph::GRAPH
                         .get_in_vertices(person_id as DefaultId, Some(&vec![0]))
-                        .map(|vertex| (person_id, vertex.get_id() as u64)))
+                        .map(move |vertex| (person_id, vertex.get_id() as u64)))
                 })?
                 .map(|(person_id, message_internal_id)| {
                     let message_vertex = super::graph::GRAPH

@@ -20,10 +20,7 @@ use pegasus::JobConf;
 
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
-pub fn ic5(
-    conf: JobConf, person_id: u64, start_date: u64, duration: i32,
-) -> ResultStream<(u64, u64)> {
-    // Todo: parse timestamp here
+pub fn ic5(conf: JobConf, person_id: u64, start_date: u64, duration: i32) -> ResultStream<(u64, u64)> {
     pegasus::run(conf, || {
         let end_date = start_date + duration as u64;
         move |input, output| {
@@ -40,10 +37,7 @@ pub fn ic5(
                         .flat_map(move |id| {
                             Ok(super::graph::GRAPH
                                 .get_both_vertices(id as DefaultId, Some(&vec![12]))
-                                .map(|x| x.get_id() as u64)
-                                .filter(|id| {
-                                    ((1 as usize) << LABEL_SHIFT_BITS) | person_id as usize != *id as usize
-                                }))
+                                .map(|x| x.get_id() as u64))
                         })
                 })?
                 .dedup()?

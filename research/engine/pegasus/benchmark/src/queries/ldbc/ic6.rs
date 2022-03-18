@@ -24,6 +24,7 @@ pub fn ic6(
     conf: JobConf, person_id: u64, tag_name: String,
 ) -> ResultStream<(String)> {
     pegasus::run(conf, || {
+        let tag_name = tag_name.clone();
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {
                 input.input_from(vec![person_id])
@@ -62,12 +63,13 @@ pub fn ic6(
                     }
                 })?
                 .apply(|sub| {
+                    let tag_name = tag_name.clone();
                     sub.flat_map(|post_internal_id| {
                         Ok(super::graph::GRAPH
                             .get_out_vertices(post_internal_id as DefaultId, Some(&vec![1]))
                             .map(|vertex| vertex.get_id() as u64))
                     })?
-                    .filter_map(|tag_internal_id| {
+                    .filter_map(move |tag_internal_id| {
                         let vertex = super::graph::GRAPH
                             .get_vertex(tag_internal_id as DefaultId)
                             .unwrap();
@@ -99,11 +101,11 @@ pub fn ic6(
                         .get_out_vertices(post_internal_id as DefaultId, Some(&vec![1]))
                         .map(|vertex| vertex.get_id() as u64))
                 })?
-                .filter_map(|tag_internal_id| {
+                .filter_map(move |tag_internal_id| {
                     let tag_vertex = super::graph::GRAPH.get_vertex(tag_internal_id as DefaultId).unwrap();
                     let post_tag_name = tag_vertex.get_property("name").unwrap().as_str().unwrap().into_owned();
                     if tag_name != post_tag_name {
-                        Ok(Some(tag_name))
+                        Ok(Some(tag_name.clone()))
                     } else {
                         Ok(None)
                     }

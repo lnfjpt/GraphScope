@@ -57,7 +57,106 @@ fn main() {
                 queries::is5(conf.clone(), split[1].parse::<u64>().unwrap());
                 ()
             }
-            "ic1" => println!("Start run query \"Interactive Complex 1\""),
+            "is6" => {
+                println!("Start run query \"Interactive Short 6\"");
+                queries::is6(conf.clone(), split[1].parse::<u64>().unwrap());
+                ()
+            }
+            "is7" => {
+                println!("Start run query \"Interactive Short 7\"");
+                queries::is7(conf.clone(), split[1].parse::<u64>().unwrap());
+                ()
+            }
+            "ic1" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic1_ir(conf.clone(), split[1].parse::<u64>().unwrap(), split[2].to_string());
+                ()
+            }
+            "ic2" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic2(
+                    conf.clone(),
+                    split[1].parse::<u64>().unwrap(),
+                    split[2].parse::<u64>().unwrap(),
+                );
+                ()
+            }
+            "ic3" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic3(
+                    conf.clone(),
+                    split[1].parse::<u64>().unwrap(),
+                    split[2].to_string(),
+                    split[3].to_string(),
+                    split[4].parse::<u64>().unwrap(),
+                    split[5].parse::<i32>().unwrap(),
+                );
+                ()
+            }
+            "ic4" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic4(
+                    conf.clone(),
+                    split[1].parse::<u64>().unwrap(),
+                    split[2].parse::<u64>().unwrap(),
+                    split[3].parse::<i32>().unwrap(),
+                );
+                ()
+            }
+            "ic5" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic5(
+                    conf.clone(),
+                    split[1].parse::<u64>().unwrap(),
+                    split[2].parse::<u64>().unwrap(),
+                    split[3].parse::<i32>().unwrap(),
+                );
+                ()
+            }
+            "ic6" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic6(conf.clone(), split[1].parse::<u64>().unwrap(), split[2].to_string());
+                ()
+            }
+            "ic7" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic7(conf.clone(), split[1].parse::<u64>().unwrap());
+                ()
+            }
+            "ic8" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic8(conf.clone(), split[1].parse::<u64>().unwrap());
+                ()
+            }
+            "ic9" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic9(conf.clone(), split[1].parse::<u64>().unwrap());
+                ()
+            }
+            "ic11" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic11(
+                    conf.clone(),
+                    split[1].parse::<u64>().unwrap(),
+                    split[2].to_string(),
+                    split[3].parse::<i32>().unwrap(),
+                );
+                ()
+            }
+            "ic12" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic12(conf.clone(), split[1].parse::<u64>().unwrap(), split[2].to_string());
+                ()
+            }
+            "ic13" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                queries::ic13(
+                    conf.clone(),
+                    split[1].parse::<u64>().unwrap(),
+                    split[2].parse::<u64>().unwrap(),
+                );
+                ()
+            }
             _ => println!("Unknown query"),
         }
     }

@@ -1,6 +1,6 @@
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::cell::RefCell;
 use std::sync::Arc;
 
 use graph_store::prelude::*;
@@ -24,32 +24,42 @@ static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::me
 pub fn ic3(
     conf: JobConf, person_id: u64, country_x: String, country_y: String, start_date: u64, duration: i32,
 ) -> ResultStream<(u64, String, String, i32, i32, i32)> {
-    // Todo: parse timestamp here
     pegasus::run(conf, || {
+        let country_x = country_x.clone();
+        let country_y = country_y.clone();
+        let start_date = start_date;
         let end_date = start_date + duration as u64;
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {
-                input.input_from(vec![person_id])
+                input.input_from(vec![(person_id, country_x.clone(), country_y.clone())])
             } else {
                 input.input_from(vec![])
             }?;
             stream
-                .map(|source| Ok((((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64))?
+                .map(|(source, country_x, country_y)| {
+                    Ok((
+                        (((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64,
+                        country_x,
+                        country_y,
+                    ))
+                })?
                 .iterate_emit_until(IterCondition::max_iters(2), EmitKind::After, |start| {
                     start
-                        .repartition(|id| Ok(*id))
-                        .flat_map(move |person_id| {
+                        .repartition(|(id, _, _)| Ok(*id))
+                        .flat_map(move |(person_id, country_x, country_y)| {
                             Ok(super::graph::GRAPH
                                 .get_both_vertices(person_id as DefaultId, Some(&vec![12]))
-                                .map(|vertex| vertex.get_id() as u64)
-                                .filter(move |id| {
+                                .map(move |vertex| {
+                                    (vertex.get_id() as u64, country_x.clone(), country_y.clone())
+                                })
+                                .filter(move |(id, _, _)| {
                                     ((1 as usize) << LABEL_SHIFT_BITS) | person_id as usize != *id as usize
                                 }))
                         })
                 })?
                 .dedup()?
-                .repartition(|id| Ok(*id))
-                .map(|person_internal_id| {
+                .repartition(|(id, _, _)| Ok(*id))
+                .map(|(person_internal_id, country_x, country_y)| {
                     let mut city_id = 0;
                     for i in super::graph::GRAPH
                         .get_out_vertices(person_internal_id as DefaultId, Some(&vec![11]))
@@ -62,9 +72,9 @@ pub fn ic3(
                         country_id = i.get_id() as u64;
                         break;
                     }
-                    Ok((person_internal_id, country_id))
+                    Ok((person_internal_id, country_id, country_x, country_y))
                 })?
-                .filter_map(move |(person_internal_id, country_id)| {
+                .filter_map(move |(person_internal_id, country_id, country_x, country_y)| {
                     let country_vertex = super::graph::GRAPH
                         .get_vertex(country_id as DefaultId)
                         .unwrap();
@@ -75,18 +85,22 @@ pub fn ic3(
                         .unwrap()
                         .into_owned();
                     if country_name != country_x && country_name != country_y {
-                        Ok(Some(person_internal_id))
+                        Ok(Some((person_internal_id, country_x, country_y)))
                     } else {
                         Ok(None)
                     }
                 })?
                 .apply(|sub| {
-                    sub.flat_map(|person_id| {
+                    let start_date = start_date;
+                    let end_date = end_date;
+                    sub.flat_map(|(person_id, country_x, country_y)| {
                         Ok(super::graph::GRAPH
                             .get_in_vertices(person_id as DefaultId, Some(&vec![0]))
-                            .map(|vertex| vertex.get_id() as u64))
+                            .map(move |vertex| {
+                                (vertex.get_id() as u64, country_x.clone(), country_y.clone())
+                            }))
                     })?
-                    .filter_map(|message_internal_id| {
+                    .filter_map(move |(message_internal_id, country_x, country_y)| {
                         let vertex = super::graph::GRAPH
                             .get_vertex(message_internal_id as DefaultId)
                             .unwrap();
@@ -95,18 +109,25 @@ pub fn ic3(
                             .unwrap()
                             .as_u64()
                             .unwrap();
-                        if create_time >= start_date && create_time < end_date {
-                            Ok(Some(message_internal_id))
+                        if create_time > start_date && create_time < end_date {
+                            Ok(Some((message_internal_id, country_x, country_y)))
                         } else {
                             Ok(None)
                         }
                     })?
-                    .flat_map(|message_internal_id| {
+                    .flat_map(|(message_internal_id, country_x, country_y)| {
                         Ok(super::graph::GRAPH
                             .get_out_vertices(message_internal_id as DefaultId, Some(&vec![11]))
-                            .map(move |vertex| (message_internal_id, vertex.get_id() as u64)))
+                            .map(move |vertex| {
+                                (
+                                    message_internal_id,
+                                    vertex.get_id() as u64,
+                                    country_x.clone(),
+                                    country_y.clone(),
+                                )
+                            }))
                     })?
-                    .filter_map(|(message_internal_id, country_id)| {
+                    .filter_map(|(message_internal_id, country_id, country_x, country_y)| {
                         let country_vertex = super::graph::GRAPH
                             .get_vertex(country_id as DefaultId)
                             .unwrap();
@@ -139,7 +160,7 @@ pub fn ic3(
                         .reverse()
                         .then(id_x.cmp(&id_y))
                 })?
-                .map(|(person_internal_id, count)| {
+                .map(|((person_internal_id, country_x, country_y), count)| {
                     let vertex = super::graph::GRAPH
                         .get_vertex(person_internal_id as DefaultId)
                         .unwrap();

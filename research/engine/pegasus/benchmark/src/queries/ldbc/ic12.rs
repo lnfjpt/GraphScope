@@ -22,8 +22,9 @@ static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::me
 
 pub fn ic12(
     conf: JobConf, person_id: u64, input_tag_name: String,
-) -> ResultStream<(u64, String, String, String, i32)> {
+) -> ResultStream<(u64,Vec<u64>)> {
     pegasus::run(conf, || {
+        let input_tag_name = input_tag_name.clone();
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {
                 input.input_from(vec![person_id])
@@ -45,6 +46,7 @@ pub fn ic12(
                         .map(move |vertex| (person_id, vertex.get_id() as u64)))
                 })?
                 .apply(|sub| {
+                    let input_tag_name = input_tag_name;
                     sub.filter_map(|(person_internal_id, comment_id)| {
                         let reply_message = super::graph::GRAPH
                             .get_out_vertices(comment_id as DefaultId, Some(&vec![3]))
@@ -61,7 +63,7 @@ pub fn ic12(
                             .get_out_vertices(post_internal_id as DefaultId, Some(&vec![1]))
                             .map(|vertex| vertex.get_id() as u64))
                     })?
-                    .filter_map(|tag_internal_id| {
+                    .filter_map(move |tag_internal_id| {
                         let tag_class_id = super::graph::GRAPH
                             .get_in_vertices(tag_internal_id as DefaultId, Some(&vec![22]))
                             .next()
@@ -96,7 +98,6 @@ pub fn ic12(
                         Ok(Some((person_internal_id, tag_list)))
                     }
                 })?
-                .fold_partition()
                 .sink_into(output)
         }
     })

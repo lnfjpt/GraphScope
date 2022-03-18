@@ -24,6 +24,7 @@ pub fn ic11(
     conf: JobConf, person_id: u64, input_country_name: String, year: i32,
 ) -> ResultStream<(u64, String, String, String, i32)> {
     pegasus::run(conf, || {
+        let input_country_name = input_country_name.clone();
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {
                 input.input_from(vec![person_id])
@@ -48,7 +49,7 @@ pub fn ic11(
                 .flat_map(move |person_id| {
                     Ok(super::graph::GRAPH
                         .get_out_edges(person_id as DefaultId, Some(&vec![16]))
-                        .map(|edge| {
+                        .map(move |edge| {
                             (
                                 person_id,
                                 edge.get_dst_id() as u64,
@@ -59,7 +60,7 @@ pub fn ic11(
                             )
                         }))
                 })?
-                .filter_map(|(person_id, company_internal_id, work_from)| {
+                .filter_map(move |(person_id, company_internal_id, work_from)| {
                     if work_from < year {
                         Ok(Some((person_id, company_internal_id, work_from)))
                     } else {
@@ -76,7 +77,7 @@ pub fn ic11(
                     }
                     Ok((person_id, company_internal_id, work_from, country_internal_id))
                 })?
-                .filter_map(|(person_id, company_internal_id, work_from, country_internal_id)| {
+                .filter_map(move |(person_id, company_internal_id, work_from, country_internal_id)| {
                     let country_vertex = super::graph::GRAPH
                         .get_vertex(country_internal_id as DefaultId)
                         .unwrap();

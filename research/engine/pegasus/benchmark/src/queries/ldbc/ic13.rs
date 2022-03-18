@@ -29,7 +29,7 @@ pub fn ic13(conf: JobConf, start_person_id: u64, end_person_id: u64) -> ResultSt
                 input.input_from(vec![])
             }?;
             let mut condition = IterCondition::new();
-            condition.until(|item: &(u64, i32)| Ok(item.0 == end_person_id));
+            condition.until(move |item: &(u64, i32)| Ok(item.0 == end_person_id));
             stream
                 .map(|source| Ok(((((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64, 0)))?
                 .iterate_until(condition, |start| {
@@ -48,7 +48,7 @@ pub fn ic13(conf: JobConf, start_person_id: u64, end_person_id: u64) -> ResultSt
                 .map(|(person_id, step)| Ok(step))?
                 .sink_into(output)
         }
-    })?
+    })
     .expect("submit ic13 job failure");
     todo!()
 }
