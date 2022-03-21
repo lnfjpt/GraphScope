@@ -1,8 +1,6 @@
 use graph_store::prelude::*;
-use pegasus::api::{Binary, Branch, IterCondition, Iteration, Map, Sink, Sort, SortBy, Unary};
-use pegasus::resource::PartitionedResource;
+use pegasus::api::{Map, Sink, SortBy};
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 use std::cmp::Ordering;
@@ -37,7 +35,7 @@ pub fn is3(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, String, 
                     Ok(lists.into_iter())
                 })?
                 .sort_by(|x, y| {
-                    if (x.0 > y.0 || (x.0 == y.0 && x.1 < y.1)) {
+                    if x.0 > y.0 || (x.0 == y.0 && x.1 < y.1) {
                         return Ordering::Greater;
                     } else {
                         Ordering::Less

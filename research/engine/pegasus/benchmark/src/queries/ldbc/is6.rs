@@ -1,11 +1,7 @@
 use graph_store::prelude::*;
-use pegasus::api::{Binary, Branch, IterCondition, Iteration, Map, Sink, Sort, SortBy, Unary};
-use pegasus::resource::PartitionedResource;
+use pegasus::api::{IterCondition, Iteration, Map, Sink};
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
-use pegasus::{configure_with_default, JobConf};
-
-use std::cmp::Ordering;
+use pegasus::JobConf;
 
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
@@ -29,8 +25,8 @@ pub fn is6(conf: JobConf, person_id: u64) -> ResultStream<(u64, String, u64, Str
                 Ok(vertex.get_id() as u64)
             })?;
             let mut condition = IterCondition::new();
-            condition.until(|item: &(u64)| Ok(((*item as usize) >> LABEL_SHIFT_BITS) == 3));
-            condition.until(|item: &(u64)| Ok(((*item as usize) >> LABEL_SHIFT_BITS) == 3));
+            condition.until(|item: &u64| Ok(((*item as usize) >> LABEL_SHIFT_BITS) == 3));
+            condition.until(|item: &u64| Ok(((*item as usize) >> LABEL_SHIFT_BITS) == 3));
             stream
                 .iterate_until(condition, |start| {
                     start.map(|message_id| {

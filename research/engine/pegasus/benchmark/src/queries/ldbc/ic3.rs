@@ -1,16 +1,8 @@
-use std::cell::RefCell;
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
 use graph_store::prelude::*;
 use pegasus::api::{
-    Binary, Branch, CorrelatedSubTask, Dedup, EmitKind, Filter, Fold, HasAny, HasKey, IterCondition,
-    Iteration, Map, PartitionByKey, Sink, SortBy, SortLimitBy, Unary,
+    CorrelatedSubTask, Dedup, EmitKind, Filter, Fold, IterCondition, Iteration, Map, Sink, SortLimitBy,
 };
-use pegasus::resource::PartitionedResource;
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 // interactive complex query 2 :
@@ -22,13 +14,15 @@ use pegasus::JobConf;
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
 pub fn ic3(
-    conf: JobConf, person_id: u64, country_x: String, country_y: String, start_date: u64, duration: i32,
+    conf: JobConf, person_id: u64, country_x: String, country_y: String, start_date: String, duration: i32,
 ) -> ResultStream<(u64, String, String, i32, i32, i32)> {
+    let duration = duration as i64 * 24 * 3600 * 100 * 1000;
+    let end_date = start_date.parse::<i64>().unwrap() + duration;
+    let start_date = super::graph::parse_datetime(&start_date).unwrap();
+    let end_date = super::graph::parse_datetime(&end_date.to_string()).unwrap();
     pegasus::run(conf, || {
         let country_x = country_x.clone();
         let country_y = country_y.clone();
-        let start_date = start_date;
-        let end_date = start_date + duration as u64;
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {
                 input.input_from(vec![(person_id, country_x.clone(), country_y.clone())])

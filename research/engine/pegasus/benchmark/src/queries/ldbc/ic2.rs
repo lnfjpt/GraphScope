@@ -1,15 +1,6 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
 use graph_store::prelude::*;
-use pegasus::api::{
-    Binary, Branch, Dedup, EmitKind, Filter, HasKey, IterCondition, Iteration, Map, PartitionByKey, Sink,
-    SortBy, SortLimitBy, Unary,
-};
-use pegasus::resource::PartitionedResource;
+use pegasus::api::{Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 // interactive complex query 2 :
@@ -21,9 +12,9 @@ use pegasus::JobConf;
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
 pub fn ic2(
-    conf: JobConf, person_id: u64, max_date: u64,
+    conf: JobConf, person_id: u64, max_date: String,
 ) -> ResultStream<(u64, String, String, u64, String, u64)> {
-    // Todo: parse timestamp here
+    let max_date = super::graph::parse_datetime(&max_date).unwrap();
     pegasus::run(conf, || {
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {

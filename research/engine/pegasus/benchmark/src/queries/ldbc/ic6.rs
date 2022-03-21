@@ -1,15 +1,11 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashMap;
 
 use graph_store::prelude::*;
 use pegasus::api::{
-    Binary, Branch, CorrelatedSubTask, Dedup, EmitKind, Filter, Fold, HasAny, HasKey, IterCondition,
-    Iteration, Map, PartitionByKey, Sink, SortBy, SortLimitBy, Unary,
+    CorrelatedSubTask, Dedup, EmitKind, Filter, Fold, HasAny, IterCondition, Iteration, Map, Sink,
+    SortLimitBy,
 };
-use pegasus::resource::PartitionedResource;
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 // interactive complex query 2 :
@@ -20,9 +16,7 @@ use pegasus::JobConf;
 
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
-pub fn ic6(
-    conf: JobConf, person_id: u64, tag_name: String,
-) -> ResultStream<(String)> {
+pub fn ic6(conf: JobConf, person_id: u64, tag_name: String) -> ResultStream<(String, i32)> {
     pegasus::run(conf, || {
         let tag_name = tag_name.clone();
         move |input, output| {
@@ -102,14 +96,39 @@ pub fn ic6(
                         .map(|vertex| vertex.get_id() as u64))
                 })?
                 .filter_map(move |tag_internal_id| {
-                    let tag_vertex = super::graph::GRAPH.get_vertex(tag_internal_id as DefaultId).unwrap();
-                    let post_tag_name = tag_vertex.get_property("name").unwrap().as_str().unwrap().into_owned();
+                    let tag_vertex = super::graph::GRAPH
+                        .get_vertex(tag_internal_id as DefaultId)
+                        .unwrap();
+                    let post_tag_name = tag_vertex
+                        .get_property("name")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .into_owned();
                     if tag_name != post_tag_name {
-                        Ok(Some(tag_name.clone()))
+                        Ok(Some(post_tag_name))
                     } else {
                         Ok(None)
                     }
                 })?
+                .fold(HashMap::<String, i32>::new(), || {
+                    |mut collect, tag_name| {
+                        if let Some(data) = collect.get_mut(&tag_name) {
+                            *data += 1;
+                        } else {
+                            collect.insert(tag_name, 1);
+                        }
+                        Ok(collect)
+                    }
+                })?
+                .unfold(|map| {
+                    let mut tag_list = vec![];
+                    for (tag_name, count) in map {
+                        tag_list.push((tag_name, count));
+                    }
+                    Ok(tag_list.into_iter())
+                })?
+                .sort_limit_by(10, |x, y| x.1.cmp(&y.1).reverse().then(x.0.cmp(&y.0)))?
                 .sink_into(output)
         }
     })

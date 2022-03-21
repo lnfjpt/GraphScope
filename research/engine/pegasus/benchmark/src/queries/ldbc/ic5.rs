@@ -1,15 +1,8 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashMap;
 
 use graph_store::prelude::*;
-use pegasus::api::{
-    Binary, Branch, CorrelatedSubTask, Dedup, EmitKind, Filter, Fold, FoldByKey, HasAny, HasKey,
-    IterCondition, Iteration, KeyBy, Map, PartitionByKey, Sink, SortBy, SortLimitBy, Unary,
-};
-use pegasus::resource::PartitionedResource;
+use pegasus::api::{Dedup, EmitKind, Fold, IterCondition, Iteration, Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 // interactive complex query 2 :
@@ -62,6 +55,53 @@ pub fn ic5(conf: JobConf, person_id: u64, start_date: u64, duration: i32) -> Res
                         Ok(None)
                     }
                 })?
+                .fold(HashMap::<u64, Vec<u64>>::new(), || {
+                    |mut collect, (forum_id, person_id)| {
+                        if let Some(person_list) = collect.get_mut(&forum_id) {
+                            person_list.push(person_id);
+                        } else {
+                            collect.insert(forum_id, vec![person_id]);
+                        }
+                        Ok(collect)
+                    }
+                })?
+                .unfold(|map| {
+                    let mut forum_list = vec![];
+                    for (forum_id, person_list) in map {
+                        forum_list.push((forum_id, person_list));
+                    }
+                    Ok(forum_list.into_iter())
+                })?
+                .repartition(|(id, _)| Ok(*id))
+                .map(|(forum_internal_id, person_list)| {
+                    let mut count = 0;
+                    for post_id in super::graph::GRAPH
+                        .get_out_edges(forum_internal_id as DefaultId, Some(&vec![5]))
+                        .map(|edge| edge.get_dst_id())
+                    {
+                        let person_id = super::graph::GRAPH
+                            .get_out_vertices(post_id, Some(&vec![0]))
+                            .next()
+                            .unwrap()
+                            .get_id() as u64;
+                        if person_list.contains(&person_id) {
+                            count += 1;
+                        }
+                    }
+                    Ok((forum_internal_id, count))
+                })?
+                .map(|(forum_internal_id, count)| {
+                    let forum_vertex = super::graph::GRAPH
+                        .get_vertex(forum_internal_id as DefaultId)
+                        .unwrap();
+                    let forum_id = forum_vertex
+                        .get_property("id")
+                        .unwrap()
+                        .as_u64()
+                        .unwrap();
+                    Ok((forum_id, count))
+                })?
+                .sort_limit_by(20, |x, y| x.1.cmp(&y.1).reverse().then(x.0.cmp(&y.0)))?
                 .sink_into(output)
         }
     })

@@ -11,6 +11,7 @@ edition = "2018"
 pegasus_graph = { path = "../graph" }
 pegasus = { path = "../pegasus" }
 pegasus_common = { path = "../common" }
+chrono = "0.4"
 tonic = { version = "0.5", features = ["default", "compression"] }
 prost = "0.8"
 tokio = { version = "1.0", features = ["macros", "sync", "rt-multi-thread"] }

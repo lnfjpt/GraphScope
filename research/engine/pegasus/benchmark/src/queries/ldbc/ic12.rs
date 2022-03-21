@@ -1,15 +1,8 @@
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use graph_store::prelude::*;
-use pegasus::api::{
-    Binary, Branch, CorrelatedSubTask, Dedup, EmitKind, Filter, Fold, HasAny, HasKey, IterCondition,
-    Iteration, Map, PartitionByKey, Sink, SortBy, SortLimitBy, Unary,
-};
-use pegasus::resource::PartitionedResource;
+use pegasus::api::{CorrelatedSubTask, Filter, Fold, Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 // interactive complex query 2 :
@@ -22,7 +15,7 @@ static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::me
 
 pub fn ic12(
     conf: JobConf, person_id: u64, input_tag_name: String,
-) -> ResultStream<(u64,Vec<u64>)> {
+) -> ResultStream<(u64, String, String, Vec<String>, i32)> {
     pegasus::run(conf, || {
         let input_tag_name = input_tag_name.clone();
         move |input, output| {
@@ -97,6 +90,72 @@ pub fn ic12(
                     } else {
                         Ok(Some((person_internal_id, tag_list)))
                     }
+                })?
+                .fold(HashMap::<u64, (i32, HashSet<u64>)>::new(), || {
+                    |mut collect, (person_internal_id, tag_list)| {
+                        if let Some(data) = collect.get_mut(&person_internal_id) {
+                            for i in tag_list {
+                                data.1.insert(i);
+                            }
+                            data.0 += 1;
+                        } else {
+                            let mut tag_set = HashSet::<u64>::new();
+                            for i in tag_list {
+                                tag_set.insert(i);
+                            }
+                            collect.insert(person_internal_id, (1, tag_set));
+                        }
+                        Ok(collect)
+                    }
+                })?
+                .unfold(|map| {
+                    let mut person_list = vec![];
+                    for (person_internal_id, (count, tag_list)) in map {
+                        person_list.push((
+                            person_internal_id,
+                            count,
+                            tag_list.into_iter().collect::<Vec<u64>>(),
+                        ));
+                    }
+                    Ok(person_list.into_iter())
+                })?
+                .sort_limit_by(20, |x, y| x.1.cmp(&y.1).reverse().then(x.0.cmp(&y.0)))?
+                .map(|(person_internal_id, count, tag_list)| {
+                    let mut tag_name_list = vec![];
+                    let person_vertex = super::graph::GRAPH
+                        .get_vertex(person_internal_id as DefaultId)
+                        .unwrap();
+                    let person_id = person_vertex
+                        .get_property("id")
+                        .unwrap()
+                        .as_u64()
+                        .unwrap();
+                    let person_first_name = person_vertex
+                        .get_property("firstName")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .into_owned();
+                    let person_last_name = person_vertex
+                        .get_property("lastName")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .into_owned();
+                    for i in tag_list {
+                        let tag_vertex = super::graph::GRAPH
+                            .get_vertex(i as DefaultId)
+                            .unwrap();
+                        tag_name_list.push(
+                            tag_vertex
+                                .get_property("name")
+                                .unwrap()
+                                .as_str()
+                                .unwrap()
+                                .into_owned(),
+                        );
+                    }
+                    Ok((person_id, person_first_name, person_last_name, tag_name_list, count))
                 })?
                 .sink_into(output)
         }

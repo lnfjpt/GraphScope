@@ -77,7 +77,7 @@ fn main() {
                 queries::ic2(
                     conf.clone(),
                     split[1].parse::<u64>().unwrap(),
-                    split[2].parse::<u64>().unwrap(),
+                    split[2].to_string(),
                 );
                 ()
             }
@@ -88,7 +88,7 @@ fn main() {
                     split[1].parse::<u64>().unwrap(),
                     split[2].to_string(),
                     split[3].to_string(),
-                    split[4].parse::<u64>().unwrap(),
+                    split[4].to_string(),
                     split[5].parse::<i32>().unwrap(),
                 );
                 ()
@@ -98,7 +98,7 @@ fn main() {
                 queries::ic4(
                     conf.clone(),
                     split[1].parse::<u64>().unwrap(),
-                    split[2].parse::<u64>().unwrap(),
+                    split[2].to_string(),
                     split[3].parse::<i32>().unwrap(),
                 );
                 ()

@@ -1,15 +1,6 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
 use graph_store::prelude::*;
-use pegasus::api::{
-    Binary, Branch, CorrelatedSubTask, Dedup, EmitKind, Filter, Fold, HasAny, HasKey, IterCondition,
-    Iteration, Map, PartitionByKey, Sink, SortBy, SortLimitBy, Unary,
-};
-use pegasus::resource::PartitionedResource;
+use pegasus::api::{Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 // interactive complex query 2 :

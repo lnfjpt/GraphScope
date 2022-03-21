@@ -1,8 +1,6 @@
 use graph_store::prelude::*;
-use pegasus::api::{Binary, Branch, IterCondition, Iteration, Map, Sink, Sort, Unary};
-use pegasus::resource::PartitionedResource;
+use pegasus::api::{Map, Sink};
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());

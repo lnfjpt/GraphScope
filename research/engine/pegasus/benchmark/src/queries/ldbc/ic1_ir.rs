@@ -1,15 +1,6 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
 use graph_store::prelude::*;
-use pegasus::api::{
-    Binary, Branch, Dedup, EmitKind, HasKey, IterCondition, Iteration, Map, PartitionByKey, Sink, SortBy,
-    SortLimitBy, Unary,
-};
-use pegasus::resource::PartitionedResource;
+use pegasus::api::{Dedup, EmitKind, IterCondition, Iteration, Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 // interactive complex query 1 :
@@ -39,13 +30,13 @@ pub fn ic1_ir(
                     Ok(((((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64, 0, first_name))
                 })?
                 .iterate_emit_until(IterCondition::max_iters(3), EmitKind::After, |start| {
-                    start.repartition(|(id, _, _)| Ok(*id)).flat_map(
-                        move |(person_internal_id, distance, first_name)| {
+                    start
+                        .repartition(|(id, _, _)| Ok(*id))
+                        .flat_map(move |(person_internal_id, distance, first_name)| {
                             Ok(super::graph::GRAPH
                                 .get_out_vertices(person_internal_id as DefaultId, Some(&vec![12]))
                                 .map(move |x| (x.get_id() as u64, distance + 1, first_name.clone())))
-                        },
-                    )
+                        })
                 })?
                 .filter_map(|(person_internal_id, distance, first_name)| {
                     let person_vertex = super::graph::GRAPH
@@ -93,7 +84,8 @@ pub fn ic1_ir(
                         .get_property("firstName")
                         .unwrap()
                         .as_str()
-                        .unwrap().into_owned();
+                        .unwrap()
+                        .into_owned();
                     let birthday = person_vertex
                         .get_property("birthday")
                         .unwrap()

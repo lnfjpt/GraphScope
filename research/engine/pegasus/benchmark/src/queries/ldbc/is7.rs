@@ -1,8 +1,6 @@
 use graph_store::prelude::*;
-use pegasus::api::{Binary, Branch, IterCondition, Iteration, Map, Sink, Sort, SortBy, Unary};
-use pegasus::resource::PartitionedResource;
+use pegasus::api::{Map, Sink, SortBy};
 use pegasus::result::ResultStream;
-use pegasus::tag::tools::map::TidyTagMap;
 use pegasus::JobConf;
 
 use std::cmp::Ordering;
