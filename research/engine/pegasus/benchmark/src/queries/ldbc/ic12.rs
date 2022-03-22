@@ -57,25 +57,30 @@ pub fn ic12(
                             .map(|vertex| vertex.get_id() as u64))
                     })?
                     .filter_map(move |tag_internal_id| {
-                        let tag_class_id = super::graph::GRAPH
-                            .get_in_vertices(tag_internal_id as DefaultId, Some(&vec![22]))
-                            .next()
-                            .unwrap()
-                            .get_id();
-                        let tag_class = super::graph::GRAPH
-                            .get_vertex(tag_class_id)
-                            .unwrap();
-                        let tag_class_name = tag_class
-                            .get_property("name")
-                            .unwrap()
-                            .as_str()
-                            .unwrap()
-                            .into_owned();
-                        if tag_class_name == input_tag_name {
-                            Ok(Some(tag_internal_id))
+                        if let Some(tag_class_vertex) = super::graph::GRAPH
+                            .get_out_vertices(tag_internal_id as DefaultId, Some(&vec![22]))
+                            .next() {
+                            let tag_class_id = tag_class_vertex.get_id();
+                            let tag_class = super::graph::GRAPH
+                                .get_vertex(tag_class_id)
+                                .unwrap();
+                            let tag_class_name = tag_class
+                                .get_property("name")
+                                .unwrap()
+                                .as_str()
+                                .unwrap()
+                                .into_owned();
+                            if tag_class_name == input_tag_name {
+                                Ok(Some(tag_internal_id))
+                            } else {
+                                Ok(None)
+                            }
                         } else {
                             Ok(None)
                         }
+
+
+
                     })?
                     .fold(vec![], || {
                         |mut collect, tag_id| {
@@ -160,6 +165,5 @@ pub fn ic12(
                 .sink_into(output)
         }
     })
-    .expect("submit ic12 job failure");
-    todo!()
+    .expect("submit ic12 job failure")
 }

@@ -13,9 +13,8 @@ use pegasus::JobConf;
 
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
-pub fn ic5(conf: JobConf, person_id: u64, start_date: u64, duration: i32) -> ResultStream<(u64, u64)> {
+pub fn ic5(conf: JobConf, person_id: u64, start_date: u64) -> ResultStream<(u64, u64)> {
     pegasus::run(conf, || {
-        let end_date = start_date + duration as u64;
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {
                 input.input_from(vec![person_id])

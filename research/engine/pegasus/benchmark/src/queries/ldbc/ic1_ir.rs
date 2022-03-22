@@ -15,30 +15,30 @@ static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::me
 
 pub fn ic1_ir(
     conf: JobConf, person_id: u64, first_name: String,
-) -> ResultStream<(u64, String, String, u64, u64, String, String, String)> {
+) -> ResultStream<(u64, String, i32, u64, u64, String, String, String)> {
     pegasus::run(conf, || {
         let first_name = first_name.clone();
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {
-                input.input_from(vec![(person_id.clone(), first_name)])
+                input.input_from(vec![person_id.clone()])
             } else {
                 input.input_from(vec![])
             }?;
 
             stream
-                .map(|(source, first_name)| {
-                    Ok(((((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64, 0, first_name))
+                .map(|source| {
+                    Ok(((((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64, 0))
                 })?
                 .iterate_emit_until(IterCondition::max_iters(3), EmitKind::After, |start| {
                     start
-                        .repartition(|(id, _, _)| Ok(*id))
-                        .flat_map(move |(person_internal_id, distance, first_name)| {
+                        .repartition(|(id, _)| Ok(*id))
+                        .flat_map(move |(person_internal_id, distance)| {
                             Ok(super::graph::GRAPH
-                                .get_out_vertices(person_internal_id as DefaultId, Some(&vec![12]))
-                                .map(move |x| (x.get_id() as u64, distance + 1, first_name.clone())))
+                                .get_both_vertices(person_internal_id as DefaultId, Some(&vec![12]))
+                                .map(move |x| (x.get_id() as u64, distance + 1)))
                         })
                 })?
-                .filter_map(|(person_internal_id, distance, first_name)| {
+                .filter_map(move |(person_internal_id, distance)| {
                     let person_vertex = super::graph::GRAPH
                         .get_vertex(person_internal_id as DefaultId)
                         .unwrap();
@@ -116,8 +116,8 @@ pub fn ic1_ir(
                         .into_owned();
                     Ok((
                         person_id,
-                        person_first_name,
                         last_name,
+                        distance,
                         birthday,
                         creation_date,
                         gender,
