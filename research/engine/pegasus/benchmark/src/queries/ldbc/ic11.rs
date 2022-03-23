@@ -37,6 +37,7 @@ pub fn ic11(
                         })
                 })?
                 .dedup()?
+                .repartition(|id| Ok(*id))
                 .flat_map(move |person_id| {
                     Ok(super::graph::GRAPH
                         .get_out_edges(person_id as DefaultId, Some(&vec![16]))

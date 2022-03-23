@@ -106,10 +106,10 @@ fn main() {
                 let result = queries::ic3(
                     conf.clone(),
                     split[1].parse::<u64>().unwrap(),
-                    split[2].to_string(),
-                    split[3].to_string(),
                     split[4].to_string(),
-                    split[5].parse::<i32>().unwrap(),
+                    split[5].to_string(),
+                    split[2].to_string(),
+                    split[3].parse::<i32>().unwrap(),
                 );
                 if config.print_result {
                     for x in result {
@@ -225,6 +225,24 @@ fn main() {
                 }
                 ()
             }
+            "ic10" => {
+                println!("Start run query \"Interactive Complex 10\"");
+                let result = queries::ic10(
+                    conf.clone(),
+                    split[1].parse::<u64>().unwrap(),
+                    split[2].parse::<i32>().unwrap(),
+                );
+                if config.print_result {
+                    for x in result {
+                        let (friend_id, first_name, last_name, score, gender, city) = x.unwrap();
+                        println!(
+                            "{} {} {} {} {} {}",
+                            friend_id, first_name, last_name, score, gender, city
+                        );
+                    }
+                }
+                ()
+            }
             "ic11" => {
                 println!("Start run query \"Interactive Complex 11\"");
                 let result = queries::ic11(
@@ -243,7 +261,8 @@ fn main() {
             }
             "ic12" => {
                 println!("Start run query \"Interactive Complex 12\"");
-                let result = queries::ic12(conf.clone(), split[1].parse::<u64>().unwrap(), split[2].to_string());
+                let result =
+                    queries::ic12(conf.clone(), split[1].parse::<u64>().unwrap(), split[2].to_string());
                 if config.print_result {
                     for x in result {
                         let (friend_id, first_name, last_name, tag_list, count) = x.unwrap();
@@ -255,6 +274,15 @@ fn main() {
             "ic13" => {
                 println!("Start run query \"Interactive Complex 13\"");
                 queries::ic13(
+                    conf.clone(),
+                    split[1].parse::<u64>().unwrap(),
+                    split[2].parse::<u64>().unwrap(),
+                );
+                ()
+            }
+            "ic14" => {
+                println!("Start run query \"Interactive Complex 14\"");
+                queries::ic14(
                     conf.clone(),
                     split[1].parse::<u64>().unwrap(),
                     split[2].parse::<u64>().unwrap(),
