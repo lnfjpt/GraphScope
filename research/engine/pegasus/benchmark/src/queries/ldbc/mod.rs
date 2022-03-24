@@ -1,3 +1,6 @@
+pub mod graph;
+pub mod groot_graph;
+
 mod ic1;
 mod is1;
 mod is2;
@@ -7,7 +10,6 @@ mod is5;
 mod is6;
 mod is7;
 
-pub mod graph;
 mod ic1_ir;
 mod ic2;
 mod ic3;
@@ -22,7 +24,8 @@ mod ic11;
 mod ic12;
 mod ic13;
 mod ic14;
-// mod ic14;
+
+mod is1_groot;
 
 pub use is1::is1;
 pub use is2::is2;
@@ -46,3 +49,5 @@ pub use ic11::ic11;
 pub use ic12::ic12;
 pub use ic13::ic13;
 pub use ic14::ic14;
+
+pub use is1_groot::is1_groot;

@@ -19,6 +19,8 @@ structopt = "0.3"
 futures = "0.3.19"
 lazy_static = "1.3.0"
 graph_store = { path = "../../../graph_store" }
+maxgraph-store = { path = "../../../store" }
+maxgraph-common = { path = "../../../../interactive_engine/src/common/rust/common" }
 log = "0.4"
 
 [build-dependencies]
