@@ -51,7 +51,10 @@ pub struct Worker<D: Data, T: Debug + Send + 'static> {
 
 impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
     pub(crate) fn new(
-        conf: &Arc<JobConf>, id: WorkerId, peer_guard: &Arc<AtomicUsize>, sink: ResultSink<T>,
+        conf: &Arc<JobConf>,
+        id: WorkerId,
+        peer_guard: &Arc<AtomicUsize>,
+        sink: ResultSink<T>,
     ) -> Self {
         if peer_guard.fetch_add(1, Ordering::SeqCst) == 0 {
             pegasus_memory::alloc::new_task(conf.job_id as usize);
@@ -75,8 +78,10 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
     {
         // set current worker's id into tls variable to make it accessible at anywhere;
         let _g = crate::worker_id::guard(self.id);
-        let resource =
-            crate::communication::build_channel::<Event>(ChannelId::new(self.id.job_id, 0), &self.conf)?;
+        let resource = crate::communication::build_channel::<Event>(
+            ChannelId::new(self.id.job_id, 0),
+            &self.conf,
+        )?;
         assert_eq!(resource.ch_id.index, 0);
         let (mut tx, rx) = resource.take();
         if self.conf.total_workers() > 1 {
@@ -98,9 +103,7 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
         let mut sch = Schedule::new(event_emitter, rx);
         let df = dfb.build(&mut sch)?;
         self.task = WorkerTask::Dataflow(df, sch);
-        let root = Box::new(root_builder)
-            .build()
-            .expect("no output;");
+        let root = Box::new(root_builder).build().expect("no output;");
         let end = EndOfScope::new(Tag::Root, DynPeers::all(), 0, 0);
         root.notify_end(end).ok();
         root.close().ok();
@@ -109,13 +112,11 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
 
     pub fn add_resource<R: Send + 'static>(&mut self, resource: R) {
         let type_id = TypeId::of::<R>();
-        self.resources
-            .insert(type_id, Box::new(resource));
+        self.resources.insert(type_id, Box::new(resource));
     }
 
     pub fn add_resource_with_key<R: Send + 'static>(&mut self, key: String, resource: R) {
-        self.keyed_resources
-            .insert(key, Box::new(resource));
+        self.keyed_resources.insert(key, Box::new(resource));
     }
 
     fn check_cancel(&self) -> bool {
@@ -190,7 +191,10 @@ impl<'a> WorkerContext<'a> {
         } else {
             None
         };
-        WorkerContext { resource, keyed_resources }
+        WorkerContext {
+            resource,
+            keyed_resources,
+        }
     }
 }
 
@@ -220,10 +224,10 @@ impl<D: Data, T: Debug + Send + 'static> Task for Worker<D, T> {
             Ok(state) => {
                 if TaskState::Finished == state {
                     info_worker!(
-                        "job({}) '{}' finished, used {:?};",
+                        "job({}) '{}' finished, used {}",
                         self.id.job_id,
                         self.conf.job_name,
-                        self.start.elapsed()
+                        self.start.elapsed().as_micros()
                     )
                 }
                 state
