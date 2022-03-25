@@ -13,4 +13,4 @@ datetime=$(date +%Y%m%d%H%M%S)
 log_file=temp_${scale_factor}_${query}_${datetime}
 
 RUST_LOG=INFO ${PEGASUS_HOME}/benchmark/target/release/ldbc -w ${worker} -q ${QUERY_PATH}/sf${scale_factor}/${query} &> ${log_file}
-python summary.py ${log_file}
+python summary.py ${log_file} ${worker}
