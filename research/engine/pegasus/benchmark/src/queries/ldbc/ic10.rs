@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -21,7 +22,7 @@ use pegasus::JobConf;
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
 pub fn ic10(
-    conf: JobConf, person_id: u64, month: i32
+    conf: JobConf, person_id: u64, month: i32,
 ) -> ResultStream<(u64, String, String, i32, String, String)> {
     pegasus::run(conf, || {
         move |input, output| {
@@ -46,97 +47,128 @@ pub fn ic10(
                 })?
                 .dedup()?
                 .filter_map(move |person_internal_id| {
-                    let starter = ((1 as usize) << LABEL_SHIFT_BITS) | person_id as usize;
-                    let friends = super::graph::GRAPH.get_both_vertices(starter as DefaultId, Some(&vec![12]));
-                    Ok(Some(person_internal_id))
+                    let person_vertex = super::graph::GRAPH
+                        .get_vertex(person_internal_id as DefaultId)
+                        .unwrap();
+                    let mut birthday = person_vertex
+                        .get_property("birthday")
+                        .unwrap()
+                        .as_u64()
+                        .unwrap();
+                    birthday = birthday % 10000;
+                    if month < 12 {
+                        if birthday >= month as u64 * 100 + 21 && birthday < (month + 1) as u64 * 100 + 22 {
+                            return Ok(Some(person_internal_id));
+                        }
+                    } else if month == 12 {
+                        if birthday >= month as u64 * 100 + 21 || birthday < 122 {
+                            return Ok(Some(person_internal_id));
+                        }
+                    }
+                    Ok(None)
                 })?
-                .flat_map(move |person_id| {
+                .filter_map(move |person_internal_id| {
+                    let starter = ((1 as usize) << LABEL_SHIFT_BITS) | person_id as usize;
+                    let friends =
+                        super::graph::GRAPH.get_both_vertices(starter as DefaultId, Some(&vec![12]));
+                    for i in friends {
+                        if i.get_id() as u64 == person_internal_id {
+                            return Ok(None);
+                        }
+                    }
+                    Ok(Some((person_internal_id, starter as u64)))
+                })?
+                .flat_map(move |(person_internal_id, starter_internal_id)| {
                     Ok(super::graph::GRAPH
-                        .get_out_edges(person_id as DefaultId, Some(&vec![16]))
-                        .map(move |edge| {
-                            (
-                                person_id,
-                                edge.get_dst_id() as u64,
-                                edge.get_property("workFrom")
-                                    .unwrap()
-                                    .as_i32()
-                                    .unwrap(),
-                            )
+                        .get_in_vertices(person_internal_id as DefaultId, Some(&vec![0]))
+                        .filter(|vertex| vertex.get_label()[0] == 3)
+                        .map(move |vertex| {
+                            (vertex.get_id() as u64, person_internal_id, starter_internal_id)
                         }))
                 })?
-                .filter_map(move |(person_id, company_internal_id, work_from)| {
-                    if work_from < month {
-                        Ok(Some((person_id, company_internal_id, work_from)))
-                    } else {
-                        Ok(None)
+                .map(|(post_internal_id, person_internal_id, starter_internal_id)| {
+                    let tag_list = super::graph::GRAPH
+                        .get_out_vertices(person_internal_id as DefaultId, Some(&vec![10]))
+                        .map(|vertex| vertex.get_id() as u64).into_iter();
+                    let post_tag = super::graph::GRAPH
+                        .get_out_vertices(post_internal_id as DefaultId, Some(&vec![1]))
+                        .map(|vertex| vertex.get_id() as u64).into_iter();
+                    let mut id_list=vec![];
+                    for i in tag_list {
+                        id_list.push(i);
+                    }
+                    for i in post_tag {
+                        if id_list.contains(&i) {
+                            return Ok((person_internal_id, 1));
+                        }
+                    }
+                    Ok((person_internal_id, -1))
+                })?
+                .fold(HashMap::<u64, i32>::new(), move || {
+                    move |mut collect, (person_internal_id, interest)| {
+                        if let Some(data) = collect.get_mut(&person_internal_id) {
+                            *data += interest;
+                        } else {
+                            collect.insert(person_internal_id, interest);
+                        }
+                        Ok(collect)
                     }
                 })?
-                .map(|(person_id, company_internal_id, work_from)| {
-                    let mut country_internal_id = 0;
-                    for i in super::graph::GRAPH
-                        .get_out_vertices(company_internal_id as DefaultId, Some(&vec![11]))
-                    {
-                        country_internal_id = i.get_id() as u64;
-                        break;
+                .unfold(|map| {
+                    let mut person_list = vec![];
+                    for (person_internal_id, interests) in map {
+                        person_list.push((person_internal_id, interests));
                     }
-                    Ok((person_id, company_internal_id, work_from, country_internal_id))
+                    Ok(person_list.into_iter())
                 })?
-                .filter_map(move |(person_id, company_internal_id, work_from, country_internal_id)| {
-                    let country_vertex = super::graph::GRAPH
-                        .get_vertex(country_internal_id as DefaultId)
-                        .unwrap();
-                    let country_name = country_vertex
-                        .get_property("name")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        .into_owned();
-                        Ok(Some((person_id, company_internal_id, work_from)))
-                })?
-                .map(|(person_id, company_internal_id, work_from)| {
-                    let company_vertex = super::graph::GRAPH
-                        .get_vertex(company_internal_id as DefaultId)
-                        .unwrap();
-                    let company_name = company_vertex
-                        .get_property("name")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        .into_owned();
-                    Ok((person_id, work_from, company_name))
-                })?
-                .sort_limit_by(10, |x, y| {
-                    x.1.cmp(&y.1)
-                        .then(x.0.cmp(&y.0).then(x.2.cmp(&y.2).reverse()))
-                })?
-                .map(|(person_id, work_from, company_name)| {
+                .sort_limit_by(10, |x, y| x.1.cmp(&y.1).reverse().then(x.0.cmp(&y.0)))?
+                .map(|(person_internal_id, interests)| {
                     let person_vertex = super::graph::GRAPH
-                        .get_vertex(person_id as DefaultId)
+                        .get_vertex(person_internal_id as DefaultId)
                         .unwrap();
-                    let id = person_vertex
+                    let person_id = person_vertex
                         .get_property("id")
                         .unwrap()
                         .as_u64()
                         .unwrap();
-                    let first_name = person_vertex
+                    let person_first_name = person_vertex
                         .get_property("firstName")
                         .unwrap()
                         .as_str()
                         .unwrap()
                         .into_owned();
-                    let last_name = person_vertex
+                    let person_last_name = person_vertex
                         .get_property("lastName")
                         .unwrap()
                         .as_str()
                         .unwrap()
                         .into_owned();
-                    let gender = person_vertex
+                    let person_gender = person_vertex
                         .get_property("gender")
                         .unwrap()
                         .as_str()
                         .unwrap()
                         .into_owned();
-                    Ok((id, first_name, last_name, work_from, company_name, gender))
+                    let city_id = super::graph::GRAPH
+                        .get_out_vertices(person_internal_id as DefaultId, Some(&vec![11]))
+                        .next()
+                        .unwrap()
+                        .get_id();
+                    let city_vertex = super::graph::GRAPH.get_vertex(city_id).unwrap();
+                    let city_name = city_vertex
+                        .get_property("name")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .into_owned();
+                    Ok((
+                        person_id,
+                        person_first_name,
+                        person_last_name,
+                        interests,
+                        person_gender,
+                        city_name,
+                    ))
                 })?
                 .sink_into(output)
         }

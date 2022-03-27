@@ -71,8 +71,7 @@ fn main() {
             }
             "ic1" => {
                 println!("Start run query \"Interactive Complex 1\"");
-                let result =
-                    queries::ic1_ir(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
+                let result = queries::ic1_ir(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
                 if config.print_result {
                     for x in result {
                         let (id, last_name, distance, birthday, creation_date, gender, browser, ip) =
@@ -87,8 +86,7 @@ fn main() {
             }
             "ic2" => {
                 println!("Start run query \"Interactive Complex 2\"");
-                let result =
-                    queries::ic2(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
+                let result = queries::ic2(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
                 if config.print_result {
                     for x in result {
                         let (friend_id, first_name, last_name, message_id, content, create_date) =
@@ -140,11 +138,8 @@ fn main() {
             }
             "ic5" => {
                 println!("Start run query \"Interactive Complex 5\"");
-                let result = queries::ic5(
-                    conf,
-                    split[1].parse::<u64>().unwrap(),
-                    split[2].parse::<u64>().unwrap(),
-                );
+                let result =
+                    queries::ic5(conf, split[1].parse::<u64>().unwrap(), split[2].parse::<u64>().unwrap());
                 if config.print_result {
                     for x in result {
                         let (forum_id, count) = x.unwrap();
@@ -155,8 +150,7 @@ fn main() {
             }
             "ic6" => {
                 println!("Start run query \"Interactive Complex 6\"");
-                let result =
-                    queries::ic6(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
+                let result = queries::ic6(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
                 if config.print_result {
                     for x in result {
                         let (tag_name, count) = x.unwrap();
@@ -227,11 +221,8 @@ fn main() {
             }
             "ic10" => {
                 println!("Start run query \"Interactive Complex 10\"");
-                let result = queries::ic10(
-                    conf,
-                    split[1].parse::<u64>().unwrap(),
-                    split[2].parse::<i32>().unwrap(),
-                );
+                let result =
+                    queries::ic10(conf, split[1].parse::<u64>().unwrap(), split[2].parse::<i32>().unwrap());
                 if config.print_result {
                     for x in result {
                         let (friend_id, first_name, last_name, score, gender, city) = x.unwrap();
@@ -261,8 +252,7 @@ fn main() {
             }
             "ic12" => {
                 println!("Start run query \"Interactive Complex 12\"");
-                let result =
-                    queries::ic12(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
+                let result = queries::ic12(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
                 if config.print_result {
                     for x in result {
                         let (friend_id, first_name, last_name, tag_list, count) = x.unwrap();
@@ -273,25 +263,34 @@ fn main() {
             }
             "ic13" => {
                 println!("Start run query \"Interactive Complex 13\"");
-                queries::ic13(
-                    conf,
-                    split[1].parse::<u64>().unwrap(),
-                    split[2].parse::<u64>().unwrap(),
-                );
+                let result = queries::ic13(conf, split[1].parse::<u64>().unwrap(), split[2].parse::<u64>().unwrap());
+                if config.print_result {
+                    let mut printed = false;
+                    for x in result {
+                        let step = x.unwrap();
+                        println!("{}", step);
+                        printed = true;
+                    }
+                    if !printed {
+                        println!("-1");
+                    }
+                }
                 ()
             }
             "ic14" => {
                 println!("Start run query \"Interactive Complex 14\"");
-                queries::ic14(
-                    conf,
-                    split[1].parse::<u64>().unwrap(),
-                    split[2].parse::<u64>().unwrap(),
-                );
+                let result = queries::ic14(conf, split[1].parse::<u64>().unwrap(), split[2].parse::<u64>().unwrap());
+                if config.print_result {
+                    for x in result {
+                        let (path, weight) = x.unwrap();
+                        println!("{:?} {}", path, weight);
+                    }
+                }
                 ()
             }
             _ => println!("Unknown query"),
         }
-        index+=1;
+        index += 1;
     }
     pegasus::shutdown_all();
     println!("Finished query, elapsed time: {:?}", query_start.elapsed());
