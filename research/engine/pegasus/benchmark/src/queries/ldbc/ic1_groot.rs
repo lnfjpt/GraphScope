@@ -59,7 +59,7 @@ pub fn ic1_groot(
                                 .next()
                                 .unwrap()
                                 .1
-                                .map(|vertex| vertex.get_id())
+                                .map(|vertex| (vertex.get_id(), distance + 1))
                                 .chain(
                                     super::groot_graph::GRAPH
                                         .get_in_vertex_ids(
