@@ -46,6 +46,11 @@ fn main() {
                 queries::is2_groot(conf, split[1].parse::<i64>().unwrap());
                 ()
             }
+            "is3" => {
+                println!("Start run query \"Interactive Short 3\"");
+                queries::is3_groot(conf, split[1].parse::<i64>().unwrap());
+                ()
+            }
             _ => println!("Unknown query"),
         }
         index += 1;

@@ -5,7 +5,7 @@ use pegasus::result::ResultStream;
 use pegasus::JobConf;
 
 pub fn is2_groot(
-    conf: JobConf, message_id: i64,
+    conf: JobConf, person_id: i64,
 ) -> ResultStream<(i64, String, i64, i64, i64, String, String)> {
     let person_vertices = super::groot_graph::GRAPH.get_all_vertices(
         MAX_SNAPSHOT_ID,
@@ -19,7 +19,7 @@ pub fn is2_groot(
     let mut person_inner_id = 0 as i64;
     for i in person_vertices {
         let inner_id = i.get_property(3).unwrap().get_long().unwrap();
-        if inner_id == message_id {
+        if inner_id == person_id {
             person_inner_id = i.get_id();
             break;
         }
