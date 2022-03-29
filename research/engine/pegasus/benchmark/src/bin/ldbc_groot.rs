@@ -66,6 +66,17 @@ fn main() {
                 }
                 ()
             }
+            "ic6" => {
+                println!("Start run query \"Interactive Complex 6\"");
+                let result = queries::ic6(conf, split[1].parse::<i64>().unwrap(), split[2].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (tag_name, count) = x.unwrap();
+                        println!("{} {} ", tag_name, count);
+                    }
+                }
+                ()
+            }
             _ => println!("Unknown query"),
         }
         index += 1;

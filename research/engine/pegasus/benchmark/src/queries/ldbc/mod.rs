@@ -30,6 +30,7 @@ mod is2_groot;
 mod is3_groot;
 
 mod ic2_groot;
+mod ic6_groot;
 
 pub use is1::is1;
 pub use is2::is2;

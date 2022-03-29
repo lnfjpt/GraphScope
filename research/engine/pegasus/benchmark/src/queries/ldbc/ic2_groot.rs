@@ -1,9 +1,10 @@
-use graph_store::common::DefaultId;
 use maxgraph_store::api::{Edge, GlobalGraphQuery, Vertex, MAX_SNAPSHOT_ID};
 use maxgraph_store::groot::global_graph::GlobalGraph;
 use pegasus::api::{Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
 use pegasus::JobConf;
+
+use std::convert::TryInto;
 
 // interactive complex query 2 :
 // g.V().hasLabel('PERSON').has('id',$personId).both('KNOWS').as('p')
@@ -71,10 +72,10 @@ pub fn ic2_groot(
                                 .map(|vertex| vertex.get_id()),
                         ))
                 })?
-                .repartition(|id| Ok(*id))
+                .repartition(|id| Ok((*id).try_into().unwrap()))
                 .flat_map(|friend_id| {
                     Ok(super::groot_graph::GRAPH
-                        ..get_out_vertex_ids(
+                        .get_out_vertex_ids(
                             MAX_SNAPSHOT_ID,
                             vec![(0, vec![friend_id])],
                             &vec![20],
