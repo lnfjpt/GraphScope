@@ -135,7 +135,7 @@ pub fn is2_groot(
                         .1
                         .next()
                         .unwrap().get_id();
-                    let autor_vertex = super::groot_graph::GRAPH
+                    let author_vertex = super::groot_graph::GRAPH
                         .get_vertex_properties(
                             MAX_SNAPSHOT_ID,
                             vec![(0, vec![(Some(4), vec![author_id])])],
