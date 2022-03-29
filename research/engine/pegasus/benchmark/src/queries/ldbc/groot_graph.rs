@@ -21,7 +21,7 @@ lazy_static! {
 
 fn _init_graph() -> GlobalGraph {
     println!("Read the graph data from {:?} for demo.", *DATA_PATH);
-    let path = DATA_PATH;
+    let path = &DATA_PATH;
     let mut builder = GraphConfigBuilder::new();
     builder.set_storage_engine("rocksdb");
     builder.add_storage_option("store.rocksdb.stats.dump.period.sec", "60");

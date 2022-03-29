@@ -30,11 +30,11 @@ pub fn is2_groot(
         move |input, output| {
             let mut condition = IterCondition::new();
             condition.until(|item: &(i64, i64, i64)| {
-                Ok(super::groot_graph::Graph
+                Ok(super::groot_graph::GRAPH
                     .get_vertex_properties(MAX_SNAPSHOT_ID, vec![(0, vec![(None, vec![item.2])])], None)
                     .next()
                     .unwrap()
-                    .get_label()
+                    .get_label_id()
                     == 3)
             });
             input
@@ -121,7 +121,7 @@ pub fn is2_groot(
                         .unwrap()
                         .get_long()
                         .unwrap();
-                    let author_vertex = super::groot_graph::GRAPH
+                    let author_id = super::groot_graph::GRAPH
                         .get_out_vertex_ids(
                             MAX_SNAPSHOT_ID,
                             vec![(0, vec![post_internal_id])],
@@ -133,6 +133,14 @@ pub fn is2_groot(
                         .next()
                         .unwrap()
                         .1
+                        .next()
+                        .unwrap().get_id();
+                    let autor_vertex = super::groot_graph::GRAPH
+                        .get_vertex_properties(
+                            MAX_SNAPSHOT_ID,
+                            vec![(0, vec![(Some(4), vec![author_id])])],
+                            None,
+                        )
                         .next()
                         .unwrap();
                     let author_id = author_vertex
@@ -152,7 +160,7 @@ pub fn is2_groot(
                         .get_string()
                         .unwrap()
                         .clone();
-                    match message_vertex.get_label() {
+                    match message_vertex.get_label_id() {
                         2 => Ok((
                             message_id,
                             message_vertex
