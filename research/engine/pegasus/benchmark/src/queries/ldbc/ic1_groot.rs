@@ -50,7 +50,7 @@ pub fn ic1_groot(
                             Ok(super::groot_graph::GRAPH
                                 .get_out_vertex_ids(
                                     MAX_SNAPSHOT_ID,
-                                    vec![(0, vec![person_id])],
+                                    vec![(0, vec![person_internal_id])],
                                     &vec![22],
                                     None,
                                     None,
@@ -64,7 +64,7 @@ pub fn ic1_groot(
                                     super::groot_graph::GRAPH
                                         .get_in_vertex_ids(
                                             MAX_SNAPSHOT_ID,
-                                            vec![(0, vec![person_id])],
+                                            vec![(0, vec![person_internal_id])],
                                             &vec![22],
                                             None,
                                             None,
