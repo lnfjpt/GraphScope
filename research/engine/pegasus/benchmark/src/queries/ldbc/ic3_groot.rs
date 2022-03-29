@@ -34,8 +34,8 @@ pub fn ic3_groot(
     }
     let duration = duration as i64 * 24 * 3600 * 100 * 1000;
     let end_date = start_date.parse::<i64>().unwrap() + duration;
-    let start_date = super::graph::parse_datetime(&start_date).unwrap();
-    let end_date = super::graph::parse_datetime(&end_date.to_string()).unwrap();
+    let start_date = super::graph::parse_datetime(&start_date).unwrap() as i64;
+    let end_date = super::graph::parse_datetime(&end_date.to_string()).unwrap() as i64;
     pegasus::run(conf, || {
         let country_x = country_x.clone();
         let country_y = country_y.clone();
