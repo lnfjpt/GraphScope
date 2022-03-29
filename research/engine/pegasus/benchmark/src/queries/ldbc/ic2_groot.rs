@@ -30,7 +30,7 @@ pub fn ic2_groot(
     for i in person_vertices {
         let inner_id = i.get_property(3).unwrap().get_long().unwrap();
         if inner_id == person_id {
-            person_inner_id = inner_id;
+            person_inner_id = i.get_id();
             break;
         }
     }

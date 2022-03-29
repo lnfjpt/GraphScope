@@ -16,7 +16,7 @@ use pegasus::JobConf;
 // .by('id',asc).limit(20).as('m').select('p', 'm').by(valueMap('id', 'firstName', 'lastName'))
 // .by(valueMap('id', 'imageFile', 'creationDate', 'content'))
 
-pub fn ic6_groot(conf: JobConf, person_id: u64, tag_name: String) -> ResultStream<(String, i32)> {
+pub fn ic6_groot(conf: JobConf, person_id: i64, tag_name: String) -> ResultStream<(String, i32)> {
     let person_vertices = super::groot_graph::GRAPH.get_all_vertices(
         MAX_SNAPSHOT_ID,
         &vec![4],
@@ -30,7 +30,7 @@ pub fn ic6_groot(conf: JobConf, person_id: u64, tag_name: String) -> ResultStrea
     for i in person_vertices {
         let inner_id = i.get_property(3).unwrap().get_long().unwrap();
         if inner_id == person_id {
-            person_inner_id = inner_id;
+            person_inner_id = i.get_id();
             break;
         }
     }
