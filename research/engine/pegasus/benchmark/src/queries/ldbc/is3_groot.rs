@@ -21,6 +21,7 @@ pub fn is3_groot(conf: JobConf, person_id: i64) -> ResultStream<(i64, String, St
         let inner_id = i.get_property(3).unwrap().get_long().unwrap();
         if inner_id == person_id {
             person_inner_id = inner_id;
+            break;
         }
     }
 

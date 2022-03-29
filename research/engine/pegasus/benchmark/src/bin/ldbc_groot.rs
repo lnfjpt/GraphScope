@@ -51,6 +51,21 @@ fn main() {
                 queries::is3_groot(conf, split[1].parse::<i64>().unwrap());
                 ()
             }
+            "ic2" => {
+                println!("Start run query \"Interactive Complex 2\"");
+                let result = queries::ic2_groot(conf, split[1].parse::<i64>().unwrap(), split[2].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (friend_id, first_name, last_name, message_id, content, create_date) =
+                            x.unwrap();
+                        println!(
+                            "{} {} {} {} {} {}",
+                            friend_id, first_name, last_name, message_id, content, create_date
+                        );
+                    }
+                }
+                ()
+            }
             _ => println!("Unknown query"),
         }
         index += 1;
