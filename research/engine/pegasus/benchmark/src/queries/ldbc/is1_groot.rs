@@ -7,24 +7,23 @@ use pegasus::JobConf;
 pub fn is1_groot(
     conf: JobConf, person_id: i64,
 ) -> ResultStream<(String, String, i64, String, String, i32, String, i64)> {
-    pegasus::run(conf, || {
-        let person_vertices = super::groot_graph::GRAPH.get_all_vertices(
-            MAX_SNAPSHOT_ID,
-            &vec![4],
-            None,
-            None,
-            None,
-            usize::max_value(),
-            &vec![0],
-        );
-        let mut person_inner_id = 0 as i64;
-        for i in person_vertices {
-            let inner_id = i.get_property(3).unwrap().get_long().unwrap();
-            if inner_id == person_id {
-                person_inner_id = inner_id;
-            }
+    let person_vertices = super::groot_graph::GRAPH.get_all_vertices(
+        MAX_SNAPSHOT_ID,
+        &vec![4],
+        None,
+        None,
+        None,
+        usize::max_value(),
+        &vec![0],
+    );
+    let mut person_inner_id = 0 as i64;
+    for i in person_vertices {
+        let inner_id = i.get_property(3).unwrap().get_long().unwrap();
+        if inner_id == person_id {
+            person_inner_id = i.get_id();
         }
-
+    }
+    pegasus::run(conf, || {
         let worker_id = pegasus::get_current_worker().index;
         let start = if worker_id == 0 { Some(vec![person_inner_id]) } else { None };
         move |input, output| {
@@ -56,7 +55,7 @@ pub fn is1_groot(
                         .get_long()
                         .unwrap();
                     let location_ip = person_vertex
-                        .get_property(17)
+                        .get_property(7)
                         .unwrap()
                         .get_string()
                         .unwrap()
@@ -67,7 +66,7 @@ pub fn is1_groot(
                         .get_string()
                         .unwrap()
                         .clone();
-                    let located = super::groot_graph::GRAPH
+                    let locate_id = super::groot_graph::GRAPH
                         .get_out_vertex_ids(
                             MAX_SNAPSHOT_ID,
                             vec![(0, vec![person_inner_id])],
@@ -77,9 +76,14 @@ pub fn is1_groot(
                             1,
                         )
                         .next()
-                        .unwrap()
+                        .unwrap().1
                         .next()
-                        .unwrap();
+                        .unwrap().get_id();
+                    let located = super::groot_graph::GRAPH.get_vertex_properties(
+                        MAX_SNAPSHOT_ID,
+                        vec![(0, vec![(Some(8), vec![locate_id])])],
+                        None,
+                    ).next().unwrap();
                     let city_id = located
                         .get_property(3)
                         .unwrap()
