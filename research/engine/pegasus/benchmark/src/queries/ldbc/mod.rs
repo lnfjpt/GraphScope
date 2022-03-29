@@ -60,3 +60,4 @@ pub use is2_groot::is2_groot;
 pub use is3_groot::is3_groot;
 
 pub use ic2_groot::ic2_groot;
+pub use ic6_groot::ic6_groot;
