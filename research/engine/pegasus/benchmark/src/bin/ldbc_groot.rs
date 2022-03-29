@@ -51,6 +51,21 @@ fn main() {
                 queries::is3_groot(conf, split[1].parse::<i64>().unwrap());
                 ()
             }
+            "ic1" => {
+                println!("Start run query \"Interactive Complex 1\"");
+                let result = queries::ic1_groot(conf, split[1].parse::<i64>().unwrap(), split[2].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (id, last_name, distance, birthday, creation_date, gender, browser, ip) =
+                            x.unwrap();
+                        println!(
+                            "{} {} {} {} {} {} {} {}",
+                            id, last_name, distance, birthday, creation_date, gender, browser, ip
+                        );
+                    }
+                }
+                ()
+            }
             "ic2" => {
                 println!("Start run query \"Interactive Complex 2\"");
                 let result = queries::ic2_groot(conf, split[1].parse::<i64>().unwrap(), split[2].to_string());
