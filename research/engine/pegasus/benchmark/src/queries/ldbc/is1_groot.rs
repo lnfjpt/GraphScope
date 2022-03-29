@@ -6,7 +6,7 @@ use pegasus::JobConf;
 
 pub fn is1_groot(
     conf: JobConf, person_id: i64,
-) -> ResultStream<(String, String, i64, String, String, i32, String, i64)> {
+) -> ResultStream<(String, String, i64, String, String, i64, String, i64)> {
     let person_vertices = super::groot_graph::GRAPH.get_all_vertices(
         MAX_SNAPSHOT_ID,
         &vec![4],
@@ -21,6 +21,7 @@ pub fn is1_groot(
         let inner_id = i.get_property(3).unwrap().get_long().unwrap();
         if inner_id == person_id {
             person_inner_id = i.get_id();
+            break;
         }
     }
     pegasus::run(conf, || {
@@ -31,7 +32,7 @@ pub fn is1_groot(
                 .input_from(start)?
                 .map(move |source| {
                     let person_inner_id = source[0];
-                    let vl = super::groot_graph::GRAPH.get_vertex_properties(
+                    let mut vl = super::groot_graph::GRAPH.get_vertex_properties(
                         MAX_SNAPSHOT_ID,
                         vec![(0, vec![(Some(4), vec![person_inner_id])])],
                         None,

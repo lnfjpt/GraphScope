@@ -26,6 +26,7 @@ mod ic13;
 mod ic14;
 
 mod is1_groot;
+mod is2_groot;
 
 pub use is1::is1;
 pub use is2::is2;
@@ -51,3 +52,4 @@ pub use ic13::ic13;
 pub use ic14::ic14;
 
 pub use is1_groot::is1_groot;
+pub use is2_groot::is2_groot;

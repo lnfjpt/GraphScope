@@ -4,6 +4,7 @@ use maxgraph_store::db::api::multi_version_graph::MultiVersionGraph;
 use maxgraph_store::db::api::{GraphConfigBuilder, TypeDefBuilder, Value, ValueType};
 use maxgraph_store::db::graph::store::GraphStore;
 use maxgraph_store::groot::global_graph::GlobalGraph;
+use pegasus::configure_with_default;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::env;
@@ -20,7 +21,7 @@ lazy_static! {
 
 fn _init_graph() -> GlobalGraph {
     println!("Read the graph data from {:?} for demo.", *DATA_PATH);
-    let path = *DATA_PATH;
+    let path = DATA_PATH;
     let mut builder = GraphConfigBuilder::new();
     builder.set_storage_engine("rocksdb");
     builder.add_storage_option("store.rocksdb.stats.dump.period.sec", "60");
