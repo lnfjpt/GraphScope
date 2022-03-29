@@ -14,7 +14,7 @@ use pegasus::JobConf;
 pub fn ic2_groot(
     conf: JobConf, person_id: i64, max_date: String,
 ) -> ResultStream<(i64, String, String, i64, String, i64)> {
-    let max_date = super::graph::parse_datetime(&max_date).unwrap();
+    let max_date = super::graph::parse_datetime(&max_date).unwrap() as i64;
 
     let person_vertices = super::groot_graph::GRAPH.get_all_vertices(
         MAX_SNAPSHOT_ID,
@@ -54,6 +54,7 @@ pub fn ic2_groot(
                         .next()
                         .unwrap()
                         .1
+                        .map(|vertex| vertex.get_id())
                         .chain(
                             super::groot_graph::GRAPH
                                 .get_in_vertex_ids(
@@ -66,9 +67,9 @@ pub fn ic2_groot(
                                 )
                                 .next()
                                 .unwrap()
-                                .1,
+                                .1
+                                .map(|vertex| vertex.get_id()),
                         ))
-                    .map(|vertex| vertex.get_id())
                 })?
                 .repartition(|id| Ok(*id))
                 .flat_map(|friend_id| {
