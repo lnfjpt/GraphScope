@@ -153,7 +153,7 @@ pub fn ic1_groot(
                     let browser = person_vertex
                         .get_property(8)
                         .unwrap()
-                        .as_str()
+                        .get_string()
                         .unwrap()
                         .clone();
                     let ip = person_vertex
