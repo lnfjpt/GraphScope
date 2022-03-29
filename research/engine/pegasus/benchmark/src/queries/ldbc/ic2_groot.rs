@@ -4,8 +4,6 @@ use pegasus::api::{Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
 use pegasus::JobConf;
 
-use std::convert::TryInto;
-
 // interactive complex query 2 :
 // g.V().hasLabel('PERSON').has('id',$personId).both('KNOWS').as('p')
 // .in('HASCREATOR').has('creationDate',lte($maxDate)).order().by('creationDate',desc)
@@ -72,13 +70,13 @@ pub fn ic2_groot(
                                 .map(|vertex| vertex.get_id()),
                         ))
                 })?
-                .repartition(|id| Ok((*id).try_into().unwrap()))
+                .repartition(|id| Ok(*id as u64))
                 .flat_map(|friend_id| {
                     Ok(super::groot_graph::GRAPH
-                        .get_out_vertex_ids(
+                        .get_in_vertex_ids(
                             MAX_SNAPSHOT_ID,
                             vec![(0, vec![friend_id])],
-                            &vec![20],
+                            &vec![9],
                             None,
                             None,
                             usize::max_value(),
@@ -118,7 +116,7 @@ pub fn ic2_groot(
                     let friend_vertex = super::groot_graph::GRAPH
                         .get_vertex_properties(
                             MAX_SNAPSHOT_ID,
-                            vec![(0, vec![(Some(4), vec![message_internal_id])])],
+                            vec![(0, vec![(Some(4), vec![friend_internal_id])])],
                             None,
                         )
                         .next()

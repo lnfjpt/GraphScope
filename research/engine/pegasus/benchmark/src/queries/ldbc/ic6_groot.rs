@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryInto;
 
 use maxgraph_store::api::{Edge, GlobalGraphQuery, Vertex, MAX_SNAPSHOT_ID};
 use maxgraph_store::groot::global_graph::GlobalGraph;
@@ -45,7 +44,7 @@ pub fn ic6_groot(conf: JobConf, person_id: i64, tag_name: String) -> ResultStrea
             stream
                 .iterate_emit_until(IterCondition::max_iters(2), EmitKind::After, |start| {
                     start
-                        .repartition(|id| Ok((*id).try_into().unwrap()))
+                        .repartition(|id| Ok(*id as u64))
                         .flat_map(move |person_id| {
                             Ok(super::groot_graph::GRAPH
                                 .get_out_vertex_ids(
@@ -78,7 +77,7 @@ pub fn ic6_groot(conf: JobConf, person_id: i64, tag_name: String) -> ResultStrea
                         })
                 })?
                 .dedup()?
-                .repartition(|id| Ok((*id).try_into().unwrap()))
+                .repartition(|id| Ok(*id as u64))
                 .flat_map(|person_internal_id| {
                     Ok(super::groot_graph::GRAPH
                         .get_in_vertex_ids(
