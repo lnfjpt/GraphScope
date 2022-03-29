@@ -31,7 +31,9 @@ mod is3_groot;
 
 mod ic1_groot;
 mod ic2_groot;
+mod ic3_groot;
 mod ic6_groot;
+
 
 pub use is1::is1;
 pub use is2::is2;
@@ -62,4 +64,5 @@ pub use is3_groot::is3_groot;
 
 pub use ic1_groot::ic1_groot;
 pub use ic2_groot::ic2_groot;
+pub use ic3_groot::ic3_groot;
 pub use ic6_groot::ic6_groot;

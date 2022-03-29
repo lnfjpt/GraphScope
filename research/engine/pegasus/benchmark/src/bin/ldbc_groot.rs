@@ -81,6 +81,27 @@ fn main() {
                 }
                 ()
             }
+            "ic3" => {
+                println!("Start run query \"Interactive Complex 3\"");
+                let result = queries::ic3(
+                    conf,
+                    split[1].parse::<i64>().unwrap(),
+                    split[4].to_string(),
+                    split[5].to_string(),
+                    split[2].to_string(),
+                    split[3].parse::<i32>().unwrap(),
+                );
+                if config.print_result {
+                    for x in result {
+                        let (person_id, first_name, last_name, x_count, y_count, count) = x.unwrap();
+                        println!(
+                            "{} {} {} {} {} {}",
+                            person_id, first_name, last_name, x_count, y_count, count
+                        );
+                    }
+                }
+                ()
+            }
             "ic6" => {
                 println!("Start run query \"Interactive Complex 6\"");
                 let result = queries::ic6_groot(conf, split[1].parse::<i64>().unwrap(), split[2].to_string());
