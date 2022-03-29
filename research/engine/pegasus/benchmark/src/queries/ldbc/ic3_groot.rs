@@ -62,7 +62,7 @@ pub fn ic3_groot(
                                 .next()
                                 .unwrap()
                                 .1
-                                .map(move |vertex| (vertex.get_id(), country_x.clone(), country_y.clone()))
+                                .map(move |vertex| (vertex.get_id(), &country_x.clone(), &country_y.clone()))
                                 .filter(move |(id, _, _)| person_inner_id != *id)
                                 .chain(
                                     super::groot_graph::GRAPH
@@ -78,7 +78,7 @@ pub fn ic3_groot(
                                         .unwrap()
                                         .1
                                         .map(move |vertex| {
-                                            (vertex.get_id(), country_x.clone(), country_y.clone())
+                                            (vertex.get_id(), &country_x.clone(), &country_y.clone())
                                         })
                                         .filter(move |(id, _, _)| person_inner_id != *id),
                                 ))
