@@ -83,7 +83,7 @@ fn main() {
             }
             "ic3" => {
                 println!("Start run query \"Interactive Complex 3\"");
-                let result = queries::ic3(
+                let result = queries::ic3_groot(
                     conf,
                     split[1].parse::<i64>().unwrap(),
                     split[4].to_string(),

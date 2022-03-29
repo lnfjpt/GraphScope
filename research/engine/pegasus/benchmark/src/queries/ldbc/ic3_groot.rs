@@ -50,6 +50,8 @@ pub fn ic3_groot(
                     start
                         .repartition(|(id, _, _)| Ok(*id as u64))
                         .flat_map(move |(person_id, country_x, country_y)| {
+                            let cx = country_x.clone();
+                            let cy = country_y.clone();
                             Ok(super::groot_graph::GRAPH
                                 .get_out_vertex_ids(
                                     MAX_SNAPSHOT_ID,
@@ -62,7 +64,7 @@ pub fn ic3_groot(
                                 .next()
                                 .unwrap()
                                 .1
-                                .map(move |vertex| (vertex.get_id(), &country_x.clone(), &country_y.clone()))
+                                .map(move |vertex| (vertex.get_id(), country_x.clone(), country_y.clone()))
                                 .filter(move |(id, _, _)| person_inner_id != *id)
                                 .chain(
                                     super::groot_graph::GRAPH
@@ -78,7 +80,7 @@ pub fn ic3_groot(
                                         .unwrap()
                                         .1
                                         .map(move |vertex| {
-                                            (vertex.get_id(), &country_x.clone(), &country_y.clone())
+                                            (vertex.get_id(), cx.clone(), cy.clone())
                                         })
                                         .filter(move |(id, _, _)| person_inner_id != *id),
                                 ))
