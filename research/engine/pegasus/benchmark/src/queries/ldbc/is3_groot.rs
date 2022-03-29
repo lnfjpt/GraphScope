@@ -33,7 +33,15 @@ pub fn is3_groot(conf: JobConf, person_id: i64) -> ResultStream<(i64, String, St
                 .flat_map(move |source| {
                     let person_inner_id = source[0];
                     let knows_edge = super::groot_graph::GRAPH
-                        .get_out_edges(MAX_SNAPSHOT_ID, vec![(0, vec![person_inner_id])], &vec![22])
+                        .get_out_edges(
+                            MAX_SNAPSHOT_ID,
+                            vec![(0, vec![person_inner_id])],
+                            &vec![22],
+                            None,
+                            None,
+                            None,
+                            usize::max_value(),
+                        )
                         .next()
                         .unwrap()
                         .1;
@@ -44,7 +52,7 @@ pub fn is3_groot(conf: JobConf, person_id: i64) -> ResultStream<(i64, String, St
                         let pv = super::groot_graph::GRAPH
                             .get_vertex_properties(
                                 MAX_SNAPSHOT_ID,
-                                vec![(0, vec![(4, vec![person_inner_id])])],
+                                vec![(0, vec![(Some(4), vec![person_inner_id])])],
                                 None,
                             )
                             .next()
@@ -59,7 +67,7 @@ pub fn is3_groot(conf: JobConf, person_id: i64) -> ResultStream<(i64, String, St
                     let lv = super::groot_graph::GRAPH
                         .get_vertex_properties(
                             MAX_SNAPSHOT_ID,
-                            vec![(0, vec![(4, vec![person_inner_id])])],
+                            vec![(0, vec![(Some(4), vec![person_inner_id])])],
                             None,
                         )
                         .next()
