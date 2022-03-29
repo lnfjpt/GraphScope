@@ -50,7 +50,7 @@ pub fn ic6_groot(conf: JobConf, person_id: i64, tag_name: String) -> ResultStrea
                             Ok(super::groot_graph::GRAPH
                                 .get_out_vertex_ids(
                                     MAX_SNAPSHOT_ID,
-                                    vec![(0, vec![source_person])],
+                                    vec![(0, vec![person_id])],
                                     &vec![22],
                                     None,
                                     None,
