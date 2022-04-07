@@ -34,7 +34,7 @@ pub fn ic12(
                 .repartition(|id| Ok(*id))
                 .flat_map(|person_id| {
                     Ok(super::graph::GRAPH
-                        .get_both_vertices(person_id as DefaultId, Some(&vec![0]))
+                        .get_in_vertices(person_id as DefaultId, Some(&vec![0]))
                         .filter(|vertex| vertex.get_label()[0] == 2)
                         .map(move |vertex| (person_id, vertex.get_id() as u64)))
                 })?
@@ -58,7 +58,7 @@ pub fn ic12(
                     })?
                     .filter_map(move |tag_internal_id| {
                         if let Some(tag_class_vertex) = super::graph::GRAPH
-                            .get_out_vertices(tag_internal_id as DefaultId, Some(&vec![22]))
+                            .get_out_vertices(tag_internal_id as DefaultId, Some(&vec![21]))
                             .next() {
                             let tag_class_id = tag_class_vertex.get_id();
                             let tag_class = super::graph::GRAPH
