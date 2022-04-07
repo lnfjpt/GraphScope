@@ -159,6 +159,18 @@ fn main() {
                 }
                 ()
             }
+            "ic6_nosub" => {
+                println!("Start run query \"Interactive Complex 6 NoSub\"");
+                let result =
+                    queries::ic6_nosub(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (tag_name, count) = x.unwrap();
+                        println!("{} {} ", tag_name, count);
+                    }
+                }
+                ()
+            }
             "ic7" => {
                 println!("Start run query \"Interactive Complex 7\"");
                 let result = queries::ic7(conf, split[1].parse::<u64>().unwrap());
@@ -257,6 +269,18 @@ fn main() {
                     for x in result {
                         let (friend_id, first_name, last_name, tag_list, count) = x.unwrap();
                         println!("{} {} {} {:?} {}", friend_id, first_name, last_name, tag_list, count);
+                    }
+                }
+                ()
+            }
+            "ic12_nosub" => {
+                println!("Start run query \"Interactive Complex 12 NoSub\"");
+                let result =
+                    queries::ic12_nosub(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (friend_id, first_name, last_name, count) = x.unwrap();
+                        println!("{} {} {} {}", friend_id, first_name, last_name, count);
                     }
                 }
                 ()
