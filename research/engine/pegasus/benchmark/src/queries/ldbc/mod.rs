@@ -24,7 +24,8 @@ mod ic12;
 mod ic12_nosub;
 mod ic13;
 mod ic14;
-// mod ic14;
+
+mod bi1;
 
 pub use is1::is1;
 pub use is2::is2;
@@ -50,3 +51,5 @@ pub use ic12::ic12;
 pub use ic12_nosub::ic12_nosub;
 pub use ic13::ic13;
 pub use ic14::ic14;
+
+pub use bi1::bi1;

@@ -312,6 +312,11 @@ fn main() {
                 }
                 ()
             }
+            "bi1" => {
+                println!("Start run query \"BI 1\"");
+                let result = queries::bi1(conf, split[1].to_string());
+                ()
+            }
             _ => println!("Unknown query"),
         }
         index += 1;
