@@ -26,6 +26,8 @@ mod ic13;
 mod ic14;
 
 mod bi1;
+mod bi2;
+mod bi3;
 
 pub use is1::is1;
 pub use is2::is2;
@@ -53,3 +55,5 @@ pub use ic13::ic13;
 pub use ic14::ic14;
 
 pub use bi1::bi1;
+pub use bi2::bi2;
+pub use bi3::bi3;

@@ -13,7 +13,8 @@ use pegasus::JobConf;
 
 static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::mem::size_of::<LabelId>());
 
-pub fn ic5(conf: JobConf, person_id: u64, start_date: u64) -> ResultStream<(u64, u64)> {
+pub fn ic5(conf: JobConf, person_id: u64, start_date: String) -> ResultStream<(u64, u64)> {
+    let start_date = super::graph::parse_datetime(&start_date).unwrap();
     pegasus::run(conf, || {
         move |input, output| {
             let stream = if input.get_worker_index() == 0 {
@@ -43,12 +44,12 @@ pub fn ic5(conf: JobConf, person_id: u64, start_date: u64) -> ResultStream<(u64,
                                     .unwrap()
                                     .as_u64()
                                     .unwrap(),
-                                edge.get_dst_id() as u64,
+                                edge.get_src_id() as u64,
                             )
                         }))
                 })?
                 .filter_map(move |(person_id, join_date, forum_id)| {
-                    if join_date > start_date {
+                    if join_date < start_date {
                         Ok(Some((forum_id, person_id)))
                     } else {
                         Ok(None)
@@ -75,8 +76,8 @@ pub fn ic5(conf: JobConf, person_id: u64, start_date: u64) -> ResultStream<(u64,
                 .map(|(forum_internal_id, person_list)| {
                     let mut count = 0;
                     for post_id in super::graph::GRAPH
-                        .get_out_edges(forum_internal_id as DefaultId, Some(&vec![5]))
-                        .map(|edge| edge.get_dst_id())
+                        .get_out_vertices(forum_internal_id as DefaultId, Some(&vec![5]))
+                        .map(|vertex| vertex.get_id())
                     {
                         let person_id = super::graph::GRAPH
                             .get_out_vertices(post_id, Some(&vec![0]))

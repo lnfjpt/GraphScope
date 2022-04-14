@@ -138,8 +138,7 @@ fn main() {
             }
             "ic5" => {
                 println!("Start run query \"Interactive Complex 5\"");
-                let result =
-                    queries::ic5(conf, split[1].parse::<u64>().unwrap(), split[2].parse::<u64>().unwrap());
+                let result = queries::ic5(conf, split[1].parse::<u64>().unwrap(), split[2].to_string());
                 if config.print_result {
                     for x in result {
                         let (forum_id, count) = x.unwrap();
@@ -287,7 +286,8 @@ fn main() {
             }
             "ic13" => {
                 println!("Start run query \"Interactive Complex 13\"");
-                let result = queries::ic13(conf, split[1].parse::<u64>().unwrap(), split[2].parse::<u64>().unwrap());
+                let result =
+                    queries::ic13(conf, split[1].parse::<u64>().unwrap(), split[2].parse::<u64>().unwrap());
                 if config.print_result {
                     let mut printed = false;
                     for x in result {
@@ -303,7 +303,8 @@ fn main() {
             }
             "ic14" => {
                 println!("Start run query \"Interactive Complex 14\"");
-                let result = queries::ic14(conf, split[1].parse::<u64>().unwrap(), split[2].parse::<u64>().unwrap());
+                let result =
+                    queries::ic14(conf, split[1].parse::<u64>().unwrap(), split[2].parse::<u64>().unwrap());
                 if config.print_result {
                     for x in result {
                         let (path, weight) = x.unwrap();
@@ -315,6 +316,23 @@ fn main() {
             "bi1" => {
                 println!("Start run query \"BI 1\"");
                 let result = queries::bi1(conf, split[1].to_string());
+                ()
+            }
+            "bi2" => {
+                println!("Start run query \"BI 2\"");
+                let result = queries::bi2(
+                    conf,
+                    split[1].to_string(),
+                    split[2].to_string(),
+                    split[3].to_string(),
+                    split[4].to_string(),
+                );
+                ()
+            }
+            "bi3" => {
+                println!("Start run query \"BI 3\"");
+                let result =
+                    queries::bi3(conf, split[1].parse::<i32>().unwrap(), split[2].parse::<i32>().unwrap());
                 ()
             }
             _ => println!("Unknown query"),
