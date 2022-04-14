@@ -75,23 +75,6 @@ pub fn bi2(
                     }
                 })?
                 .map(|(country_internal_id, person_internal_id, message_internal_id)| {
-                    let tag_internal_id = super::graph::GRAPH
-                        .get_out_vertices(message_internal_id as DefaultId, Some(&vec![1]))
-                        .next()
-                        .unwrap()
-                        .get_id() as u64;
-                    let message_vertex = super::graph::GRAPH
-                        .get_vertex(message_internal_id as DefaultId)
-                        .unwrap();
-                    let create_date = message_vertex
-                        .get_property("creationDate")
-                        .unwrap()
-                        .as_u64()
-                        .unwrap();
-                    let month = (create_date / 1000000000 % 100) as i32;
-                    Ok((country_internal_id, person_internal_id, month, tag_internal_id))
-                })?
-                .map(|(country_internal_id, person_internal_id, month, tag_internal_id)| {
                     let person_vertex = super::graph::GRAPH
                         .get_vertex(person_internal_id as DefaultId)
                         .unwrap();
@@ -100,7 +83,7 @@ pub fn bi2(
                         .unwrap()
                         .as_u64()
                         .unwrap();
-                    let birth_group = ((2013 - birthday / 10000) / 5) as i32;
+                    let birth_group = ((2013 - birthday / 10000000000000) / 5) as i32;
                     let gender = person_vertex
                         .get_property("gender")
                         .unwrap()
@@ -108,10 +91,27 @@ pub fn bi2(
                         .unwrap()
                         .into_owned();
                     if gender == "male" {
-                        Ok((country_internal_id, month, true, birth_group, tag_internal_id))
+                        Ok((country_internal_id, true, birth_group, message_internal_id))
                     } else {
-                        Ok((country_internal_id, month, false, birth_group, tag_internal_id))
+                        Ok((country_internal_id, false, birth_group, message_internal_id))
                     }
+                })?
+                .flat_map(|(country_internal_id, gender, birth_group, message_internal_id)| {
+                    let mut list = vec![];
+                    let message_vertex = super::graph::GRAPH
+                        .get_vertex(message_internal_id as DefaultId)
+                        .unwrap();
+                    let create_date = message_vertex
+                        .get_property("creationDate")
+                        .unwrap()
+                        .as_u64()
+                        .unwrap();
+                    let month = (create_date / 100000000000 % 100) as i32;
+                    for i in super::graph::GRAPH
+                        .get_out_vertices(message_internal_id as DefaultId, Some(&vec![1])) {
+                        list.push((country_internal_id, month, gender, birth_group, i.get_id() as u64))
+                    }
+                    Ok(list.into_iter())
                 })?
                 .fold(HashMap::<(u64, i32, bool, i32, u64), i32>::new(), || {
                     |mut collect, (country_internal_id, month, gender, birth_group, tag_internal_id)| {

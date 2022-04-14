@@ -28,7 +28,7 @@ pub fn bi3(conf: JobConf, year: i32, month: i32) -> ResultStream<(String, i32, i
                                 .unwrap()
                                 .as_u64()
                                 .unwrap();
-                            let date = (create_date / 1000000000 % 1000000) as i32;
+                            let date = (create_date / 100000000000 % 1000000) as i32;
                             if date == start_date {
                                 Some((vertex.get_id() as u64, 0))
                             } else if date == end_date {
@@ -39,13 +39,14 @@ pub fn bi3(conf: JobConf, year: i32, month: i32) -> ResultStream<(String, i32, i
                         }))
                 })?
                 .repartition(|(id, date)| Ok(*id))
-                .map(|(message_internal_id, date)| {
-                    let tag_internal_id = super::graph::GRAPH
+                .flat_map(|(message_internal_id, date)| {
+                    let mut list = vec![];
+                    for tag_vertex in super::graph::GRAPH
                         .get_out_vertices(message_internal_id as DefaultId, Some(&vec![1]))
-                        .next()
-                        .unwrap()
-                        .get_id() as u64;
-                    Ok((tag_internal_id, date))
+                    {
+                        list.push((tag_vertex.get_id() as u64, date));
+                    }
+                    Ok(list.into_iter())
                 })?
                 .fold(HashMap::<u64, (i32, i32)>::new(), || {
                     |mut collect, (tag_internal_id, date)| {
@@ -68,9 +69,7 @@ pub fn bi3(conf: JobConf, year: i32, month: i32) -> ResultStream<(String, i32, i
                 .unfold(|map| {
                     let mut group_list = vec![];
                     for (tag_internal_id, count) in map {
-                        if count.0 > 0 {
-                            group_list.push((tag_internal_id, count.0, count.1));
-                        }
+                        group_list.push((tag_internal_id, count.0, count.1));
                     }
                     Ok(group_list.into_iter())
                 })?

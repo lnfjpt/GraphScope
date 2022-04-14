@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use graph_store::prelude::*;
-use pegasus::api::{Fold, Map, Sink, SortLimitBy};
+use pegasus::api::{Fold, Map, Sink, SortBy, SortLimitBy};
 use pegasus::result::ResultStream;
 use pegasus::JobConf;
 use std::cmp::max;
@@ -52,7 +52,7 @@ pub fn bi1(conf: JobConf, max_date: String) -> ResultStream<(i32, bool, i32, i32
                         .unwrap()
                         .as_u64()
                         .unwrap()
-                        / 100000000000) as i32;
+                        / 10000000000000) as i32;
                     if message_vertex.get_label()[0] == 2 {
                         Ok((true, content_length, year))
                     } else {
@@ -83,16 +83,23 @@ pub fn bi1(conf: JobConf, max_date: String) -> ResultStream<(i32, bool, i32, i32
                 .unfold(|map| {
                     let mut tag_list = vec![];
                     for ((year, message_type, length_type), count) in map {
-                        tag_list.push((
-                            year,
-                            message_type,
-                            length_type,
-                            count.0,
-                            count.1 / count.0,
-                            count.1,
-                        ));
+                        if count.1 > 0 {
+                            tag_list.push((
+                                year,
+                                message_type,
+                                length_type,
+                                count.0,
+                                count.1 / count.0,
+                                count.1,
+                            ));
+                        }
                     }
                     Ok(tag_list.into_iter())
+                })?
+                .sort_by(|x, y| {
+                    y.0.cmp(&x.0)
+                        .then(x.1.cmp(&y.1))
+                        .then(x.2.cmp(&y.2))
                 })?
                 .sink_into(output)
         }

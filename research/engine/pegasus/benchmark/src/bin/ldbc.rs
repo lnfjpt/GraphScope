@@ -316,6 +316,12 @@ fn main() {
             "bi1" => {
                 println!("Start run query \"BI 1\"");
                 let result = queries::bi1(conf, split[1].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (year, is_comment, length, count, avg_length, sum_length) = x.unwrap();
+                        println!("{} {} {} {} {} {}", year, is_comment, length, count, avg_length, sum_length);
+                    }
+                }
                 ()
             }
             "bi2" => {
@@ -327,12 +333,24 @@ fn main() {
                     split[3].to_string(),
                     split[4].to_string(),
                 );
+                if config.print_result {
+                    for x in result {
+                        let (country, month, gender, age, tag, count) = x.unwrap();
+                        println!("{} {} {} {} {} {}", country, month, gender, age, tag, count);
+                    }
+                }
                 ()
             }
             "bi3" => {
                 println!("Start run query \"BI 3\"");
                 let result =
                     queries::bi3(conf, split[1].parse::<i32>().unwrap(), split[2].parse::<i32>().unwrap());
+                if config.print_result {
+                    for x in result {
+                        let (tag, count1, count2, diff) = x.unwrap();
+                        println!("{} {} {} {}", tag, count1, count2, diff);
+                    }
+                }
                 ()
             }
             _ => println!("Unknown query"),
