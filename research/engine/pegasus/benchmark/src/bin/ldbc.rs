@@ -353,6 +353,18 @@ fn main() {
                 }
                 ()
             }
+            "bi4" => {
+                println!("Start run query \"BI 4\"");
+                let result =
+                    queries::bi4(conf, split[1].to_string(), split[2].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (forum_id, title, date, person_id, count) = x.unwrap();
+                        println!("{} {} {} {} {}", forum_id, title, date, person_id, count);
+                    }
+                }
+                ()
+            }
             _ => println!("Unknown query"),
         }
         index += 1;

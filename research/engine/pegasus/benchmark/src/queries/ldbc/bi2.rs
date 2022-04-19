@@ -108,7 +108,8 @@ pub fn bi2(
                         .unwrap();
                     let month = (create_date / 100000000000 % 100) as i32;
                     for i in super::graph::GRAPH
-                        .get_out_vertices(message_internal_id as DefaultId, Some(&vec![1])) {
+                        .get_out_vertices(message_internal_id as DefaultId, Some(&vec![1]))
+                    {
                         list.push((country_internal_id, month, gender, birth_group, i.get_id() as u64))
                     }
                     Ok(list.into_iter())
@@ -135,14 +136,16 @@ pub fn bi2(
                 .unfold(|map| {
                     let mut group_list = vec![];
                     for ((country_internal_id, month, gender, birth_group, tag_internal_id), count) in map {
-                        group_list.push((
-                            country_internal_id,
-                            month,
-                            gender,
-                            birth_group,
-                            tag_internal_id,
-                            count,
-                        ));
+                        if count > 100 {
+                            group_list.push((
+                                country_internal_id,
+                                month,
+                                gender,
+                                birth_group,
+                                tag_internal_id,
+                                count,
+                            ));
+                        }
                     }
                     Ok(group_list.into_iter())
                 })?
