@@ -89,28 +89,26 @@ pub fn ic6(conf: JobConf, person_id: u64, tag_name: String) -> ResultStream<(Str
                             }
                         }
                     }
-                    Ok(tag_name_list.into_iter())
-                })?
-                .fold(HashMap::<String, i32>::new(), || {
-                    |mut collect, tag_name| {
-                        if let Some(data) = collect.get_mut(&tag_name) {
+                    let mut tag_map = HashMap::<String, i32>::new();
+                    for tag_name in tag_name_list {
+                        if let Some(data) = tag_map.get_mut(&tag_name) {
                             *data += 1;
                         } else {
-                            collect.insert(tag_name, 1);
+                            tag_map.insert(tag_name, 1);
                         }
-                        Ok(collect)
                     }
-                })?
-                .unfold(|map| {
-                    let mut tag_list = vec![];
-                    for (tag_name, count) in map {
-                        tag_list.push((tag_name, count));
+                    let mut result_list = vec![];
+                    for (tag_name, count) in tag_map {
+                        result_list.push((tag_name, count) );
                     }
-                    Ok(tag_list.into_iter())
+                    result_list.sort_by(|x, y| x.1.cmp(&y.1).reverse().then(x.0.cmp(&y.0)));
+                    if result_list.len() > 10 {
+                        result_list.resize(10, ("".to_string(), 0));
+                    }
+                    Ok(result_list.into_iter())
                 })?
-                .sort_limit_by(10, |x, y| x.1.cmp(&y.1).reverse().then(x.0.cmp(&y.0)))?
                 .sink_into(output)
         }
     })
-    .expect("submit ic6 job failure")
+        .expect("submit ic6 job failure")
 }
