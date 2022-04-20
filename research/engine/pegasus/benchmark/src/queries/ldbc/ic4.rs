@@ -25,45 +25,37 @@ pub fn ic4(conf: JobConf, person_id: u64, start_date: String, duration: i32) -> 
                 input.input_from(vec![])
             }?;
             stream
-                .map(|source| Ok((((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64))?
-                .flat_map(|source| {
-                    Ok(super::graph::GRAPH
-                        .get_both_vertices(source as DefaultId, Some(&vec![12]))
-                        .map(move |vertex| vertex.get_id() as u64))
-                })?
-                .flat_map(|person_id| {
-                    Ok(super::graph::GRAPH
-                        .get_both_vertices(person_id as DefaultId, Some(&vec![0]))
-                        .filter(|vertex| vertex.get_label()[0] == 3)
-                        .map(move |vertex| (person_id, vertex.get_id() as u64)))
-                })?
-                .filter_map(move |(person_id, message_id)| {
-                    let message_vertex = super::graph::GRAPH
-                        .get_vertex(message_id as DefaultId)
-                        .unwrap();
-                    let create_date = message_vertex
-                        .get_property("creationDate")
-                        .unwrap()
-                        .as_u64()
-                        .unwrap();
-                    if create_date < end_date {
-                        Ok(Some(message_id))
-                    } else {
-                        Ok(None)
+                .flat_map(move |source| {
+                    let source_internal_id = ((1 as usize) << LABEL_SHIFT_BITS) | source as usize;
+                    let mut message_list = vec![];
+                    for friend_vertex in super::graph::GRAPH
+                        .get_both_vertices(source_internal_id as DefaultId, Some(&vec![12])) {
+                        let friend_internal_id = friend_vertex.get_id();
+                        for message_vertex in super::graph::GRAPH
+                            .get_both_vertices(friend_internal_id, Some(&vec![0])) {
+                            if message_vertex.get_label()[0] != 3 {
+                                continue;
+                            }
+                            let message_internal_id = message_vertex.get_id();
+                            let message_property_vertex = super::graph::GRAPH.get_vertex(message_internal_id).unwrap();
+                            let create_date = message_property_vertex
+                                .get_property("creationDate")
+                                .unwrap()
+                                .as_u64()
+                                .unwrap();
+                            if create_date < end_date {
+                                message_list.push((message_internal_id, create_date));
+                            }
+                        }
                     }
-                })?
-                .flat_map(|message_internal_id| {
-                    let message_vertex = super::graph::GRAPH
-                        .get_vertex(message_internal_id as DefaultId)
-                        .unwrap();
-                    let create_date = message_vertex
-                        .get_property("creationDate")
-                        .unwrap()
-                        .as_u64()
-                        .unwrap();
-                    Ok(super::graph::GRAPH
-                        .get_out_vertices(message_internal_id as DefaultId, Some(&vec![1]))
-                        .map(move |vertex| (vertex.get_id() as u64, create_date)))
+                    let mut tag_list = vec![];
+                    for (message_internal_id, create_date) in message_list{
+                        for tag_vertex in super::graph::GRAPH
+                            .get_out_vertices(message_internal_id as DefaultId, Some(&vec![1])) {
+                            tag_list.push((tag_vertex.get_id() as u64, create_date));
+                        }
+                    }
+                    Ok(tag_list.into_iter())
                 })?
                 .fold(HashMap::<u64, (u64, u64)>::new(), move || {
                     move |mut collect, tag_id| {
