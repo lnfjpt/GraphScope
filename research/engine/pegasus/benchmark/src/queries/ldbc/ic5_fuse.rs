@@ -44,9 +44,10 @@ pub fn ic5(conf: JobConf, person_id: u64, start_date: String) -> ResultStream<(u
                     friend_list.dedup();
                     let mut forum_list = vec![];
                     for person_id in friend_list {
-                        for edge in super::graph::GRAPH
-                            .get_in_edges(person_id as DefaultId, Some(&vec![6])) {
-                            let join_date = edge.get_property("joinDate")
+                        for edge in super::graph::GRAPH.get_in_edges(person_id as DefaultId, Some(&vec![6]))
+                        {
+                            let join_date = edge
+                                .get_property("joinDate")
                                 .unwrap()
                                 .as_u64()
                                 .unwrap();
@@ -56,51 +57,46 @@ pub fn ic5(conf: JobConf, person_id: u64, start_date: String) -> ResultStream<(u
                             forum_list.push((edge.get_src_id() as u64, person_id));
                         }
                     }
-                    Ok(forum_list.into_iter())
-                })?
-                .fold(HashMap::<u64, Vec<u64>>::new(), || {
-                    |mut collect, (forum_id, person_id)| {
-                        if let Some(person_list) = collect.get_mut(&forum_id) {
+                    let mut forum_map = HashMap::<u64, Vec<u64>>::new();
+                    for (forum_id, person_id) in forum_list {
+                        if let Some(person_list) = forum_map.get_mut(&forum_id) {
                             person_list.push(person_id);
                         } else {
-                            collect.insert(forum_id, vec![person_id]);
+                            forum_map.insert(forum_id, vec![person_id]);
                         }
-                        Ok(collect)
                     }
-                })?
-                .unfold(|map| {
-                    let mut forum_list = vec![];
-                    for (forum_id, person_list) in map {
-                        forum_list.push((forum_id, person_list));
-                    }
-                    Ok(forum_list.into_iter())
-                })?
-                .map(|(forum_internal_id, person_list)| {
-                    let mut count = 0;
-                    for post_id in super::graph::GRAPH
-                        .get_out_vertices(forum_internal_id as DefaultId, Some(&vec![5]))
-                        .map(|vertex| vertex.get_id())
-                    {
-                        let person_id = super::graph::GRAPH
-                            .get_out_vertices(post_id, Some(&vec![0]))
-                            .next()
+                    let mut result_list = vec![];
+                    for (forum_internal_id, person_list) in forum_map {
+                        let mut count = 0;
+                        for post_id in super::graph::GRAPH
+                            .get_out_vertices(forum_internal_id as DefaultId, Some(&vec![5]))
+                            .map(|vertex| vertex.get_id())
+                        {
+                            let person_id = super::graph::GRAPH
+                                .get_out_vertices(post_id, Some(&vec![0]))
+                                .next()
+                                .unwrap()
+                                .get_id() as u64;
+                            if person_list.contains(&person_id) {
+                                count += 1;
+                            }
+                        }
+                        let forum_vertex = super::graph::GRAPH
+                            .get_vertex(forum_internal_id as DefaultId)
+                            .unwrap();
+                        let forum_id = forum_vertex
+                            .get_property("id")
                             .unwrap()
-                            .get_id() as u64;
-                        if person_list.contains(&person_id) {
-                            count += 1;
-                        }
+                            .as_u64()
+                            .unwrap();
+                        result_list.push((forum_id, count));
                     }
-                    let forum_vertex = super::graph::GRAPH
-                        .get_vertex(forum_internal_id as DefaultId)
-                        .unwrap();
-                    let forum_id = forum_vertex
-                        .get_property("id")
-                        .unwrap()
-                        .as_u64()
-                        .unwrap();
-                    Ok((forum_id, count))
+                    result_list.sort_by(|x, y| x.1.cmp(&y.1).reverse().then(x.0.cmp(&y.0)));
+                    if result_list.len() > 20 {
+                        result_list.resize(20, (0, 0));
+                    }
+                    Ok(result_list.into_iter())
                 })?
-                .sort_limit_by(20, |x, y| x.1.cmp(&y.1).reverse().then(x.0.cmp(&y.0)))?
                 .sink_into(output)
         }
     })
