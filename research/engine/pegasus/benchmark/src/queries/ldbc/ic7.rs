@@ -22,26 +22,28 @@ pub fn ic7(
                 input.input_from(vec![])
             }?;
             stream
-                .map(|source| Ok((((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64))?
-                .flat_map(|person_internal_id| {
-                    Ok(super::graph::GRAPH
-                        .get_in_vertices(person_internal_id as DefaultId, Some(&vec![0]))
-                        .map(move |vertex| (vertex.get_id() as u64, person_internal_id)))
-                })?
-                .flat_map(|(message_internal_id, person_internal_id)| {
-                    Ok(super::graph::GRAPH
-                        .get_in_edges(message_internal_id as DefaultId, Some(&vec![13]))
-                        .map(move |edge| {
-                            (
+                .flat_map(move |source| {
+                    let person_internal_id = ((1 as usize) << LABEL_SHIFT_BITS) | source as usize;
+                    let mut data_list = vec![];
+                    for message_vertex in
+                        super::graph::GRAPH.get_in_vertices(person_internal_id, Some(&vec![0]))
+                    {
+                        let message_internal_id = message_vertex.get_id();
+                        for edge in super::graph::GRAPH
+                            .get_in_edges(message_internal_id as DefaultId, Some(&vec![13]))
+                        {
+                            data_list.push((
                                 edge.get_property("creationDate")
                                     .unwrap()
                                     .as_u64()
                                     .unwrap(),
-                                message_internal_id,
+                                message_internal_id as u64,
                                 edge.get_src_id() as u64,
-                                person_internal_id,
-                            )
-                        }))
+                                person_internal_id as u64,
+                            ));
+                        }
+                    }
+                    Ok(data_list.into_iter())
                 })?
                 .sort_limit_by(20, |x, y| x.0.cmp(&y.0).reverse().then(x.2.cmp(&y.2)))?
                 .map(|(like_date, message_internal_id, friend_internal_id, person_internal_id)| {

@@ -35,6 +35,7 @@ pub mod ic3_fuse;
 pub mod ic4_fuse;
 pub mod ic5_fuse;
 pub mod ic6_fuse;
+pub mod ic7_fuse;
 
 pub use is1::is1;
 pub use is2::is2;
