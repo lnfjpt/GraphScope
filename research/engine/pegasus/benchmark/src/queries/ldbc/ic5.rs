@@ -26,7 +26,6 @@ pub fn ic5(conf: JobConf, person_id: u64, start_date: String) -> ResultStream<(u
                 .map(|source| Ok((((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64))?
                 .iterate_emit_until(IterCondition::max_iters(2), EmitKind::After, |start| {
                     start
-                        .repartition(|id| Ok(*id))
                         .flat_map(move |id| {
                             Ok(super::graph::GRAPH
                                 .get_both_vertices(id as DefaultId, Some(&vec![12]))
@@ -72,7 +71,6 @@ pub fn ic5(conf: JobConf, person_id: u64, start_date: String) -> ResultStream<(u
                     }
                     Ok(forum_list.into_iter())
                 })?
-                .repartition(|(id, _)| Ok(*id))
                 .map(|(forum_internal_id, person_list)| {
                     let mut count = 0;
                     for post_id in super::graph::GRAPH

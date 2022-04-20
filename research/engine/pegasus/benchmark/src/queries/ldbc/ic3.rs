@@ -39,7 +39,6 @@ pub fn ic3(
                 })?
                 .iterate_emit_until(IterCondition::max_iters(2), EmitKind::After, |start| {
                     start
-                        .repartition(|(id, _, _)| Ok(*id))
                         .flat_map(move |(person_id, country_x, country_y)| {
                             Ok(super::graph::GRAPH
                                 .get_both_vertices(person_id as DefaultId, Some(&vec![12]))
@@ -52,7 +51,6 @@ pub fn ic3(
                         })
                 })?
                 .dedup()?
-                .repartition(|(id, _, _)| Ok(*id))
                 .map(|(person_internal_id, country_x, country_y)| {
                     let mut city_id = 0;
                     for i in super::graph::GRAPH

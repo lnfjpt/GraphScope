@@ -29,7 +29,6 @@ pub fn ic6(conf: JobConf, person_id: u64, tag_name: String) -> ResultStream<(Str
                 .map(|source| Ok((((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64))?
                 .iterate_emit_until(IterCondition::max_iters(2), EmitKind::After, |start| {
                     start
-                        .repartition(|id| Ok(*id))
                         .flat_map(move |person_id| {
                             Ok(super::graph::GRAPH
                                 .get_both_vertices(person_id as DefaultId, Some(&vec![12]))
@@ -40,7 +39,6 @@ pub fn ic6(conf: JobConf, person_id: u64, tag_name: String) -> ResultStream<(Str
                         })
                 })?
                 .dedup()?
-                .repartition(|id| Ok(*id))
                 .flat_map(|person_internal_id| {
                     Ok(super::graph::GRAPH
                         .get_in_vertices(person_internal_id as DefaultId, Some(&vec![0]))

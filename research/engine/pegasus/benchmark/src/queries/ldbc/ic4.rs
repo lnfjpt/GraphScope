@@ -31,7 +31,6 @@ pub fn ic4(conf: JobConf, person_id: u64, start_date: String, duration: i32) -> 
                         .get_both_vertices(source as DefaultId, Some(&vec![12]))
                         .map(move |vertex| vertex.get_id() as u64))
                 })?
-                .repartition(|id| Ok(*id))
                 .flat_map(|person_id| {
                     Ok(super::graph::GRAPH
                         .get_both_vertices(person_id as DefaultId, Some(&vec![0]))
@@ -92,7 +91,6 @@ pub fn ic4(conf: JobConf, person_id: u64, start_date: String, duration: i32) -> 
                     }
                     Ok(tag_list.into_iter())
                 })?
-                .repartition(|(id, _, _)| Ok(*id))
                 .filter_map(move |(tag_internal_id, count, create_date)| {
                     if create_date >= start_date {
                         let tag_vertex = super::graph::GRAPH

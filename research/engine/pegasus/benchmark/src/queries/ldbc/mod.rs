@@ -30,6 +30,8 @@ mod bi2;
 mod bi3;
 mod bi4;
 
+mod ic2_fuse;
+
 pub use is1::is1;
 pub use is2::is2;
 pub use is3::is3;

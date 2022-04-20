@@ -28,7 +28,6 @@ pub fn ic7(
                         .get_in_vertices(person_internal_id as DefaultId, Some(&vec![0]))
                         .map(move |vertex| (vertex.get_id() as u64, person_internal_id)))
                 })?
-                .repartition(|(id, _)| Ok(*id))
                 .flat_map(|(message_internal_id, person_internal_id)| {
                     Ok(super::graph::GRAPH
                         .get_in_edges(message_internal_id as DefaultId, Some(&vec![13]))
