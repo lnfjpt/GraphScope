@@ -30,153 +30,130 @@ pub fn ic3(
                 input.input_from(vec![])
             }?;
             stream
-                .map(|(source, country_x, country_y)| {
-                    Ok((
-                        (((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64,
-                        country_x,
-                        country_y,
-                    ))
-                })?
-                .iterate_emit_until(IterCondition::max_iters(2), EmitKind::After, |start| {
-                    start
-                        .flat_map(move |(person_id, country_x, country_y)| {
-                            Ok(super::graph::GRAPH
-                                .get_both_vertices(person_id as DefaultId, Some(&vec![12]))
-                                .map(move |vertex| {
-                                    (vertex.get_id() as u64, country_x.clone(), country_y.clone())
-                                })
-                                .filter(move |(id, _, _)| {
-                                    ((1 as usize) << LABEL_SHIFT_BITS) | person_id as usize != *id as usize
-                                }))
-                        })
-                })?
-                .dedup()?
-                .map(|(person_internal_id, country_x, country_y)| {
-                    let mut city_id = 0;
-                    for i in super::graph::GRAPH
-                        .get_out_vertices(person_internal_id as DefaultId, Some(&vec![11]))
-                    {
-                        city_id = i.get_id();
-                        break;
+                .flat_map(move |(source, country_x, country_y)| {
+                    let source_internal_id = (((1 as usize) << LABEL_SHIFT_BITS) | source as usize) as u64;
+                    let mut friend_list = Vec::<u64>::new();
+                    let mut current_list = vec![];
+                    let mut temp_vec = vec![];
+                    current_list.push(source_internal_id);
+                    for _ in 0..2 {
+                        for person_internal_id in current_list {
+                            for vertex in super::graph::GRAPH
+                                .get_both_vertices(person_internal_id as DefaultId, Some(&vec![12]))
+                            {
+                                if vertex.get_id() as u64 != source_internal_id {
+                                    temp_vec.push(vertex.get_id() as u64);
+                                }
+                            }
+                        }
+                        current_list = temp_vec.clone();
+                        friend_list.append(&mut temp_vec);
                     }
-                    let mut country_id = 0;
-                    for i in super::graph::GRAPH.get_out_vertices(city_id as DefaultId, Some(&vec![17])) {
-                        country_id = i.get_id() as u64;
-                        break;
+                    friend_list.sort();
+                    friend_list.dedup();
+                    let mut person_list = vec![];
+                    for friend_internal_id in friend_list {
+                        let city_id = super::graph::GRAPH
+                            .get_out_vertices(friend_internal_id as DefaultId, Some(&vec![11]))
+                            .next()
+                            .unwrap()
+                            .get_id();
+                        let country_id = super::graph::GRAPH
+                            .get_out_vertices(city_id as DefaultId, Some(&vec![17]))
+                            .next()
+                            .unwrap()
+                            .get_id();
+                        let country_vertex = super::graph::GRAPH
+                            .get_vertex(country_id)
+                            .unwrap();
+                        let country_name = country_vertex
+                            .get_property("name")
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .into_owned();
+                        if country_name != country_x && country_name != country_y {
+                            person_list.push(friend_internal_id);
+                        }
                     }
-                    Ok((person_internal_id, country_id, country_x, country_y))
-                })?
-                .filter_map(move |(person_internal_id, country_id, country_x, country_y)| {
-                    let country_vertex = super::graph::GRAPH
-                        .get_vertex(country_id as DefaultId)
-                        .unwrap();
-                    let country_name = country_vertex
-                        .get_property("name")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        .into_owned();
-                    if country_name != country_x && country_name != country_y {
-                        Ok(Some((person_internal_id, country_x, country_y)))
-                    } else {
-                        Ok(None)
-                    }
-                })?
-                .apply(|sub| {
-                    let start_date = start_date;
-                    let end_date = end_date;
-                    sub.flat_map(|(person_id, country_x, country_y)| {
-                        Ok(super::graph::GRAPH
-                            .get_in_vertices(person_id as DefaultId, Some(&vec![0]))
-                            .map(move |vertex| {
-                                (vertex.get_id() as u64, country_x.clone(), country_y.clone())
-                            }))
-                    })?
-                        .filter_map(move |(message_internal_id, country_x, country_y)| {
-                            let vertex = super::graph::GRAPH
-                                .get_vertex(message_internal_id as DefaultId)
+                    let mut count_list = vec![];
+                    for person_internal_id in person_list {
+                        let mut count = (0, 0);
+                        for message_vertex in super::graph::GRAPH
+                            .get_in_vertices(person_internal_id as DefaultId, Some(&vec![0]))
+                        {
+                            let message_internal_id = message_vertex.get_id();
+                            let message_property_vertex = super::graph::GRAPH
+                                .get_vertex(message_internal_id)
                                 .unwrap();
-                            let create_time = vertex
+                            let create_time = message_property_vertex
                                 .get_property("creationDate")
                                 .unwrap()
                                 .as_u64()
                                 .unwrap();
                             if create_time > start_date && create_time < end_date {
-                                Ok(Some((message_internal_id, country_x, country_y)))
-                            } else {
-                                Ok(None)
+                                for country_vertex in super::graph::GRAPH
+                                    .get_out_vertices(message_internal_id, Some(&vec![11]))
+                                {
+                                    let country_internal_id = country_vertex.get_id();
+                                    let country_property_vertex = super::graph::GRAPH
+                                        .get_vertex(country_internal_id)
+                                        .unwrap();
+                                    let country = country_property_vertex
+                                        .get_property("name")
+                                        .unwrap()
+                                        .as_str()
+                                        .unwrap()
+                                        .into_owned();
+                                    if country == country_x {
+                                        count.0 += 1;
+                                    } else if country == country_y {
+                                        count.1 += 1;
+                                    }
+                                }
                             }
-                        })?
-                        .flat_map(|(message_internal_id, country_x, country_y)| {
-                            Ok(super::graph::GRAPH
-                                .get_out_vertices(message_internal_id as DefaultId, Some(&vec![11]))
-                                .map(move |vertex| {
-                                    (
-                                        message_internal_id,
-                                        vertex.get_id() as u64,
-                                        country_x.clone(),
-                                        country_y.clone(),
-                                    )
-                                }))
-                        })?
-                        .filter_map(|(message_internal_id, country_id, country_x, country_y)| {
-                            let country_vertex = super::graph::GRAPH
-                                .get_vertex(country_id as DefaultId)
-                                .unwrap();
-                            let country = country_vertex
-                                .get_property("name")
-                                .unwrap()
-                                .as_str()
-                                .unwrap()
-                                .into_owned();
-                            if country == country_x {
-                                Ok(Some((1, 0)))
-                            } else if country == country_y {
-                                Ok(Some((0, 1)))
-                            } else {
-                                Ok(None)
-                            }
-                        })?
-                        .fold((0, 0), || |a, b| Ok((a.0 + b.0, a.1 + b.1)))
-                })?
-                .filter_map(|(person_internal_id, count)| {
-                    if count.0 > 0 && count.1 > 0 {
-                        Ok(Some((person_internal_id, count)))
-                    } else {
-                        Ok(None)
+                        }
+                        if count.0 > 0 && count.1 > 0 {
+                            count_list.push((person_internal_id, count.0, count.1));
+                        }
                     }
-                })?
-                .sort_limit_by(20, |(id_x, count_x), (id_y, count_y)| {
-                    (count_x.0 + count_x.1)
-                        .cmp(&(count_y.0 + count_y.1))
-                        .reverse()
-                        .then(id_x.cmp(&id_y))
-                })?
-                .map(|((person_internal_id, country_x, country_y), count)| {
-                    let vertex = super::graph::GRAPH
-                        .get_vertex(person_internal_id as DefaultId)
-                        .unwrap();
-                    let person_id = vertex
-                        .get_property("id")
-                        .unwrap()
-                        .as_u64()
-                        .unwrap();
-                    let first_name = vertex
-                        .get_property("firstName")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        .into_owned();
-                    let last_name = vertex
-                        .get_property("lastName")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        .into_owned();
-                    Ok((person_id, first_name, last_name, count.0, count.1, count.0 + count.1))
+                    count_list.sort_by(|(id_x, count_x0, count_x1), (id_y, count_y0, count_y1)| {
+                        (count_x0 + count_x1)
+                            .cmp(&(count_y0 + count_y1))
+                            .reverse()
+                            .then(id_x.cmp(&id_y))
+                    });
+                    if count_list.len() > 20 {
+                        count_list.resize(20, (0,0,0));
+                    }
+                    let mut result_list = vec![];
+                    for (person_internal_id, count0, count1) in count_list {
+                        let vertex = super::graph::GRAPH
+                            .get_vertex(person_internal_id as DefaultId)
+                            .unwrap();
+                        let person_id = vertex
+                            .get_property("id")
+                            .unwrap()
+                            .as_u64()
+                            .unwrap();
+                        let first_name = vertex
+                            .get_property("firstName")
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .into_owned();
+                        let last_name = vertex
+                            .get_property("lastName")
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .into_owned();
+                        result_list.push((person_id, first_name, last_name, count0, count1, count0 + count1));
+                    }
+                    Ok(result_list.into_iter())
                 })?
                 .sink_into(output)
         }
     })
-        .expect("submit ic3 job failure")
+    .expect("submit ic3 job failure")
 }
