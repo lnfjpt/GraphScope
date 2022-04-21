@@ -35,12 +35,15 @@ pub fn ic5(conf: JobConf, person_id: u64, start_date: String) -> ResultStream<(u
                             for vertex in super::graph::GRAPH
                                 .get_both_vertices(person_internal_id as DefaultId, Some(&vec![12]))
                             {
-                                temp_vec.push(vertex.get_id() as u64);
+                                if vertex.get_id() as u64 != source_internal_id {
+                                    temp_vec.push(vertex.get_id() as u64);
+                                }
                             }
                         }
                         current_list = temp_vec.clone();
                         friend_list.append(&mut temp_vec);
                     }
+                    friend_list.sort();
                     friend_list.dedup();
                     let mut forum_list = vec![];
                     for person_id in friend_list {

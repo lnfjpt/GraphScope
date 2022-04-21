@@ -47,7 +47,9 @@ pub fn ic6(conf: JobConf, person_id: u64, tag_name: String) -> ResultStream<(Str
                         current_list = temp_vec.clone();
                         friend_list.append(&mut temp_vec);
                     }
+                    friend_list.sort();
                     friend_list.dedup();
+
                     let mut post_list = vec![];
                     for person_id in friend_list {
                         for post_vertex in super::graph::GRAPH
@@ -70,6 +72,7 @@ pub fn ic6(conf: JobConf, person_id: u64, tag_name: String) -> ResultStream<(Str
                             }
                         }
                     }
+                    post_list.sort();
                     post_list.dedup();
                     let mut tag_name_list = vec![];
                     for post_id in post_list {
