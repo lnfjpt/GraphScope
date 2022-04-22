@@ -16,7 +16,7 @@ pub fn ic4(
     conf: JobConf, person_id: u64, start_date: String, duration: i32,
 ) -> ResultStream<(String, u64)> {
     pegasus::run(conf, || {
-        let duration = duration as i64 * 24 * 3600 * 100 * 1000;
+        let duration = duration as i64 * 24 * 3600 * 1000;
         let end_date = start_date.parse::<i64>().unwrap() + duration;
         let start_date = super::graph::parse_datetime(&start_date).unwrap();
         let end_date = super::graph::parse_datetime(&end_date.to_string()).unwrap();
@@ -69,15 +69,15 @@ pub fn ic4(
                                 }
                             } else{
                                 if create_date >= start_date {
-                                    tag_map.insert(tag_internal_id, (1, create_date));
+                                    tag_map.insert(tag_internal_id, (create_date, 1));
                                 } else {
-                                    tag_map.insert(tag_internal_id, (0, create_date));
+                                    tag_map.insert(tag_internal_id, (create_date, 0));
                                 }
                             }
                         }
                     }
                     let mut result_list = vec![];
-                    for (tag_internal_id, (count, create_date)) in tag_map {
+                    for (tag_internal_id, (create_date, count)) in tag_map {
                         if create_date >= start_date {
                             let tag_vertex = super::graph::GRAPH
                                 .get_vertex(tag_internal_id as DefaultId)

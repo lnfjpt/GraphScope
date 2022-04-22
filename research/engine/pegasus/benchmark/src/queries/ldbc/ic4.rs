@@ -14,7 +14,7 @@ static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::me
 
 pub fn ic4(conf: JobConf, person_id: u64, start_date: String, duration: i32) -> ResultStream<(String, u64)> {
     pegasus::run(conf, || {
-        let duration = duration as i64 * 24 * 3600 * 100 * 1000;
+        let duration = duration as i64 * 24 * 3600 * 1000;
         let end_date = start_date.parse::<i64>().unwrap() + duration;
         let start_date = super::graph::parse_datetime(&start_date).unwrap();
         let end_date = super::graph::parse_datetime(&end_date.to_string()).unwrap();
@@ -68,9 +68,9 @@ pub fn ic4(conf: JobConf, person_id: u64, start_date: String, duration: i32) -> 
                             }
                         } else {
                             if tag_id.1 >= start_date {
-                                collect.insert(tag_id.0, (1, tag_id.1));
+                                collect.insert(tag_id.0, (tag_id.1, 1));
                             } else {
-                                collect.insert(tag_id.0, (0, tag_id.1));
+                                collect.insert(tag_id.0, (tag_id.1, 0));
                             }
                         }
                         Ok(collect)
@@ -78,7 +78,7 @@ pub fn ic4(conf: JobConf, person_id: u64, start_date: String, duration: i32) -> 
                 })?
                 .unfold(|map| {
                     let mut tag_list = vec![];
-                    for (tag_internal_id, (count, create_date)) in map {
+                    for (tag_internal_id, (create_date, count)) in map {
                         tag_list.push((tag_internal_id, count, create_date));
                     }
                     Ok(tag_list.into_iter())
