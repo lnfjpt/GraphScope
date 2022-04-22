@@ -16,17 +16,20 @@ static LABEL_SHIFT_BITS: usize = 8 * (std::mem::size_of::<DefaultId>() - std::me
 
 pub fn bi1(conf: JobConf, max_date: String) -> ResultStream<(i32, bool, i32, i32, i32, i32)> {
     let max_date = super::graph::parse_datetime(&max_date).unwrap();
+    let worker_num = conf.workers;
     pegasus::run(conf, || {
         move |input, output| {
-            let stream = if input.get_worker_index() == 0 {
-                input.input_from(vec![max_date])
-            } else {
-                input.input_from(vec![])
-            }?;
+            let stream = input.input_from(vec![max_date])?;
+            let worker_id = input.get_worker_index();
             stream
-                .flat_map(|max_date| {
+                .flat_map(move |max_date| {
+                    let message_vertices = super::graph::GRAPH.get_all_vertices(Some(&vec![2, 3]));
+                    let message_count = message_vertices.count();
+                    let partial_count = message_count / worker_num as usize + 1;
                     Ok(super::graph::GRAPH
                         .get_all_vertices(Some(&vec![2, 3]))
+                        .skip(worker_id as usize * partial_count)
+                        .take(partial_count)
                         .filter(move |vertex| {
                             vertex
                                 .get_property("creationDate")
@@ -37,7 +40,6 @@ pub fn bi1(conf: JobConf, max_date: String) -> ResultStream<(i32, bool, i32, i32
                         })
                         .map(|vertex| vertex.get_id() as u64))
                 })?
-                .repartition(|id| Ok(*id))
                 .map(|message_internal_id| {
                     let message_vertex = super::graph::GRAPH
                         .get_vertex(message_internal_id as DefaultId)
