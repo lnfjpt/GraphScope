@@ -28,7 +28,7 @@ pub fn bi1(conf: JobConf, max_date: String) -> ResultStream<(i32, bool, i32, i32
                     let partial_count = message_count / worker_num as usize + 1;
                     Ok(super::graph::GRAPH
                         .get_all_vertices(Some(&vec![2, 3]))
-                        .skip(worker_id as usize * partial_count)
+                        .skip((worker_id % worker_num) as usize * partial_count)
                         .take(partial_count)
                         .filter(move |vertex| {
                             vertex

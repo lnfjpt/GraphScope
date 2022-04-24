@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use graph_store::prelude::*;
-use pegasus::api::{Fold, Map, Sink, SortLimitBy};
+use pegasus::api::{Fold, Map, Sink, SortBy, SortLimitBy};
 use pegasus::result::ResultStream;
 use pegasus::{get_current_worker, JobConf};
 use std::cmp::max;
@@ -16,16 +16,18 @@ pub fn bi4(
         let tag_class = tag_class.clone();
         let country = country.clone();
         move |input, output| {
-            let stream = if input.get_worker_index() == 0 {
-                input.input_from(vec![0])
-            } else {
-                input.input_from(vec![])
-            }?;
+            let stream = input.input_from(vec![0])?;
+            let worker_id = input.get_worker_index();
             stream
-                .flat_map(|source| {
+                .flat_map(move |source| {
+                    let forum_vertices = super::graph::GRAPH.get_all_vertices(Some(&vec![4]));
+                    let forum_count = forum_vertices.count();
+                    let partial_count = forum_count / workers as usize + 1;
                     Ok(super::graph::GRAPH
                         .get_all_vertices(Some(&vec![4]))
-                        .map(move |vertex| vertex.get_id() as u64))
+                        .skip((worker_id % workers) as usize * partial_count)
+                        .take(partial_count)
+                        .map(|vertex| vertex.get_id() as u64))
                 })?
                 .repartition(move |id| {
                     Ok(super::graph::get_partition(
@@ -240,6 +242,7 @@ pub fn bi4(
                         .unwrap();
                     Ok((forum_id, forum_title, forum_date, person_id, post_count))
                 })?
+                .sort_by(|x, y| x.4.cmp(&y.4).reverse().then(x.0.cmp(&y.0)))?
                 .sink_into(output)
         }
     })
