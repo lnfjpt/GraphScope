@@ -369,6 +369,56 @@ fn main() {
                 }
                 ()
             }
+            "bi5" => {
+                println!("Start run query \"BI 5\"");
+                let result = queries::bi5(conf, split[1].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (person_id, reply_count, like_count, message_count, score) = x.unwrap();
+                        println!(
+                            "{} {} {} {} {}",
+                            person_id, reply_count, like_count, message_count, score
+                        );
+                    }
+                }
+                ()
+            }
+            "bi6" => {
+                println!("Start run query \"BI 6\"");
+                let result = queries::bi6(conf, split[1].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (person_id, score) = x.unwrap();
+                        println!("{} {}", person_id, score);
+                    }
+                }
+                ()
+            }
+            "bi7" => {
+                println!("Start run query \"BI 7\"");
+                let result = queries::bi7(conf, split[1].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (tag_name, count) = x.unwrap();
+                        println!("{} {}", tag_name, count);
+                    }
+                }
+                ()
+            }
+            "bi9" => {
+                println!("Start run query \"BI 4\"");
+                let result = queries::bi9(conf, split[1].to_string(), split[2].to_string());
+                if config.print_result {
+                    for x in result {
+                        let (person_id, first_name, last_name, thread_count, message_count) = x.unwrap();
+                        println!(
+                            "{} {} {} {} {}",
+                            person_id, first_name, last_name, thread_count, message_count
+                        );
+                    }
+                }
+                ()
+            }
             _ => println!("Unknown query"),
         }
         index += 1;
