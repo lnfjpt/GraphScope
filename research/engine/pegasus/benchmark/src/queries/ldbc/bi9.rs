@@ -25,7 +25,7 @@ pub fn bi9(
                     let forum_count = forum_vertices.count();
                     let partial_count = forum_count / workers as usize + 1;
                     Ok(super::graph::GRAPH
-                        .get_all_vertices(Some(&vec![4]))
+                        .get_all_vertices(Some(&vec![1]))
                         .skip((worker_id % workers) as usize * partial_count)
                         .take(partial_count)
                         .map(|vertex| vertex.get_id() as u64))
@@ -80,7 +80,7 @@ pub fn bi9(
                                 let reply_vertex = super::graph::GRAPH
                                     .get_vertex(reply_internal_id as DefaultId)
                                     .unwrap();
-                          l      let reply_date = reply_vertex
+                               let reply_date = reply_vertex
                                     .get_property("creationDate")
                                     .unwrap()
                                     .as_u64()

@@ -19,7 +19,7 @@ pub fn bi5(conf: JobConf, tag: String) -> ResultStream<(u64, i32, i32, i32, i32)
                     let forum_count = forum_vertices.count();
                     let partial_count = forum_count / workers as usize + 1;
                     Ok(super::graph::GRAPH
-                        .get_all_vertices(Some(&vec![4]))
+                        .get_all_vertices(Some(&vec![7]))
                         .skip((worker_id % workers) as usize * partial_count)
                         .take(partial_count)
                         .map(|vertex| vertex.get_id() as u64))
@@ -43,6 +43,7 @@ pub fn bi5(conf: JobConf, tag: String) -> ResultStream<(u64, i32, i32, i32, i32)
                 .flat_map(|tag_internal_id| {
                     Ok(super::graph::GRAPH
                         .get_in_vertices(tag_internal_id as DefaultId, Some(&vec![1]))
+                        .filter(|vertex| vertex.get_label()[0] == 2 || vertex.get_label()[0] == 3)
                         .map(|vertex| vertex.get_id() as u64))
                 })?
                 .repartition(move |id| {

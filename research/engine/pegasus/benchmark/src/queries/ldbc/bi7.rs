@@ -19,7 +19,7 @@ pub fn bi7(conf: JobConf, tag: String) -> ResultStream<(String, i32)> {
                     let forum_count = forum_vertices.count();
                     let partial_count = forum_count / workers as usize + 1;
                     Ok(super::graph::GRAPH
-                        .get_all_vertices(Some(&vec![4]))
+                        .get_all_vertices(Some(&vec![7]))
                         .skip((worker_id % workers) as usize * partial_count)
                         .take(partial_count)
                         .map(|vertex| vertex.get_id() as u64))
@@ -43,18 +43,16 @@ pub fn bi7(conf: JobConf, tag: String) -> ResultStream<(String, i32)> {
                 .flat_map(|tag_internal_id| {
                     Ok(super::graph::GRAPH
                         .get_in_vertices(tag_internal_id as DefaultId, Some(&vec![1]))
+                        .filter(|vertex| vertex.get_label()[0] == 2 || vertex.get_label()[0] == 3)
                         .map(move |vertex| (vertex.get_id() as u64, tag_internal_id)))
                 })?
                 .repartition(move |(id, _)| {
                     Ok(super::graph::get_partition(id, workers as usize, pegasus::get_servers_len()))
                 })
-                .map(|(message_internal_id, tag_internal_id)| {
-                    let comment_internal_id = super::graph::GRAPH
+                .flat_map(|(message_internal_id, tag_internal_id)| {
+                    Ok(super::graph::GRAPH
                         .get_in_vertices(message_internal_id as DefaultId, Some(&vec![3]))
-                        .next()
-                        .unwrap()
-                        .get_id() as u64;
-                    Ok((comment_internal_id, tag_internal_id))
+                        .map(move |vertex| (vertex.get_id() as u64, tag_internal_id)))
                 })?
                 .repartition(move |(id, _)| {
                     Ok(super::graph::get_partition(id, workers as usize, pegasus::get_servers_len()))

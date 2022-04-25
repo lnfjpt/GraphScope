@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use graph_store::prelude::*;
-use pegasus::api::{Fold, Map, Sink, SortBy, SortLimitBy};
+use pegasus::api::{Dedup, Fold, Map, Sink, SortBy, SortLimitBy};
 use pegasus::result::ResultStream;
 use pegasus::{get_current_worker, JobConf};
 use std::cmp::max;
@@ -19,7 +19,7 @@ pub fn bi6(conf: JobConf, tag: String) -> ResultStream<(u64, i32)> {
                     let forum_count = forum_vertices.count();
                     let partial_count = forum_count / workers as usize + 1;
                     Ok(super::graph::GRAPH
-                        .get_all_vertices(Some(&vec![4]))
+                        .get_all_vertices(Some(&vec![7]))
                         .skip((worker_id % workers) as usize * partial_count)
                         .take(partial_count)
                         .map(|vertex| vertex.get_id() as u64))
@@ -43,6 +43,7 @@ pub fn bi6(conf: JobConf, tag: String) -> ResultStream<(u64, i32)> {
                 .flat_map(|tag_internal_id| {
                     Ok(super::graph::GRAPH
                         .get_in_vertices(tag_internal_id as DefaultId, Some(&vec![1]))
+                        .filter(|vertex| vertex.get_label()[0] == 2 || vertex.get_label()[0] == 3)
                         .map(|vertex| vertex.get_id() as u64))
                 })?
                 .repartition(move |id| {
@@ -78,6 +79,7 @@ pub fn bi6(conf: JobConf, tag: String) -> ResultStream<(u64, i32)> {
                         .get_in_vertices(message_internal_id as DefaultId, Some(&vec![13]))
                         .map(move |vertex| (person_id, vertex.get_id() as u64)))
                 })?
+                .dedup()?
                 .repartition(move |(_, id)| {
                     Ok(super::graph::get_partition(id, workers as usize, pegasus::get_servers_len()))
                 })
