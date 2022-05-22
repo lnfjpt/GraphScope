@@ -62,7 +62,7 @@ pub use pegasus_memory::alloc::check_current_task_memory;
 pub use pegasus_network::ServerDetect;
 pub use tag::Tag;
 pub use worker::Worker;
-pub use worker_id::{get_current_worker, WorkerId, set_current_worker};
+pub use worker_id::{get_current_worker, set_current_worker, WorkerId};
 
 use crate::api::Source;
 pub use crate::errors::{BuildJobError, JobSubmitError, SpawnJobError, StartupError};
@@ -181,12 +181,31 @@ pub fn startup_with<D: ServerDetect + 'static>(
     }
     pegasus_executor::try_start_executor_async();
 
+    let mut servers = HashSet::new();
     let server_id = conf.server_id();
+    servers.insert(server_id);
     if let Some(id) = set_server_id(server_id) {
         return Err(StartupError::AlreadyStarted(id));
     }
 
     Ok(if let Some(net_conf) = conf.network_config() {
+        if let Some(peers) = net_conf.get_servers()? {
+            for p in peers.iter() {
+                servers.insert(p.id);
+            }
+        } else {
+            return Err(StartupError::CannotFindServers);
+        }
+
+        let mut lock = SERVERS
+            .write()
+            .expect("fetch servers lock failure;");
+        assert!(lock.is_empty());
+        for s in servers {
+            lock.push(s);
+        }
+
+        lock.sort();
         let addr = net_conf.local_addr()?;
         let conn_conf = net_conf.get_connection_param();
         let addr = pegasus_network::start_up(server_id, conn_conf, addr, detect)?;

@@ -212,7 +212,7 @@ pub struct RPCJobServer<S: pb::job_service_server::JobService> {
 
 pub async fn start_rpc_server<P, D, E>(
     rpc_config: RPCServerConfig, server_config: Configuration, assemble: P,
-    server_detector: D, listener: E,
+    server_detector: D, listener: &mut E,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     P: JobAssembly,
@@ -231,7 +231,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     }
 
     pub async fn run<D, E>(
-        self, server_detector: D, mut listener: E,
+        self, server_detector: D, mut listener: &mut E,
     ) -> Result<(), Box<dyn std::error::Error>>
     where
         D: ServerDetect + 'static,

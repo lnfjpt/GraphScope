@@ -27,7 +27,7 @@ where P: JobAssembly,
         vec![]
     };
 
-    crate::rpc::start_rpc_server(rpc_config, server_config, assemble, detect, StandaloneServiceListener)
+    crate::rpc::start_rpc_server(rpc_config, server_config, assemble, detect, &mut StandaloneServiceListener)
         .await?;
     Ok(())
 }
