@@ -1,6 +1,6 @@
-use std::net::SocketAddr;
 use crate::job::JobAssembly;
 use crate::rpc::{RPCServerConfig, ServiceStartListener};
+use std::net::SocketAddr;
 
 struct StandaloneServiceListener;
 
@@ -17,9 +17,11 @@ impl ServiceStartListener for StandaloneServiceListener {
 }
 
 pub async fn start<P>(
-    rpc_config: RPCServerConfig, server_config: pegasus::Configuration, assemble: P,
+    rpc_config: RPCServerConfig, server_config: pegasus::Configuration, assemble: P, start_server: bool,
+    blocking: bool,
 ) -> Result<(), Box<dyn std::error::Error>>
-where P: JobAssembly,
+where
+    P: JobAssembly,
 {
     let detect = if let Some(net_conf) = server_config.network_config() {
         net_conf.get_servers()?.unwrap_or(vec![])
@@ -27,7 +29,15 @@ where P: JobAssembly,
         vec![]
     };
 
-    crate::rpc::start_rpc_server(rpc_config, server_config, assemble, detect, &mut StandaloneServiceListener)
-        .await?;
+    crate::rpc::start_rpc_server(
+        rpc_config,
+        server_config,
+        assemble,
+        detect,
+        &mut StandaloneServiceListener,
+        start_server,
+        blocking,
+    )
+    .await?;
     Ok(())
 }

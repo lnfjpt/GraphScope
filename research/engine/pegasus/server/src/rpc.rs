@@ -40,7 +40,7 @@ use tonic::{Code, Request, Response, Status};
 
 use crate::generated::protocol as pb;
 use crate::generated::protocol::job_config::Servers;
-use crate::job::{JobDesc, JobAssembly};
+use crate::job::{JobAssembly, JobDesc};
 use crate::pb::{BinaryResource, Empty, Name};
 
 pub struct RpcSink {
@@ -135,7 +135,7 @@ where
             Ok(lib) => {
                 info!("add library with name {}", name);
                 if let Some((name, _)) = pegasus::resource::add_global_resource(name, lib) {
-                    return Err(Status::aborted(format!("resource {} already exists;", name)))
+                    return Err(Status::aborted(format!("resource {} already exists;", name)));
                 }
                 Ok(Response::new(Empty {}))
             }
@@ -211,8 +211,8 @@ pub struct RPCJobServer<S: pb::job_service_server::JobService> {
 }
 
 pub async fn start_rpc_server<P, D, E>(
-    rpc_config: RPCServerConfig, server_config: Configuration, assemble: P,
-    server_detector: D, listener: &mut E,
+    rpc_config: RPCServerConfig, server_config: Configuration, assemble: P, server_detector: D,
+    listener: &mut E, start_server: bool, blocking: bool,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     P: JobAssembly,
@@ -221,7 +221,9 @@ where
 {
     let service = JobServiceImpl { inner: Arc::new(assemble), report: true };
     let server = RPCJobServer::new(rpc_config, server_config, service);
-    server.run(server_detector, listener).await?;
+    server
+        .run(server_detector, listener, start_server, blocking)
+        .await?;
     Ok(())
 }
 
@@ -231,7 +233,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     }
 
     pub async fn run<D, E>(
-        self, server_detector: D, mut listener: &mut E,
+        self, server_detector: D, mut listener: &mut E, start_server: bool, blocking: bool,
     ) -> Result<(), Box<dyn std::error::Error>>
     where
         D: ServerDetect + 'static,
@@ -239,8 +241,10 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     {
         let RPCJobServer { service, mut rpc_config, server_config } = self;
         let server_id = server_config.server_id();
-        if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
-            listener.on_server_start(server_id, server_addr)?;
+        if start_server {
+            if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
+                listener.on_server_start(server_id, server_addr)?;
+            }
         }
 
         let mut builder = Server::builder();
@@ -272,8 +276,6 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
             builder = builder.http2_keepalive_timeout(Some(Duration::from_millis(dur)));
         }
 
-        let service = builder.add_service(pb::job_service_server::JobServiceServer::new(service));
-
         let host = rpc_config
             .rpc_host
             .clone()
@@ -285,8 +287,16 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
         let incoming = TcpIncoming::new(addr, rpc_config.tcp_nodelay.unwrap_or(true), ka)?;
         info!("starting RPC job server on {} ...", incoming.inner.local_addr());
         listener.on_rpc_start(server_id, incoming.inner.local_addr())?;
-
-        service.serve_with_incoming(incoming).await?;
+        let serve = builder
+            .add_service(pb::job_service_server::JobServiceServer::new(service))
+            .serve_with_incoming(incoming);
+        if blocking {
+            serve.await?;
+        } else {
+            tokio::spawn(async move {
+                serve.await.expect("Rpc server start error");
+            });
+        }
         Ok(())
     }
 }
