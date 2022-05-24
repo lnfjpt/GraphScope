@@ -199,6 +199,21 @@ pub struct RPCServerConfig {
 }
 
 impl RPCServerConfig {
+    pub fn new(rpc_host: Option<String>, rpc_port: Option<u16>) -> Self {
+        RPCServerConfig {
+            rpc_host,
+            rpc_port,
+            rpc_concurrency_limit_per_connection: None,
+            rpc_timeout_ms: None,
+            rpc_initial_stream_window_size: None,
+            rpc_initial_connection_window_size: None,
+            rpc_max_concurrent_streams: None,
+            rpc_keep_alive_interval_ms: None,
+            rpc_keep_alive_timeout_ms: None,
+            tcp_keep_alive_ms: None,
+            tcp_nodelay: None,
+        }
+    }
     pub fn parse(content: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(&content)
     }
