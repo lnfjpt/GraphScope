@@ -17,7 +17,7 @@ impl ServiceStartListener for StandaloneServiceListener {
 }
 
 pub async fn start<P>(
-    rpc_config: RPCServerConfig, server_config: pegasus::Configuration, assemble: P, start_server: bool,
+    server_id: u64, rpc_config: RPCServerConfig, server_config: pegasus::Configuration, assemble: P,
     blocking: bool,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -30,12 +30,31 @@ where
     };
 
     crate::rpc::start_rpc_server(
+        server_id,
         rpc_config,
-        server_config,
+        Some(server_config),
         assemble,
         detect,
         &mut StandaloneServiceListener,
-        start_server,
+        blocking,
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn start_without_pegasus<P>(
+    server_id: u64, rpc_config: RPCServerConfig, assemble: P, blocking: bool,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    P: JobAssembly,
+{
+    crate::rpc::start_rpc_server(
+        server_id,
+        rpc_config,
+        Option::<pegasus::Configuration>::None,
+        assemble,
+        vec![],
+        &mut StandaloneServiceListener,
         blocking,
     )
     .await?;
