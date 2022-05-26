@@ -28,29 +28,11 @@ where
         vec![]
     };
 
-    crate::rpc::start_rpc_server(
+    crate::rpc::start_all_servers(
         rpc_config,
-        Some(server_config),
+        server_config,
         assemble,
         detect,
-        &mut StandaloneServiceListener,
-        blocking,
-    )
-    .await?;
-    Ok(())
-}
-
-pub async fn start_without_pegasus<P>(
-    rpc_config: RPCServerConfig, assemble: P, blocking: bool,
-) -> Result<(), Box<dyn std::error::Error>>
-where
-    P: JobAssembly,
-{
-    crate::rpc::start_rpc_server(
-        rpc_config,
-        Option::<pegasus::Configuration>::None,
-        assemble,
-        vec![],
         &mut StandaloneServiceListener,
         blocking,
     )

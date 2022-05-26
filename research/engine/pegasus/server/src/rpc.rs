@@ -222,11 +222,10 @@ impl RPCServerConfig {
 pub struct RPCJobServer<S: pb::job_service_server::JobService> {
     service: S,
     rpc_config: RPCServerConfig,
-    server_config: Option<pegasus::Configuration>,
 }
 
-pub async fn start_rpc_server<P, D, E>(
-    rpc_config: RPCServerConfig, server_config: Option<Configuration>, assemble: P, server_detector: D,
+pub async fn start_all_servers<P, D, E>(
+    rpc_config: RPCServerConfig, server_config: Configuration, assemble: P, server_detector: D,
     listener: &mut E, blocking: bool,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -234,37 +233,34 @@ where
     D: ServerDetect + 'static,
     E: ServiceStartListener,
 {
-    let service = JobServiceImpl { inner: Arc::new(assemble), report: true };
-    let server = RPCJobServer::new(rpc_config, server_config, service);
-    server
-        .run(server_detector, listener, blocking)
-        .await?;
+    let server_id = server_config.server_id();
+    if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
+        listener.on_server_start(server_id, server_addr)?;
+    }
+    if let Some(rpc_addr) = startup_with(rpc_config, assemble, blocking).await? {
+        listener.on_rpc_start(server_id, rpc_addr)?;
+    }
     Ok(())
 }
 
+pub async fn startup_with<P>(
+    rpc_config: RPCServerConfig, assemble: P, blocking: bool,
+) -> Result<Option<SocketAddr>, Box<dyn std::error::Error>>
+where
+    P: JobAssembly,
+{
+    let service = JobServiceImpl { inner: Arc::new(assemble), report: true };
+    let server = RPCJobServer::new(rpc_config, service);
+    server.run(blocking).await
+}
+
 impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
-    pub fn new(rpc_config: RPCServerConfig, server_config: Option<Configuration>, service: S) -> Self {
-        RPCJobServer { service, rpc_config, server_config }
+    pub fn new(rpc_config: RPCServerConfig, service: S) -> Self {
+        RPCJobServer { service, rpc_config }
     }
 
-    pub async fn run<D, E>(
-        self, server_detector: D, mut listener: &mut E, blocking: bool,
-    ) -> Result<(), Box<dyn std::error::Error>>
-    where
-        D: ServerDetect + 'static,
-        E: ServiceStartListener,
-    {
-        let RPCJobServer { service, mut rpc_config, server_config } = self;
-
-        let mut start_pegasus = false;
-        let mut server_id = 0;
-        if let Some(server_config) = server_config {
-            server_id = server_config.server_id();
-            start_pegasus = true;
-            if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
-                listener.on_server_start(server_id, server_addr)?;
-            }
-        }
+    pub async fn run(self, blocking: bool) -> Result<Option<SocketAddr>, Box<dyn std::error::Error>> {
+        let RPCJobServer { service, mut rpc_config } = self;
 
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -305,9 +301,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
             .map(|d| Duration::from_millis(d));
         let incoming = TcpIncoming::new(addr, rpc_config.tcp_nodelay.unwrap_or(true), ka)?;
         info!("starting RPC job server on {} ...", incoming.inner.local_addr());
-        if start_pegasus {
-            listener.on_rpc_start(server_id, incoming.inner.local_addr())?;
-        }
+        let local_addr = incoming.inner.local_addr();
         let serve = builder
             .add_service(pb::job_service_server::JobServiceServer::new(service))
             .serve_with_incoming(incoming);
@@ -318,7 +312,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
                 serve.await.expect("Rpc server start error");
             });
         }
-        Ok(())
+        Ok(Some(local_addr))
     }
 }
 
