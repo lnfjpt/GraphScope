@@ -256,6 +256,16 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     {
         let RPCJobServer { service, mut rpc_config, server_config } = self;
 
+        let mut start_pegasus = false;
+        let mut server_id = 0;
+        if let Some(server_config) = server_config {
+            server_id = server_config.server_id();
+            start_pegasus = true;
+            if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
+                listener.on_server_start(server_id, server_addr)?;
+            }
+        }
+
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
             builder = builder.concurrency_limit_per_connection(limit);
@@ -295,12 +305,8 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
             .map(|d| Duration::from_millis(d));
         let incoming = TcpIncoming::new(addr, rpc_config.tcp_nodelay.unwrap_or(true), ka)?;
         info!("starting RPC job server on {} ...", incoming.inner.local_addr());
-        if let Some(server_config) = server_config {
-            let server_id = server_config.server_id();
+        if start_pegasus {
             listener.on_rpc_start(server_id, incoming.inner.local_addr())?;
-            if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
-                listener.on_server_start(server_id, server_addr)?;
-            }
         }
         let serve = builder
             .add_service(pb::job_service_server::JobServiceServer::new(service))
