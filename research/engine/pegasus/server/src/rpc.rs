@@ -226,8 +226,8 @@ pub struct RPCJobServer<S: pb::job_service_server::JobService> {
 }
 
 pub async fn start_rpc_server<P, D, E>(
-    server_id: u64, rpc_config: RPCServerConfig, server_config: Option<Configuration>, assemble: P,
-    server_detector: D, listener: &mut E, blocking: bool,
+    rpc_config: RPCServerConfig, server_config: Option<Configuration>, assemble: P, server_detector: D,
+    listener: &mut E, blocking: bool,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     P: JobAssembly,
@@ -237,7 +237,7 @@ where
     let service = JobServiceImpl { inner: Arc::new(assemble), report: true };
     let server = RPCJobServer::new(rpc_config, server_config, service);
     server
-        .run(server_id, server_detector, listener, blocking)
+        .run(server_detector, listener, blocking)
         .await?;
     Ok(())
 }
@@ -248,18 +248,13 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     }
 
     pub async fn run<D, E>(
-        self, server_id: u64, server_detector: D, mut listener: &mut E, blocking: bool,
+        self, server_detector: D, mut listener: &mut E, blocking: bool,
     ) -> Result<(), Box<dyn std::error::Error>>
     where
         D: ServerDetect + 'static,
         E: ServiceStartListener,
     {
         let RPCJobServer { service, mut rpc_config, server_config } = self;
-        if let Some(server_config) = server_config {
-            if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
-                listener.on_server_start(server_id, server_addr)?;
-            }
-        }
 
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -300,7 +295,13 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
             .map(|d| Duration::from_millis(d));
         let incoming = TcpIncoming::new(addr, rpc_config.tcp_nodelay.unwrap_or(true), ka)?;
         info!("starting RPC job server on {} ...", incoming.inner.local_addr());
-        listener.on_rpc_start(server_id, incoming.inner.local_addr())?;
+        if let Some(server_config) = server_config {
+            let server_id = server_config.server_id();
+            listener.on_rpc_start(server_id, incoming.inner.local_addr())?;
+            if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
+                listener.on_server_start(server_id, server_addr)?;
+            }
+        }
         let serve = builder
             .add_service(pb::job_service_server::JobServiceServer::new(service))
             .serve_with_incoming(incoming);
