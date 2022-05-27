@@ -214,6 +214,7 @@ impl RPCServerConfig {
             tcp_nodelay: None,
         }
     }
+
     pub fn parse(content: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(&content)
     }
@@ -222,45 +223,56 @@ impl RPCServerConfig {
 pub struct RPCJobServer<S: pb::job_service_server::JobService> {
     service: S,
     rpc_config: RPCServerConfig,
+    server_config: pegasus::Configuration,
 }
 
-pub async fn start_all_servers<P, D, E>(
-    rpc_config: RPCServerConfig, server_config: Configuration, assemble: P, server_detector: D,
-    listener: &mut E, blocking: bool,
+pub async fn startup<P, D, E>(
+    server_id: u64, rpc_config: RPCServerConfig, assemble: P, listener: &mut E,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     P: JobAssembly,
     D: ServerDetect + 'static,
     E: ServiceStartListener,
 {
-    let server_id = server_config.server_id();
-    if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
-        listener.on_server_start(server_id, server_addr)?;
-    }
-    if let Some(rpc_addr) = startup_with(rpc_config, assemble, blocking).await? {
-        listener.on_rpc_start(server_id, rpc_addr)?;
-    }
+    let service = JobServiceImpl { inner: Arc::new(assemble), report: true };
+    let server =
+        RPCJobServer::new(rpc_config, Configuration { network: None, max_pool_size: None }, service);
+    server.run_rpc_only(server_id, listener).await?;
     Ok(())
 }
 
-pub async fn startup_with<P>(
-    rpc_config: RPCServerConfig, assemble: P, blocking: bool,
-) -> Result<Option<SocketAddr>, Box<dyn std::error::Error>>
+pub async fn start_rpc_server<P, D, E>(
+    rpc_config: RPCServerConfig, server_config: Configuration, assemble: P, server_detector: D,
+    listener: &mut E,
+) -> Result<(), Box<dyn std::error::Error>>
 where
     P: JobAssembly,
+    D: ServerDetect + 'static,
+    E: ServiceStartListener,
 {
     let service = JobServiceImpl { inner: Arc::new(assemble), report: true };
-    let server = RPCJobServer::new(rpc_config, service);
-    server.run(blocking).await
+    let server = RPCJobServer::new(rpc_config, server_config, service);
+    server.run(server_detector, listener).await?;
+    Ok(())
 }
 
 impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
-    pub fn new(rpc_config: RPCServerConfig, service: S) -> Self {
-        RPCJobServer { service, rpc_config }
+    pub fn new(rpc_config: RPCServerConfig, server_config: Configuration, service: S) -> Self {
+        RPCJobServer { service, rpc_config, server_config }
     }
 
-    pub async fn run(self, blocking: bool) -> Result<Option<SocketAddr>, Box<dyn std::error::Error>> {
-        let RPCJobServer { service, mut rpc_config } = self;
+    pub async fn run<D, E>(
+        self, server_detector: D, listener: &mut E,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        D: ServerDetect + 'static,
+        E: ServiceStartListener,
+    {
+        let RPCJobServer { service, mut rpc_config, server_config } = self;
+        let server_id = server_config.server_id();
+        if let Some(server_addr) = pegasus::startup_with(server_config, server_detector)? {
+            listener.on_server_start(server_id, server_addr)?;
+        }
 
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -291,6 +303,8 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
             builder = builder.http2_keepalive_timeout(Some(Duration::from_millis(dur)));
         }
 
+        let service = builder.add_service(pb::job_service_server::JobServiceServer::new(service));
+
         let host = rpc_config
             .rpc_host
             .clone()
@@ -301,18 +315,65 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
             .map(|d| Duration::from_millis(d));
         let incoming = TcpIncoming::new(addr, rpc_config.tcp_nodelay.unwrap_or(true), ka)?;
         info!("starting RPC job server on {} ...", incoming.inner.local_addr());
-        let local_addr = incoming.inner.local_addr();
-        let serve = builder
-            .add_service(pb::job_service_server::JobServiceServer::new(service))
-            .serve_with_incoming(incoming);
-        if blocking {
-            serve.await?;
-        } else {
-            tokio::spawn(async move {
-                serve.await.expect("Rpc server start error");
-            });
+        listener.on_rpc_start(server_id, incoming.inner.local_addr())?;
+
+        service.serve_with_incoming(incoming).await?;
+        Ok(())
+    }
+
+    pub async fn run_rpc_only<E>(
+        self, server_id: u64, listener: &mut E,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        E: ServiceStartListener,
+    {
+        let RPCJobServer { service, mut rpc_config, server_config } = self;
+
+        let mut builder = Server::builder();
+        if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
+            builder = builder.concurrency_limit_per_connection(limit);
         }
-        Ok(Some(local_addr))
+
+        if let Some(dur) = rpc_config.rpc_timeout_ms.take() {
+            builder.timeout(Duration::from_millis(dur));
+        }
+
+        if let Some(size) = rpc_config.rpc_initial_stream_window_size {
+            builder = builder.initial_stream_window_size(Some(size));
+        }
+
+        if let Some(size) = rpc_config.rpc_initial_connection_window_size {
+            builder = builder.initial_connection_window_size(Some(size));
+        }
+
+        if let Some(size) = rpc_config.rpc_max_concurrent_streams {
+            builder = builder.max_concurrent_streams(Some(size));
+        }
+
+        if let Some(dur) = rpc_config.rpc_keep_alive_interval_ms.take() {
+            builder = builder.http2_keepalive_interval(Some(Duration::from_millis(dur)));
+        }
+
+        if let Some(dur) = rpc_config.rpc_keep_alive_timeout_ms.take() {
+            builder = builder.http2_keepalive_timeout(Some(Duration::from_millis(dur)));
+        }
+
+        let service = builder.add_service(pb::job_service_server::JobServiceServer::new(service));
+
+        let host = rpc_config
+            .rpc_host
+            .clone()
+            .unwrap_or("0.0.0.0".to_owned());
+        let addr = SocketAddr::new(host.parse()?, rpc_config.rpc_port.unwrap_or(0));
+        let ka = rpc_config
+            .tcp_keep_alive_ms
+            .map(|d| Duration::from_millis(d));
+        let incoming = TcpIncoming::new(addr, rpc_config.tcp_nodelay.unwrap_or(true), ka)?;
+        info!("starting RPC job server on {} ...", incoming.inner.local_addr());
+        listener.on_rpc_start(server_id, incoming.inner.local_addr())?;
+
+        service.serve_with_incoming(incoming).await?;
+        Ok(())
     }
 }
 
