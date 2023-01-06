@@ -19,7 +19,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="graphscope.Vertex" href="generated/graphscope.Vertex.html" />
-    <link rel="prev" title="graphscope.framework.dag_utils.graph_to_dataframe" href="generated/graphscope.framework.dag_utils.graph_to_dataframe.html" />
+    <link rel="prev" title="graphscope.framework.dag_utils.fetch_gremlin_result" href="generated/graphscope.framework.dag_utils.fetch_gremlin_result.html" />
 
  
 
@@ -135,11 +135,11 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
-          <li><a href="python_index.html">Python API Reference</a> &raquo;</li>
-      <li>Cython SDK API</li>
+      <li><a href="../index.html" class="icon icon-home"></a></li>
+          <li class="breadcrumb-item"><a href="python_index.html">Python API Reference</a></li>
+      <li class="breadcrumb-item active">Cython SDK API</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../_sources/reference/cython_sdk.rst.txt" rel="nofollow"> View page source</a>
+              <a href="https://github.com/alibaba/graphscope/edit/main/docs/reference/cython_sdk.rst" class="fa fa-github"> Edit on GitHub</a>
       </li>
   </ul>
   <hr/>
@@ -417,7 +417,7 @@ vote to halt.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">Context.</span></span><span class="sig-name descname"><span class="pre">superstep</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> &#x2192; <span class="pre">str</span></dt>
+<span class="sig-prename descclassname"><span class="pre">Context.</span></span><span class="sig-name descname"><span class="pre">superstep</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> &#x2192; <span class="pre">int</span></dt>
 <dd><blockquote>
 <div><p>Get current superstep, begin with 0.</p>
 </div></blockquote>
@@ -947,6 +947,14 @@ non-deterministic.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">begin</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> &#x2192; <span class="pre">Nbr</span></dt>
+<dd><blockquote>
+<div><p>Return begin addr of the adj list.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
 <span class="sig-name descname"><span class="pre">end</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> &#x2192; <span class="pre">Nbr</span></dt>
 <dd><blockquote>
 <div><p>Return end addr of the adj list.</p>
@@ -1085,7 +1093,7 @@ non-deterministic.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">get_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">label_id:</span> <span class="pre">int</span></em>, <em class="sig-param"><span class="pre">oid:</span> <span class="pre">int64_t</span></em>, <em class="sig-param"><span class="pre">v:</span> <span class="pre">Vertex&amp;</span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">bool</span></dt>
+<span class="sig-name descname"><span class="pre">get_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">label_id:</span> <span class="pre">int</span></em>, <em class="sig-param"><span class="pre">oid:</span> <span class="pre">string&amp;</span></em>, <em class="sig-param"><span class="pre">v:</span> <span class="pre">Vertex&amp;</span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">bool</span></dt>
 <dd><blockquote>
 <div><p>Return True if oid exists in this fragment.</p>
 </div></blockquote>
@@ -1093,7 +1101,7 @@ non-deterministic.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">get_inner_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">label_id:</span> <span class="pre">int</span></em>, <em class="sig-param"><span class="pre">oid:</span> <span class="pre">int64_t</span></em>, <em class="sig-param"><span class="pre">v:</span> <span class="pre">Vertex&amp;</span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">bool</span></dt>
+<span class="sig-name descname"><span class="pre">get_inner_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">label_id:</span> <span class="pre">int</span></em>, <em class="sig-param"><span class="pre">oid:</span> <span class="pre">string&amp;</span></em>, <em class="sig-param"><span class="pre">v:</span> <span class="pre">Vertex&amp;</span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">bool</span></dt>
 <dd><blockquote>
 <div><p>Return True if oid exists in the inner vertex in this fragment, and assign the node to <cite>v</cite>.</p>
 </div></blockquote>
@@ -1101,7 +1109,7 @@ non-deterministic.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">get_outer_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">label_id:</span> <span class="pre">int</span></em>, <em class="sig-param"><span class="pre">oid:</span> <span class="pre">int64_t</span></em>, <em class="sig-param"><span class="pre">v:</span> <span class="pre">Vertex&amp;</span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">bool</span></dt>
+<span class="sig-name descname"><span class="pre">get_outer_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">label_id:</span> <span class="pre">int</span></em>, <em class="sig-param"><span class="pre">oid:</span> <span class="pre">string&amp;</span></em>, <em class="sig-param"><span class="pre">v:</span> <span class="pre">Vertex&amp;</span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">bool</span></dt>
 <dd><blockquote>
 <div><p>Return True if oid exists in the outer vertex in this fragment, and assign the node to <cite>v</cite>.</p>
 </div></blockquote>
@@ -1109,7 +1117,7 @@ non-deterministic.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">get_node_id</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Vertex</span></span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">int64_t</span></dt>
+<span class="sig-name descname"><span class="pre">get_node_id</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span><span class="p"><span class="pre">:</span></span> <span class="n"><span class="pre">Vertex</span></span></em><span class="sig-paren">)</span> &#x2192; <span class="pre">str</span></dt>
 <dd><blockquote>
 <div><p>Return vertex oid of <cite>v</cite>.</p>
 </div></blockquote>
@@ -1484,14 +1492,14 @@ non-deterministic.</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="generated/graphscope.framework.dag_utils.graph_to_dataframe.html" class="btn btn-neutral float-left" title="graphscope.framework.dag_utils.graph_to_dataframe" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="generated/graphscope.framework.dag_utils.fetch_gremlin_result.html" class="btn btn-neutral float-left" title="graphscope.framework.dag_utils.fetch_gremlin_result" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="generated/graphscope.Vertex.html" class="btn btn-neutral float-right" title="graphscope.Vertex" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2020-2023, Damo Academy, Alibaba Inc..</p>
+    <p>&#169; Copyright 2020-2023, DAMO Academy, Alibaba Inc..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

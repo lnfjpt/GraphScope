@@ -109,9 +109,9 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../../../../index.html" class="icon icon-home"></a> &raquo;</li>
-          <li><a href="../../../index.html">Module code</a> &raquo;</li>
-      <li>graphscope.analytical.app.wcc</li>
+      <li><a href="../../../../index.html" class="icon icon-home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">graphscope.analytical.app.wcc</li>
       <li class="wy-breadcrumbs-aside">
       </li>
   </ul>
@@ -139,12 +139,15 @@
 <span class="c1"># limitations under the License.</span>
 <span class="c1">#</span>
 
+<span class="kn">import</span> <span class="nn">logging</span>
 
 <span class="kn">from</span> <span class="nn">graphscope.framework.app</span> <span class="kn">import</span> <span class="n">AppAssets</span>
 <span class="kn">from</span> <span class="nn">graphscope.framework.app</span> <span class="kn">import</span> <span class="n">not_compatible_for</span>
 <span class="kn">from</span> <span class="nn">graphscope.framework.app</span> <span class="kn">import</span> <span class="n">project_to_simple</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;wcc&quot;</span><span class="p">]</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;graphscope&quot;</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="wcc"><a class="viewcode-back" href="../../../../reference/app.html#graphscope.wcc">[docs]</a><span class="nd">@project_to_simple</span>
@@ -153,7 +156,7 @@
     <span class="sd">&quot;&quot;&quot;Evaluate weakly connected components on the `graph`.</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        graph (:class:`Graph`): A simple graph.</span>
+<span class="sd">        graph (:class:`graphscope.Graph`): A simple graph.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        :class:`graphscope.framework.context.VertexDataContextDAGNode`:</span>
@@ -163,15 +166,24 @@
 
 <span class="sd">    .. code:: python</span>
 
-<span class="sd">        import graphscope as gs</span>
-<span class="sd">        g = gs.g()</span>
-<span class="sd">        # Load some data, then project to a simple graph (if needed).</span>
-<span class="sd">        pg = g.project(vertices={&quot;vlabel&quot;: []}, edges={&quot;elabel&quot;: []})</span>
-<span class="sd">        r = gs.wcc(pg)</span>
-<span class="sd">        s.close()</span>
-
+<span class="sd">        &gt;&gt;&gt; import graphscope</span>
+<span class="sd">        &gt;&gt;&gt; from graphscope.dataset import load_p2p_network</span>
+<span class="sd">        &gt;&gt;&gt; sess = graphscope.session(cluster_type=&quot;hosts&quot;, mode=&quot;eager&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; g = load_p2p_network(sess)</span>
+<span class="sd">        &gt;&gt;&gt; # project to a simple graph (if needed)</span>
+<span class="sd">        &gt;&gt;&gt; pg = g.project(vertices={&quot;host&quot;: [&quot;id&quot;]}, edges={&quot;connect&quot;: [&quot;dist&quot;]})</span>
+<span class="sd">        &gt;&gt;&gt; c = graphscope.wcc(pg)</span>
+<span class="sd">        &gt;&gt;&gt; sess.close()</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">AppAssets</span><span class="p">(</span><span class="n">algo</span><span class="o">=</span><span class="s2">&quot;wcc&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="s2">&quot;vertex_data&quot;</span><span class="p">)(</span><span class="n">graph</span><span class="p">)</span></div>
+    <span class="n">cmake_extra_options</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">graph</span><span class="o">.</span><span class="n">oid_type</span> <span class="o">==</span> <span class="s2">&quot;std::string&quot;</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+            <span class="s2">&quot;WCC algorithm will output int value as component ID on graphs that has &#39;string&#39; type as ID&quot;</span>
+        <span class="p">)</span>
+        <span class="n">cmake_extra_options</span> <span class="o">=</span> <span class="s2">&quot;-DWCC_USE_GID=ON&quot;</span>
+    <span class="k">return</span> <span class="n">AppAssets</span><span class="p">(</span>
+        <span class="n">algo</span><span class="o">=</span><span class="s2">&quot;wcc&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="s2">&quot;vertex_data&quot;</span><span class="p">,</span> <span class="n">cmake_extra_options</span><span class="o">=</span><span class="n">cmake_extra_options</span>
+    <span class="p">)(</span><span class="n">graph</span><span class="p">)</span></div>
 </pre></div>
 
            </div>
@@ -181,7 +193,7 @@
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2020-2023, Damo Academy, Alibaba Inc..</p>
+    <p>&#169; Copyright 2020-2023, DAMO Academy, Alibaba Inc..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

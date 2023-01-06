@@ -109,9 +109,9 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../../../index.html" class="icon icon-home"></a> &raquo;</li>
-          <li><a href="../../index.html">Module code</a> &raquo;</li>
-      <li>graphscope.framework.context</li>
+      <li><a href="../../../index.html" class="icon icon-home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">graphscope.framework.context</li>
       <li class="wy-breadcrumbs-aside">
       </li>
   </ul>
@@ -141,9 +141,12 @@
 
 <span class="kn">import</span> <span class="nn">collections</span>
 <span class="kn">import</span> <span class="nn">hashlib</span>
+<span class="kn">import</span> <span class="nn">itertools</span>
 <span class="kn">import</span> <span class="nn">json</span>
 <span class="kn">from</span> <span class="nn">copy</span> <span class="kn">import</span> <span class="n">deepcopy</span>
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Mapping</span>
+
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
 
 <span class="kn">from</span> <span class="nn">graphscope.framework</span> <span class="kn">import</span> <span class="n">dag_utils</span>
 <span class="kn">from</span> <span class="nn">graphscope.framework</span> <span class="kn">import</span> <span class="n">utils</span>
@@ -181,7 +184,7 @@
     <span class="sd">&quot;&quot;&quot;Base class of concrete context DAG node.</span>
 
 <span class="sd">    In GraphScope, it will return a instance of concrete class `ContextDAGNode`</span>
-<span class="sd">    after evaluating an app, that will be automatically executed by :method:`sess.run`</span>
+<span class="sd">    after evaluating an app, that will be automatically executed by :meth:`Session.run`</span>
 <span class="sd">    in eager mode and return a instance of :class:`graphscope.framework.context.Context`</span>
 
 <span class="sd">    We can further use the handle to retrieve data:</span>
@@ -195,37 +198,40 @@
 <span class="sd">    .. code:: python</span>
 
 <span class="sd">        &gt;&gt;&gt; # lazy mode</span>
-<span class="sd">        &gt;&gt;&gt; import graphscope as gs</span>
-<span class="sd">        &gt;&gt;&gt; sess = gs.session(mode=&quot;lazy&quot;)</span>
-<span class="sd">        &gt;&gt;&gt; g = arrow_property_graph(sess)</span>
-<span class="sd">        &gt;&gt;&gt; c = property_sssp(g, 20)</span>
-<span class="sd">        &gt;&gt;&gt; print(c) # &lt;graphscope.framework.context.LabeledVertexDataContextDAGNode&gt;</span>
-<span class="sd">        &gt;&gt;&gt; r1 = c.to_numpy(&quot;r:v0.dist_0&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; import graphscope</span>
+<span class="sd">        &gt;&gt;&gt; from graphscope.dataset import load_p2p_network</span>
+<span class="sd">        &gt;&gt;&gt; sess = graphscope.session(cluster_type=&quot;hosts&quot;, mode=&quot;lazy&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; g = load_p2p_network(sess)</span>
+<span class="sd">        &gt;&gt;&gt; sg = g.project(vertices={&quot;host&quot;: [&quot;id&quot;]}, edges={&quot;connect&quot;: [&quot;dist&quot;]})</span>
+<span class="sd">        &gt;&gt;&gt; c = graphscope.sssp(sg, 20)</span>
+<span class="sd">        &gt;&gt;&gt; print(c) # &lt;graphscope.framework.context.VertexDataContextDAGNode&gt;</span>
+<span class="sd">        &gt;&gt;&gt; r1 = c.to_numpy(&quot;r&quot;)</span>
 <span class="sd">        &gt;&gt;&gt; print(r1) # &lt;graphscope.ramework.context.ResultDAGNode&gt;</span>
-<span class="sd">        &gt;&gt;&gt; r2 = c.to_dataframe({&quot;id&quot;: &quot;v:v0.id&quot;, &quot;result&quot;: &quot;r:v0.dist_0&quot;})</span>
-<span class="sd">        &gt;&gt;&gt; r3 = c.to_vineyard_tensor(&quot;v:v0.id&quot;)</span>
-<span class="sd">        &gt;&gt;&gt; r4 = c.to_vineyard_dataframe({&quot;id&quot;: &quot;v:v0.id&quot;, &quot;data&quot;: &quot;v:v0.dist&quot;, &quot;result&quot;: &quot;r:v0.dist_0&quot;})</span>
+<span class="sd">        &gt;&gt;&gt; r2 = c.to_dataframe({&quot;id&quot;: &quot;v.id&quot;, &quot;result&quot;: &quot;r&quot;})</span>
+<span class="sd">        &gt;&gt;&gt; r3 = c.to_vineyard_tensor(&quot;r&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; r4 = c.to_vineyard_dataframe({&quot;id&quot;: &quot;v.id&quot;, &quot;result&quot;: &quot;r&quot;})</span>
 <span class="sd">        &gt;&gt;&gt; r = sess.run([r1, r2, r3, r4])</span>
 <span class="sd">        &gt;&gt;&gt; r[0].shape</span>
-<span class="sd">        (40521,)</span>
+<span class="sd">        (62586,)</span>
 <span class="sd">        &gt;&gt;&gt; r[1].shape</span>
-<span class="sd">        (40521, 2)</span>
+<span class="sd">        (62586, 2)</span>
 <span class="sd">        &gt;&gt;&gt; r[2] # return an object id</span>
 <span class="sd">        &gt;&gt;&gt; r[3] # return an object id</span>
 
 <span class="sd">        &gt;&gt;&gt; # eager mode</span>
-<span class="sd">        &gt;&gt;&gt; import graphscope as gs</span>
-<span class="sd">        &gt;&gt;&gt; sess = gs.session(mode=&quot;eager&quot;)</span>
-<span class="sd">        &gt;&gt;&gt; g = arrow_property_graph(sess)</span>
-<span class="sd">        &gt;&gt;&gt; sg = g.project(vertices={&#39;person&#39;: [&#39;id&#39;]}, edges={&#39;knows&#39;: [&#39;weight&#39;]})</span>
+<span class="sd">        &gt;&gt;&gt; import graphscope</span>
+<span class="sd">        &gt;&gt;&gt; from graphscope.dataset import load_p2p_network</span>
+<span class="sd">        &gt;&gt;&gt; sess = graphscope.session(cluster_type=&quot;hosts&quot;, mode=&quot;eager&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; g = load_p2p_network(sess)</span>
+<span class="sd">        &gt;&gt;&gt; sg = g.project(vertices={&quot;host&quot;: [&quot;id&quot;]}, edges={&quot;connect&quot;: [&quot;dist&quot;]})</span>
 <span class="sd">        &gt;&gt;&gt; c = sssp(sg, 20)</span>
 <span class="sd">        &gt;&gt;&gt; print(c) # &lt;graphscope.framework.context.Context&gt;</span>
-<span class="sd">        &gt;&gt;&gt; r1 = c.to_numpy(&#39;r&#39;)</span>
+<span class="sd">        &gt;&gt;&gt; r1 = c.to_numpy(&quot;r&quot;)</span>
 <span class="sd">        &gt;&gt;&gt; r1.shape</span>
-<span class="sd">        (20345,)</span>
-<span class="sd">        &gt;&gt;&gt; r2 = c.to_dataframe({&#39;id&#39;: &#39;v.id&#39;, &#39;result&#39;: &#39;r&#39;})</span>
+<span class="sd">        (62586,)</span>
+<span class="sd">        &gt;&gt;&gt; r2 = c.to_dataframe({&quot;id&quot;: &quot;v.id&quot;, &quot;result&quot;: &quot;r&quot;})</span>
 <span class="sd">        &gt;&gt;&gt; r2.shape</span>
-<span class="sd">        (20345, 2)</span>
+<span class="sd">        (62586, 2)</span>
 <span class="sd">        &gt;&gt;&gt; r3 = c.to_vineyard_tensor() # return an object id</span>
 <span class="sd">        &gt;&gt;&gt; r4 = c.to_vineyard_dataframe() # return an object id</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -293,8 +299,9 @@
         <span class="n">check_argument</span><span class="p">(</span>
             <span class="nb">isinstance</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">),</span> <span class="s2">&quot;selector of to_dataframe must be a dict&quot;</span>
         <span class="p">)</span>
-        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">selector</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">selector</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_check_selector</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="n">_ensure_consistent_label</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">context_type</span><span class="p">,</span> <span class="n">selector</span><span class="p">)</span>
         <span class="n">selector</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">selector</span><span class="p">)</span>
         <span class="n">vertex_range</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">transform_vertex_range</span><span class="p">(</span><span class="n">vertex_range</span><span class="p">)</span>
         <span class="n">op</span> <span class="o">=</span> <span class="n">dag_utils</span><span class="o">.</span><span class="n">context_to_dataframe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">selector</span><span class="p">,</span> <span class="n">vertex_range</span><span class="p">)</span>
@@ -334,8 +341,9 @@
                 <span class="nb">isinstance</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">),</span>
                 <span class="s2">&quot;selector of to_vineyard_dataframe must be a dict&quot;</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">selector</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">selector</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_check_selector</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">_ensure_consistent_label</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">context_type</span><span class="p">,</span> <span class="n">selector</span><span class="p">)</span>
             <span class="n">selector</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">selector</span><span class="p">)</span>
         <span class="n">vertex_range</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">transform_vertex_range</span><span class="p">(</span><span class="n">vertex_range</span><span class="p">)</span>
         <span class="n">op</span> <span class="o">=</span> <span class="n">dag_utils</span><span class="o">.</span><span class="n">to_vineyard_dataframe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">selector</span><span class="p">,</span> <span class="n">vertex_range</span><span class="p">)</span>
@@ -369,11 +377,31 @@
 <span class="sd">        Returns:</span>
 <span class="sd">            :class:`graphscope.framework.context.ResultDAGNode`, evaluated in eager mode.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">df</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_vineyard_dataframe</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span> <span class="n">vertex_range</span><span class="p">)</span>
-        <span class="n">op</span> <span class="o">=</span> <span class="n">dag_utils</span><span class="o">.</span><span class="n">output</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">protocol</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;://&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="c1"># Still use the stream to write to file,</span>
+        <span class="c1"># as the C++ adaptor in Vineyard requires arrow &gt;= 4.0.0</span>
+        <span class="k">if</span> <span class="n">protocol</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;file&quot;</span><span class="p">,</span> <span class="s2">&quot;hdfs&quot;</span><span class="p">,</span> <span class="s2">&quot;hive&quot;</span><span class="p">,</span> <span class="s2">&quot;oss&quot;</span><span class="p">,</span> <span class="s2">&quot;s3&quot;</span><span class="p">):</span>
+            <span class="n">df</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_vineyard_dataframe</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span> <span class="n">vertex_range</span><span class="p">)</span>
+            <span class="n">op</span> <span class="o">=</span> <span class="n">dag_utils</span><span class="o">.</span><span class="n">to_data_sink</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">check_argument</span><span class="p">(</span>
+                <span class="nb">isinstance</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">),</span> <span class="s2">&quot;selector of to_dataframe must be a dict&quot;</span>
+            <span class="p">)</span>
+            <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">selector</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_check_selector</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">_ensure_consistent_label</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">context_type</span><span class="p">,</span> <span class="n">selector</span><span class="p">)</span>
+            <span class="n">selector</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">selector</span><span class="p">)</span>
+            <span class="n">vertex_range</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">transform_vertex_range</span><span class="p">(</span><span class="n">vertex_range</span><span class="p">)</span>
+            <span class="n">op</span> <span class="o">=</span> <span class="n">dag_utils</span><span class="o">.</span><span class="n">output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">selector</span><span class="p">,</span> <span class="n">vertex_range</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">ResultDAGNode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">op</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">unload</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_unload</span><span class="p">())</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pylint: disable=broad-except</span>
+            <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">_unload</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">op</span> <span class="o">=</span> <span class="n">dag_utils</span><span class="o">.</span><span class="n">unload_context</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">UnloadedContext</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_session</span><span class="p">,</span> <span class="n">op</span><span class="p">)</span></div>
 
@@ -418,8 +446,14 @@
         <span class="k">return</span> <span class="s2">&quot;vertex_data&quot;</span>
 
     <span class="k">def</span> <span class="nf">_build_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result_properties</span><span class="p">):</span>
-        <span class="n">ret</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;v&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">],</span> <span class="s2">&quot;e&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">],</span> <span class="s2">&quot;r&quot;</span><span class="p">:</span> <span class="p">[]}</span>
-        <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+        <span class="n">v_items</span> <span class="o">=</span> <span class="p">[[</span><span class="s2">&quot;v&quot;</span><span class="p">,</span> <span class="s2">&quot;id&quot;</span><span class="p">],</span> <span class="p">[</span><span class="s2">&quot;v&quot;</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">]]</span>
+        <span class="n">r_items</span> <span class="o">=</span> <span class="p">[[</span><span class="s2">&quot;r&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">]]</span>
+        <span class="n">index</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">MultiIndex</span><span class="o">.</span><span class="n">from_tuples</span><span class="p">(</span>
+            <span class="n">itertools</span><span class="o">.</span><span class="n">chain</span><span class="p">(</span><span class="n">v_items</span><span class="p">,</span> <span class="n">r_items</span><span class="p">),</span> <span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="s2">&quot;property&quot;</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">v_values</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">v_items</span><span class="p">]</span>
+        <span class="n">r_values</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">r_items</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">v_values</span> <span class="o">+</span> <span class="n">r_values</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">index</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Context schema&quot;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_check_selector</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">selector</span><span class="p">):</span>
         <span class="sd">&quot;&quot;&quot;</span>
@@ -434,24 +468,22 @@
         <span class="k">if</span> <span class="n">selector</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="n">InvalidArgumentError</span><span class="p">(</span><span class="s2">&quot;Selector in vertex data context cannot be None&quot;</span><span class="p">)</span>
         <span class="n">segments</span> <span class="o">=</span> <span class="n">selector</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="s2">&quot;Invalid selector: </span><span class="si">{0}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">selector</span><span class="p">))</span>
+        <span class="n">err_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid selector: `</span><span class="si">{</span><span class="n">selector</span><span class="si">}</span><span class="s2">`. &quot;</span>
+        <span class="n">err_msg</span> <span class="o">+=</span> <span class="p">(</span>
+            <span class="s2">&quot;Please inspect the result with `ret.schema` and choose a valid selector.&quot;</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="n">segments</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;v&quot;</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">selector</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;v.id&quot;</span><span class="p">,</span> <span class="s2">&quot;v.data&quot;</span><span class="p">,</span> <span class="s2">&quot;v.label_id&quot;</span><span class="p">):</span>
-                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span>
-                    <span class="s2">&quot;Selector of v must be &#39;v.id&#39;, &#39;v.data&#39; or &#39;v.label_id&#39;&quot;</span>
-                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">selector</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;v.id&quot;</span><span class="p">,</span> <span class="s2">&quot;v.data&quot;</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
         <span class="k">elif</span> <span class="n">segments</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;e&quot;</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Selector of e not supported yet&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Selector of e is not supported yet&quot;</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">selector</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;e.src&quot;</span><span class="p">,</span> <span class="s2">&quot;e.dst&quot;</span><span class="p">,</span> <span class="s2">&quot;e.data&quot;</span><span class="p">):</span>
-                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="s2">&quot;Selector of e must be &#39;e.src&#39;, &#39;e.dst&#39; or &#39;e.data&#39;&quot;</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
         <span class="k">elif</span> <span class="n">segments</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;r&quot;</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">selector</span> <span class="o">!=</span> <span class="s2">&quot;r&quot;</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="s2">&quot;Selector of r must be &#39;r&#39;&quot;</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span>
-                <span class="s2">&quot;Invalid selector: </span><span class="si">{0}</span><span class="s2">, choose from v / e / r&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">selector</span><span class="p">)</span>
-            <span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
         <span class="k">return</span> <span class="kc">True</span></div>
 
 
@@ -482,12 +514,14 @@
 
     <span class="k">def</span> <span class="nf">_build_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result_properties</span><span class="p">):</span>
         <span class="n">schema</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_graph</span><span class="o">.</span><span class="n">schema</span>
-        <span class="n">ret</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="s2">&quot;v&quot;</span><span class="p">:</span> <span class="n">_get_property_v_context_schema_str</span><span class="p">(</span><span class="n">schema</span><span class="p">),</span>
-            <span class="s2">&quot;e&quot;</span><span class="p">:</span> <span class="n">_get_property_e_context_schema_str</span><span class="p">(</span><span class="n">schema</span><span class="p">),</span>
-            <span class="s2">&quot;r&quot;</span><span class="p">:</span> <span class="n">schema</span><span class="o">.</span><span class="n">vertex_labels</span><span class="p">,</span>
-        <span class="p">}</span>
-        <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+        <span class="n">v_items</span> <span class="o">=</span> <span class="p">[[</span><span class="s2">&quot;v&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">_get_property_v_context_schema</span><span class="p">(</span><span class="n">schema</span><span class="p">)]</span>
+        <span class="n">r_items</span> <span class="o">=</span> <span class="p">[[</span><span class="s2">&quot;r&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">label</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">vertex_labels</span><span class="p">]</span>
+        <span class="n">index</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">MultiIndex</span><span class="o">.</span><span class="n">from_tuples</span><span class="p">(</span>
+            <span class="n">itertools</span><span class="o">.</span><span class="n">chain</span><span class="p">(</span><span class="n">v_items</span><span class="p">,</span> <span class="n">r_items</span><span class="p">),</span> <span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="s2">&quot;label&quot;</span><span class="p">,</span> <span class="s2">&quot;property&quot;</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">v_values</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">l</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">l</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">v_items</span><span class="p">]</span>
+        <span class="n">r_values</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">l</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">l</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">r_items</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">v_values</span> <span class="o">+</span> <span class="n">r_values</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">index</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Context schema&quot;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_check_selector</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">selector</span><span class="p">):</span>
         <span class="sd">&quot;&quot;&quot;</span>
@@ -503,16 +537,25 @@
             <span class="k">raise</span> <span class="n">InvalidArgumentError</span><span class="p">(</span>
                 <span class="s2">&quot;Selector in labeled vertex data context cannot be None&quot;</span>
             <span class="p">)</span>
-        <span class="n">stype</span><span class="p">,</span> <span class="n">segments</span> <span class="o">=</span> <span class="n">selector</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">stype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;v&quot;</span><span class="p">,</span> <span class="s2">&quot;e&quot;</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span>
-                <span class="s2">&quot;Invalid selector: </span><span class="si">{0}</span><span class="s2">, choose from v / e / r&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">selector</span><span class="p">)</span>
-            <span class="p">)</span>
-        <span class="k">if</span> <span class="n">stype</span> <span class="o">==</span> <span class="s2">&quot;e&quot;</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Selector of e not supported yet&quot;</span><span class="p">)</span>
+        <span class="n">segments</span> <span class="o">=</span> <span class="n">selector</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
+        <span class="n">err_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid selector: `</span><span class="si">{</span><span class="n">selector</span><span class="si">}</span><span class="s2">`. &quot;</span>
+        <span class="n">err_msg</span> <span class="o">+=</span> <span class="p">(</span>
+            <span class="s2">&quot;Please inspect the result with `ret.schema` and choose a valid selector.&quot;</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
+        <span class="n">stype</span><span class="p">,</span> <span class="n">segments</span> <span class="o">=</span> <span class="n">segments</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">segments</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
         <span class="n">segments</span> <span class="o">=</span> <span class="n">segments</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="s2">&quot;Invalid selector: </span><span class="si">{0}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">selector</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">stype</span> <span class="o">==</span> <span class="s2">&quot;v&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">stype</span> <span class="o">==</span> <span class="s2">&quot;e&quot;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Selector of e not supported yet&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">stype</span> <span class="o">==</span> <span class="s2">&quot;r&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
         <span class="k">return</span> <span class="kc">True</span></div>
 
 
@@ -524,6 +567,7 @@
 <span class="sd">        - `v.id`: Get the Id of vertices</span>
 <span class="sd">        - `v.data`: Get the data of vertices</span>
 <span class="sd">            If there is any, means origin data on the graph, not results</span>
+<span class="sd">        - `v.label_id`: Get the label ID of each vertex.</span>
 
 <span class="sd">    - The syntax of selector of edge is (not supported yet):</span>
 <span class="sd">        - `e.src`: Get the source Id of edges</span>
@@ -541,18 +585,14 @@
         <span class="k">return</span> <span class="s2">&quot;vertex_property&quot;</span>
 
     <span class="k">def</span> <span class="nf">_build_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result_properties</span><span class="p">):</span>
-        <span class="sd">&quot;&quot;&quot;Build context schema.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            result_properties (str): Returned by c++,</span>
-<span class="sd">            example_format(str): &quot;id,name,age,&quot;</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            str: return schema as human readable string</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">result_properties</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">result_properties</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">i</span><span class="p">]</span>
-        <span class="n">ret</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;v&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">],</span> <span class="s2">&quot;e&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">],</span> <span class="s2">&quot;r&quot;</span><span class="p">:</span> <span class="n">result_properties</span><span class="p">}</span>
-        <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+        <span class="n">v_items</span> <span class="o">=</span> <span class="p">[[</span><span class="s2">&quot;v&quot;</span><span class="p">,</span> <span class="s2">&quot;id&quot;</span><span class="p">],</span> <span class="p">[</span><span class="s2">&quot;v&quot;</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">]]</span>
+        <span class="n">r_items</span> <span class="o">=</span> <span class="p">[[</span><span class="s2">&quot;r&quot;</span><span class="p">,</span> <span class="n">prop</span><span class="p">]</span> <span class="k">for</span> <span class="n">prop</span> <span class="ow">in</span> <span class="n">result_properties</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">prop</span><span class="p">]</span>
+        <span class="n">index</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">MultiIndex</span><span class="o">.</span><span class="n">from_tuples</span><span class="p">(</span>
+            <span class="n">itertools</span><span class="o">.</span><span class="n">chain</span><span class="p">(</span><span class="n">v_items</span><span class="p">,</span> <span class="n">r_items</span><span class="p">),</span> <span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="s2">&quot;property&quot;</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">v_values</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">v_items</span><span class="p">]</span>
+        <span class="n">r_values</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">r_items</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">v_values</span> <span class="o">+</span> <span class="n">r_values</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">index</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Context schema&quot;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_check_selector</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">selector</span><span class="p">):</span>
         <span class="sd">&quot;&quot;&quot;</span>
@@ -569,13 +609,15 @@
                 <span class="s2">&quot;Selector in vertex property context cannot be None&quot;</span>
             <span class="p">)</span>
         <span class="n">segments</span> <span class="o">=</span> <span class="n">selector</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+        <span class="n">err_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid selector: `</span><span class="si">{</span><span class="n">selector</span><span class="si">}</span><span class="s2">`. &quot;</span>
+        <span class="n">err_msg</span> <span class="o">+=</span> <span class="p">(</span>
+            <span class="s2">&quot;Please inspect the result with `ret.schema` and choose a valid selector.&quot;</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="s2">&quot;Invalid selector: </span><span class="si">{0}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">selector</span><span class="p">))</span>
+            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">segments</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;v&quot;</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">selector</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;v.id&quot;</span><span class="p">,</span> <span class="s2">&quot;v.data&quot;</span><span class="p">,</span> <span class="s2">&quot;v.label_id&quot;</span><span class="p">):</span>
-                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span>
-                    <span class="s2">&quot;Selector of v must be &#39;v.id&#39;, &#39;v.data&#39; or &#39;v.label_id&#39;&quot;</span>
-                <span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
         <span class="k">elif</span> <span class="n">segments</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;e&quot;</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Selector of e not supported yet&quot;</span><span class="p">)</span>
         <span class="k">elif</span> <span class="n">segments</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;r&quot;</span><span class="p">:</span>
@@ -583,9 +625,7 @@
             <span class="c1"># So we will allow any str</span>
             <span class="k">pass</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span>
-                <span class="s2">&quot;Invalid selector: </span><span class="si">{0}</span><span class="s2">, choose from v / e / r&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">selector</span><span class="p">)</span>
-            <span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
         <span class="k">return</span> <span class="kc">True</span></div>
 
 
@@ -628,37 +668,50 @@
 <span class="sd">            str: return schema as human readable string</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">schema</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_graph</span><span class="o">.</span><span class="n">schema</span>
-        <span class="n">ret</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="s2">&quot;v&quot;</span><span class="p">:</span> <span class="n">_get_property_v_context_schema_str</span><span class="p">(</span><span class="n">schema</span><span class="p">),</span>
-            <span class="s2">&quot;e&quot;</span><span class="p">:</span> <span class="n">_get_property_e_context_schema_str</span><span class="p">(</span><span class="n">schema</span><span class="p">),</span>
-            <span class="s2">&quot;r&quot;</span><span class="p">:</span> <span class="p">{},</span>
-        <span class="p">}</span>
+        <span class="n">v_items</span> <span class="o">=</span> <span class="p">[[</span><span class="s2">&quot;v&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">_get_property_v_context_schema</span><span class="p">(</span><span class="n">schema</span><span class="p">)]</span>
+        <span class="n">r_items</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">result_properties</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">result_properties</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">i</span><span class="p">]</span>
         <span class="n">label_property_dict</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">r_props</span> <span class="ow">in</span> <span class="n">result_properties</span><span class="p">:</span>
             <span class="n">label_id</span><span class="p">,</span> <span class="n">props</span> <span class="o">=</span> <span class="n">r_props</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
             <span class="n">label_property_dict</span><span class="p">[</span><span class="n">label_id</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">props</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">i</span><span class="p">]</span>
+
         <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">vertex_labels</span><span class="p">:</span>
             <span class="n">label_id</span> <span class="o">=</span> <span class="n">schema</span><span class="o">.</span><span class="n">get_vertex_label_id</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
-            <span class="n">props</span> <span class="o">=</span> <span class="n">label_property_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">label_id</span><span class="p">,</span> <span class="p">[])</span>
-            <span class="n">ret</span><span class="p">[</span><span class="s2">&quot;r&quot;</span><span class="p">][</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="n">props</span>
-        <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+            <span class="n">props</span> <span class="o">=</span> <span class="n">label_property_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">label_id</span><span class="p">),</span> <span class="p">[])</span>
+            <span class="n">r_items</span><span class="o">.</span><span class="n">extend</span><span class="p">([[</span><span class="s2">&quot;r&quot;</span><span class="p">,</span> <span class="n">label</span><span class="p">,</span> <span class="n">prop</span><span class="p">]</span> <span class="k">for</span> <span class="n">prop</span> <span class="ow">in</span> <span class="n">props</span><span class="p">])</span>
+
+        <span class="n">index</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">MultiIndex</span><span class="o">.</span><span class="n">from_tuples</span><span class="p">(</span>
+            <span class="n">itertools</span><span class="o">.</span><span class="n">chain</span><span class="p">(</span><span class="n">v_items</span><span class="p">,</span> <span class="n">r_items</span><span class="p">),</span> <span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="s2">&quot;label&quot;</span><span class="p">,</span> <span class="s2">&quot;property&quot;</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">v_values</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">l</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">l</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">v_items</span><span class="p">]</span>
+        <span class="n">r_values</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">l</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">l</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">r_items</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">v_values</span> <span class="o">+</span> <span class="n">r_values</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">index</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Context schema&quot;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_check_selector</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">selector</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">selector</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="n">InvalidArgumentError</span><span class="p">(</span>
                 <span class="s2">&quot;Selector in labeled vertex property context cannot be None&quot;</span>
             <span class="p">)</span>
-        <span class="n">stype</span><span class="p">,</span> <span class="n">segments</span> <span class="o">=</span> <span class="n">selector</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">stype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;v&quot;</span><span class="p">,</span> <span class="s2">&quot;e&quot;</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span>
-                <span class="s2">&quot;Invalid selector: </span><span class="si">{0}</span><span class="s2">, choose from v / e / r&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">selector</span><span class="p">)</span>
-            <span class="p">)</span>
-        <span class="k">if</span> <span class="n">stype</span> <span class="o">==</span> <span class="s2">&quot;e&quot;</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Selector of e not supported yet&quot;</span><span class="p">)</span>
-        <span class="n">segments</span> <span class="o">=</span> <span class="n">segments</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+        <span class="n">segments</span> <span class="o">=</span> <span class="n">selector</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
+        <span class="n">err_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid selector: `</span><span class="si">{</span><span class="n">selector</span><span class="si">}</span><span class="s2">`. &quot;</span>
+        <span class="n">err_msg</span> <span class="o">+=</span> <span class="p">(</span>
+            <span class="s2">&quot;Please inspect the result with `ret.schema` and choose a valid selector.&quot;</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="s2">&quot;Invalid selector: </span><span class="si">{0}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">selector</span><span class="p">))</span>
+            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
+        <span class="n">stype</span><span class="p">,</span> <span class="n">segments</span> <span class="o">=</span> <span class="n">segments</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">segments</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">segments</span> <span class="o">=</span> <span class="n">segments</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">stype</span> <span class="o">==</span> <span class="s2">&quot;v&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">stype</span> <span class="o">==</span> <span class="s2">&quot;e&quot;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Selector of e not supported yet&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">stype</span> <span class="o">==</span> <span class="s2">&quot;r&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span><span class="n">err_msg</span><span class="p">)</span>
         <span class="k">return</span> <span class="kc">True</span></div>
 
 
@@ -679,13 +732,6 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_context_node</span><span class="o">.</span><span class="n">op</span> <span class="o">=</span> <span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_context_node</span><span class="o">.</span><span class="n">op</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_context_node</span><span class="o">.</span><span class="n">evaluated</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_saved_signature</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">signature</span>
-
-    <span class="k">def</span> <span class="fm">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="c1"># cleanly ignore all exceptions, cause session may already closed / destroyed.</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">unload</span><span class="p">()</span>
-        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pylint: disable=broad-except</span>
-            <span class="k">pass</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span> <span class="nf">op</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -770,8 +816,15 @@
         <span class="n">df</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_dataframe</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span> <span class="n">vertex_range</span><span class="p">)</span>
         <span class="n">df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">unload</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_session</span><span class="o">.</span><span class="n">_wrapper</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_context_node</span><span class="o">.</span><span class="n">unload</span><span class="p">())</span></div>
+    <span class="k">def</span> <span class="fm">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># cleanly ignore all exceptions, cause session may already closed / destroyed.</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_session</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_unload</span><span class="p">())</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pylint: disable=broad-except</span>
+            <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">_unload</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_session</span><span class="o">.</span><span class="n">_wrapper</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_context_node</span><span class="o">.</span><span class="n">_unload</span><span class="p">())</span></div>
 
 
 <div class="viewcode-block" id="DynamicVertexDataContext"><a class="viewcode-back" href="../../../reference/context.html#graphscope.framework.context.DynamicVertexDataContext">[docs]</a><span class="k">class</span> <span class="nc">DynamicVertexDataContext</span><span class="p">(</span><span class="n">collections</span><span class="o">.</span><span class="n">abc</span><span class="o">.</span><span class="n">Mapping</span><span class="p">):</span>
@@ -812,7 +865,7 @@
     <span class="k">def</span> <span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_graph</span><span class="o">.</span><span class="n">_graph</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
-        <span class="n">op</span> <span class="o">=</span> <span class="n">dag_utils</span><span class="o">.</span><span class="n">get_context_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">([</span><span class="n">key</span><span class="p">]))</span>
+        <span class="n">op</span> <span class="o">=</span> <span class="n">dag_utils</span><span class="o">.</span><span class="n">get_context_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">key</span><span class="p">))</span>
         <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">op</span><span class="o">.</span><span class="n">eval</span><span class="p">()))</span>
 
     <span class="k">def</span> <span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -836,24 +889,45 @@
         <span class="k">return</span> <span class="n">BaseContextDAGNode</span><span class="p">(</span><span class="n">bound_app</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">_get_property_v_context_schema_str</span><span class="p">(</span><span class="n">schema</span><span class="p">):</span>
-    <span class="n">ret</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">def</span> <span class="nf">_get_property_v_context_schema</span><span class="p">(</span><span class="n">schema</span><span class="p">):</span>
+    <span class="n">ret</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">vertex_labels</span><span class="p">:</span>
-        <span class="n">ret</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">]</span>
+        <span class="n">ret</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">label</span><span class="p">,</span> <span class="s2">&quot;id&quot;</span><span class="p">])</span>
         <span class="k">for</span> <span class="n">prop</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">get_vertex_properties</span><span class="p">(</span><span class="n">label</span><span class="p">):</span>
             <span class="k">if</span> <span class="n">prop</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="s2">&quot;id&quot;</span><span class="p">:</span>  <span class="c1"># avoid property name duplicate</span>
-                <span class="n">ret</span><span class="p">[</span><span class="n">label</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">prop</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+                <span class="n">ret</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">label</span><span class="p">,</span> <span class="n">prop</span><span class="o">.</span><span class="n">name</span><span class="p">])</span>
     <span class="k">return</span> <span class="n">ret</span>
 
 
-<span class="k">def</span> <span class="nf">_get_property_e_context_schema_str</span><span class="p">(</span><span class="n">schema</span><span class="p">):</span>
-    <span class="n">ret</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">def</span> <span class="nf">_get_property_e_context_schema</span><span class="p">(</span><span class="n">schema</span><span class="p">):</span>
+    <span class="n">ret</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">edge_labels</span><span class="p">:</span>
-        <span class="n">ret</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">]</span>
+        <span class="n">ret</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">label</span><span class="p">,</span> <span class="s2">&quot;src&quot;</span><span class="p">])</span>
+        <span class="n">ret</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">label</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">])</span>
         <span class="k">for</span> <span class="n">prop</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">get_edge_properties</span><span class="p">(</span><span class="n">label</span><span class="p">):</span>
             <span class="k">if</span> <span class="n">prop</span><span class="o">.</span><span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;src&quot;</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">):</span>
-                <span class="n">ret</span><span class="p">[</span><span class="n">label</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">prop</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+                <span class="n">ret</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">label</span><span class="p">,</span> <span class="n">prop</span><span class="o">.</span><span class="n">name</span><span class="p">])</span>
     <span class="k">return</span> <span class="n">ret</span>
+
+
+<span class="k">def</span> <span class="nf">_ensure_consistent_label</span><span class="p">(</span><span class="n">context_type</span><span class="p">,</span> <span class="n">selector</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Ensure the labels in all selectors are same label.</span>
+<span class="sd">    Note this method assumes that the selector is valid.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">context_type</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;vertex_data&quot;</span><span class="p">,</span> <span class="s2">&quot;vertex_property&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">if</span> <span class="n">context_type</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;labeled_vertex_data&quot;</span><span class="p">,</span> <span class="s2">&quot;labeled_vertex_property&quot;</span><span class="p">):</span>
+        <span class="n">label_set</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">selector</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="c1"># The format is x:y or x:y.z</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">label_set</span> <span class="ow">and</span> <span class="n">label</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">label_set</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">SyntaxError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Found different labels: </span><span class="si">{</span><span class="n">label_set</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">label_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+    <span class="k">return</span> <span class="kc">True</span>
 </pre></div>
 
            </div>
@@ -863,7 +937,7 @@
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2020-2023, Damo Academy, Alibaba Inc..</p>
+    <p>&#169; Copyright 2020-2023, DAMO Academy, Alibaba Inc..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

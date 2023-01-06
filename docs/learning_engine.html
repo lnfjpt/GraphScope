@@ -125,10 +125,10 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
-      <li>GraphScope Learning Engine</li>
+      <li><a href="index.html" class="icon icon-home"></a></li>
+      <li class="breadcrumb-item active">GraphScope Learning Engine</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="_sources/learning_engine.rst.txt" rel="nofollow"> View page source</a>
+              <a href="https://github.com/alibaba/graphscope/edit/main/docs/learning_engine.rst" class="fa fa-github"> Edit on GitHub</a>
       </li>
   </ul>
   <hr/>
@@ -342,7 +342,7 @@ In this example, we use <code class="docutils literal notranslate"><span class="
 the features of Cora are already in vector formats. For both the
 discrete and continuous features, we can use <code class="docutils literal notranslate"><span class="pre">WideNDeepEncoder</span></code>, To
 learn more encoders, please refer to
-<a class="reference external" href="https://github.com/alibaba/graph-learn/blob/master/graphlearn/python/model/tf/encoders/feature_encoder.py">feature encoder</a>.
+<a class="reference external" href="https://github.com/alibaba/graph-learn/blob/graphscope/graphlearn/python/model/tf/encoders/feature_encoder.py">feature encoder</a>.
 Then, we use the
 <code class="docutils literal notranslate"><span class="pre">GCNConv</span></code> layer to construct the graph encoder. For each node in GCN,
 we sample all of its neighbors, and organize them in a sparse format.
@@ -411,7 +411,7 @@ iterator and a loss function.</p>
 </pre></div>
 </div>
 <p>This concludes how to build a GCN model.
-Please refer to <a class="reference external" href="https://github.com/alibaba/graph-learn/tree/master/examples/tf/gcn">GCN example</a> for the complete codes.</p>
+Please refer to <a class="reference external" href="https://github.com/alibaba/graph-learn/tree/graphscope/examples/tf/gcn">GCN example</a> for the complete codes.</p>
 <p>We have implemented a rich set of popular models,
 including GCN, GAT, GraphSage, DeepWalk, LINE, TransE,
 Bipartite GraphSage, sample-based GCN, GAT, etc., which can be used
@@ -431,7 +431,7 @@ as a starting point for building a similar model.</p>
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2020-2023, Damo Academy, Alibaba Inc..</p>
+    <p>&#169; Copyright 2020-2023, DAMO Academy, Alibaba Inc..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

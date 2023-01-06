@@ -155,12 +155,12 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../../index.html" class="icon icon-home"></a> &raquo;</li>
-          <li><a href="../python_index.html">Python API Reference</a> &raquo;</li>
-          <li><a href="index.html">NetworkX-style API</a> &raquo;</li>
-      <li>Graph generators</li>
+      <li><a href="../../index.html" class="icon icon-home"></a></li>
+          <li class="breadcrumb-item"><a href="../python_index.html">Python API Reference</a></li>
+          <li class="breadcrumb-item"><a href="index.html">NetworkX-style API</a></li>
+      <li class="breadcrumb-item active">Graph generators</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../../_sources/reference/networkx/generators.rst.txt" rel="nofollow"> View page source</a>
+              <a href="https://github.com/alibaba/graphscope/edit/main/docs/reference/networkx/generators.rst" class="fa fa-github"> Edit on GitHub</a>
       </li>
   </ul>
   <hr/>
@@ -201,7 +201,7 @@
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.classic.barbell_graph.html#graphscope.nx.generators.classic.barbell_graph" title="graphscope.nx.generators.classic.barbell_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">barbell_graph</span></code></a>(m1, m2[, create_using])</p></td>
 <td><p>Returns the Barbell Graph: two complete graphs connected by a path.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.classic.binomial_tree.html#graphscope.nx.generators.classic.binomial_tree" title="graphscope.nx.generators.classic.binomial_tree"><code class="xref py py-obj docutils literal notranslate"><span class="pre">binomial_tree</span></code></a>(n)</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.classic.binomial_tree.html#graphscope.nx.generators.classic.binomial_tree" title="graphscope.nx.generators.classic.binomial_tree"><code class="xref py py-obj docutils literal notranslate"><span class="pre">binomial_tree</span></code></a>(n[, create_using])</p></td>
 <td><p>Returns the Binomial Tree of order n.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.classic.complete_graph.html#graphscope.nx.generators.classic.complete_graph" title="graphscope.nx.generators.classic.complete_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">complete_graph</span></code></a>(n[, create_using])</p></td>
@@ -214,7 +214,7 @@
 <td><p>Returns the circular ladder graph $CL_n$ of length n.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.classic.circulant_graph.html#graphscope.nx.generators.classic.circulant_graph" title="graphscope.nx.generators.classic.circulant_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">circulant_graph</span></code></a>(n, offsets[, create_using])</p></td>
-<td><p>Generates the circulant graph $Ci_n(x_1, x_2, …, x_m)$ with $n$ vertices.</p></td>
+<td><p>Returns the circulant graph $Ci_n(x_1, x_2, …, x_m)$ with $n$ nodes.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.classic.cycle_graph.html#graphscope.nx.generators.classic.cycle_graph" title="graphscope.nx.generators.classic.cycle_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cycle_graph</span></code></a>(n[, create_using])</p></td>
 <td><p>Returns the cycle graph $C_n$ of cyclically connected nodes.</p></td>
@@ -232,7 +232,7 @@
 <td><p>Return the star graph</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.classic.full_rary_tree.html#graphscope.nx.generators.classic.full_rary_tree" title="graphscope.nx.generators.classic.full_rary_tree"><code class="xref py py-obj docutils literal notranslate"><span class="pre">full_rary_tree</span></code></a>(r, n[, create_using])</p></td>
-<td><p>Creates a full r-ary tree of n vertices.</p></td>
+<td><p>Creates a full r-ary tree of <cite>n</cite> nodes.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.classic.ladder_graph.html#graphscope.nx.generators.classic.ladder_graph" title="graphscope.nx.generators.classic.ladder_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ladder_graph</span></code></a>(n[, create_using])</p></td>
 <td><p>Returns the Ladder graph of length n.</p></td>
@@ -290,31 +290,31 @@
 <td><p>Return the cubic graph specified in LCF notation.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.bull_graph.html#graphscope.nx.generators.small.bull_graph" title="graphscope.nx.generators.small.bull_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">bull_graph</span></code></a>([create_using])</p></td>
-<td><p>Returns the Bull graph.</p></td>
+<td><p>Returns the Bull Graph</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.chvatal_graph.html#graphscope.nx.generators.small.chvatal_graph" title="graphscope.nx.generators.small.chvatal_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">chvatal_graph</span></code></a>([create_using])</p></td>
-<td><p>Returns the Chvátal graph.</p></td>
+<td><p>Returns the Chvátal Graph</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.cubical_graph.html#graphscope.nx.generators.small.cubical_graph" title="graphscope.nx.generators.small.cubical_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubical_graph</span></code></a>([create_using])</p></td>
-<td><p>Returns the 3-regular Platonic Cubical graph.</p></td>
+<td><p>Returns the 3-regular Platonic Cubical Graph</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.desargues_graph.html#graphscope.nx.generators.small.desargues_graph" title="graphscope.nx.generators.small.desargues_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">desargues_graph</span></code></a>([create_using])</p></td>
-<td><p>Return the Desargues graph.</p></td>
+<td><p>Returns the Desargues Graph</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.diamond_graph.html#graphscope.nx.generators.small.diamond_graph" title="graphscope.nx.generators.small.diamond_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">diamond_graph</span></code></a>([create_using])</p></td>
-<td><p>Returns the Diamond graph.</p></td>
+<td><p>Returns the Diamond graph</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.dodecahedral_graph.html#graphscope.nx.generators.small.dodecahedral_graph" title="graphscope.nx.generators.small.dodecahedral_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dodecahedral_graph</span></code></a>([create_using])</p></td>
-<td><p>Return the Platonic Dodecahedral graph.</p></td>
+<td><p>Returns the Platonic Dodecahedral graph.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.frucht_graph.html#graphscope.nx.generators.small.frucht_graph" title="graphscope.nx.generators.small.frucht_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">frucht_graph</span></code></a>([create_using])</p></td>
 <td><p>Returns the Frucht Graph.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.heawood_graph.html#graphscope.nx.generators.small.heawood_graph" title="graphscope.nx.generators.small.heawood_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">heawood_graph</span></code></a>([create_using])</p></td>
-<td><p>Return the Heawood graph, a (3,6) cage.</p></td>
+<td><p>Returns the Heawood Graph, a (3,6) cage.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.house_graph.html#graphscope.nx.generators.small.house_graph" title="graphscope.nx.generators.small.house_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">house_graph</span></code></a>([create_using])</p></td>
-<td><p>Returns the House graph (square with triangle on top).</p></td>
+<td><p>Returns the House graph (square with triangle on top)</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.house_x_graph.html#graphscope.nx.generators.small.house_x_graph" title="graphscope.nx.generators.small.house_x_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">house_x_graph</span></code></a>([create_using])</p></td>
 <td><p>Returns the House graph with a cross inside the house square.</p></td>
@@ -323,7 +323,7 @@
 <td><p>Returns the Platonic Icosahedral graph.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.krackhardt_kite_graph.html#graphscope.nx.generators.small.krackhardt_kite_graph" title="graphscope.nx.generators.small.krackhardt_kite_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">krackhardt_kite_graph</span></code></a>([create_using])</p></td>
-<td><p>Return the Krackhardt Kite Social Network.</p></td>
+<td><p>Returns the Krackhardt Kite Social Network.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.moebius_kantor_graph.html#graphscope.nx.generators.small.moebius_kantor_graph" title="graphscope.nx.generators.small.moebius_kantor_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">moebius_kantor_graph</span></code></a>([create_using])</p></td>
 <td><p>Returns the Moebius-Kantor graph.</p></td>
@@ -332,7 +332,7 @@
 <td><p>Returns the Platonic Octahedral graph.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.pappus_graph.html#graphscope.nx.generators.small.pappus_graph" title="graphscope.nx.generators.small.pappus_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pappus_graph</span></code></a>()</p></td>
-<td><p>Return the Pappus graph.</p></td>
+<td><p>Returns the Pappus graph.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.petersen_graph.html#graphscope.nx.generators.small.petersen_graph" title="graphscope.nx.generators.small.petersen_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">petersen_graph</span></code></a>([create_using])</p></td>
 <td><p>Returns the Petersen graph.</p></td>
@@ -341,7 +341,7 @@
 <td><p>Return a small maze with a cycle.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.tetrahedral_graph.html#graphscope.nx.generators.small.tetrahedral_graph" title="graphscope.nx.generators.small.tetrahedral_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">tetrahedral_graph</span></code></a>([create_using])</p></td>
-<td><p>Return the 3-regular Platonic Tetrahedral graph.</p></td>
+<td><p>Returns the 3-regular Platonic Tetrahedral graph.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.small.truncated_cube_graph.html#graphscope.nx.generators.small.truncated_cube_graph" title="graphscope.nx.generators.small.truncated_cube_graph"><code class="xref py py-obj docutils literal notranslate"><span class="pre">truncated_cube_graph</span></code></a>([create_using])</p></td>
 <td><p>Returns the skeleton of the truncated cube.</p></td>
@@ -612,11 +612,11 @@ graph.</p>
 <col style="width: 90%" />
 </colgroup>
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.trees.random_tree.html#graphscope.nx.generators.trees.random_tree" title="graphscope.nx.generators.trees.random_tree"><code class="xref py py-obj docutils literal notranslate"><span class="pre">random_tree</span></code></a>(n[, seed])</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.trees.random_tree.html#graphscope.nx.generators.trees.random_tree" title="graphscope.nx.generators.trees.random_tree"><code class="xref py py-obj docutils literal notranslate"><span class="pre">random_tree</span></code></a>(n[, seed, create_using])</p></td>
 <td><p>Returns a uniformly random tree on <cite>n</cite> nodes.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/graphscope.nx.generators.trees.prefix_tree.html#graphscope.nx.generators.trees.prefix_tree" title="graphscope.nx.generators.trees.prefix_tree"><code class="xref py py-obj docutils literal notranslate"><span class="pre">prefix_tree</span></code></a>(paths)</p></td>
-<td><p>Creates a directed prefix tree from the given list of iterables.</p></td>
+<td><p>Creates a directed prefix tree from a list of paths.</p></td>
 </tr>
 </tbody>
 </table>
@@ -752,7 +752,7 @@ Proc. Nat. Acad. Sci. USA 48, 1142-1146, 1962.</p>
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2020-2023, Damo Academy, Alibaba Inc..</p>
+    <p>&#169; Copyright 2020-2023, DAMO Academy, Alibaba Inc..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

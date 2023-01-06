@@ -109,9 +109,9 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../../../../index.html" class="icon icon-home"></a> &raquo;</li>
-          <li><a href="../../../index.html">Module code</a> &raquo;</li>
-      <li>graphscope.analytical.app.katz_centrality</li>
+      <li><a href="../../../../index.html" class="icon icon-home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">graphscope.analytical.app.katz_centrality</li>
       <li class="wy-breadcrumbs-aside">
       </li>
   </ul>
@@ -156,6 +156,7 @@
     <span class="n">tolerance</span><span class="o">=</span><span class="mf">1e-06</span><span class="p">,</span>
     <span class="n">max_round</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
     <span class="n">normalized</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">degree_threshold</span><span class="o">=</span><span class="mf">1e9</span><span class="p">,</span>
 <span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Compute the Katz centrality.</span>
 
@@ -163,13 +164,13 @@
 <span class="sd">    https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.centrality.katz_centrality_numpy.html</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        graph (:class:`Graph`): A simple graph.</span>
+<span class="sd">        graph (:class:`graphscope.Graph`): A simple graph.</span>
 <span class="sd">        alpha (float, optional): Auttenuation factor. Defaults to 0.1.</span>
 <span class="sd">        beta (float, optional): Weight attributed to the immediate neighborhood. Defaults to 1.0.</span>
 <span class="sd">        tolerance (float, optional): Error tolerance. Defaults to 1e-06.</span>
 <span class="sd">        max_round (int, optional): Maximun number of rounds. Defaults to 100.</span>
 <span class="sd">        normalized (bool, optional): Whether to normalize result values. Defaults to True.</span>
-
+<span class="sd">        degree_threshold (int, optional): Filter super vertex which degree is greater than threshold. Default to 1e9.</span>
 <span class="sd">    Returns:</span>
 <span class="sd">        :class:`graphscope.framework.context.VertexDataContextDAGNode`:</span>
 <span class="sd">            A context with each vertex assigned with the computed katz_centrality, evaluated in eager mode.</span>
@@ -178,26 +179,23 @@
 
 <span class="sd">    .. code:: python</span>
 
-<span class="sd">        import graphscope as gs</span>
-<span class="sd">        g = gs.g()</span>
-<span class="sd">        # Load some data, then project to a simple graph (if needed).</span>
-<span class="sd">        pg = g.project(vertices={&quot;vlabel&quot;: []}, edges={&quot;elabel&quot;: []})</span>
-<span class="sd">        r = gs.katz_centrality(pg)</span>
-<span class="sd">        s.close()</span>
-
+<span class="sd">        &gt;&gt;&gt; import graphscope</span>
+<span class="sd">        &gt;&gt;&gt; from graphscope.dataset import load_p2p_network</span>
+<span class="sd">        &gt;&gt;&gt; sess = graphscope.session(cluster_type=&quot;hosts&quot;, mode=&quot;eager&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; g = load_p2p_network(sess)</span>
+<span class="sd">        &gt;&gt;&gt; # project to a simple graph (if needed)</span>
+<span class="sd">        &gt;&gt;&gt; pg = g.project(vertices={&quot;host&quot;: [&quot;id&quot;]}, edges={&quot;connect&quot;: [&quot;dist&quot;]})</span>
+<span class="sd">        &gt;&gt;&gt; c = graphscope.katz_centrality(pg)</span>
+<span class="sd">        &gt;&gt;&gt; sess.close()</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">alpha</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
     <span class="n">beta</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">beta</span><span class="p">)</span>
     <span class="n">tolerance</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">tolerance</span><span class="p">)</span>
     <span class="n">max_round</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">max_round</span><span class="p">)</span>
     <span class="n">normalized</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">normalized</span><span class="p">)</span>
+    <span class="n">degree_threshold</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">degree_threshold</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">AppAssets</span><span class="p">(</span><span class="n">algo</span><span class="o">=</span><span class="s2">&quot;katz_centrality&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="s2">&quot;vertex_data&quot;</span><span class="p">)(</span>
-        <span class="n">graph</span><span class="p">,</span>
-        <span class="n">alpha</span><span class="p">,</span>
-        <span class="n">beta</span><span class="p">,</span>
-        <span class="n">tolerance</span><span class="p">,</span>
-        <span class="n">max_round</span><span class="p">,</span>
-        <span class="n">normalized</span><span class="p">,</span>
+        <span class="n">graph</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">tolerance</span><span class="p">,</span> <span class="n">max_round</span><span class="p">,</span> <span class="n">normalized</span><span class="p">,</span> <span class="n">degree_threshold</span>
     <span class="p">)</span></div>
 </pre></div>
 
@@ -208,7 +206,7 @@
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2020-2023, Damo Academy, Alibaba Inc..</p>
+    <p>&#169; Copyright 2020-2023, DAMO Academy, Alibaba Inc..</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
