@@ -21,6 +21,11 @@ pub use adapters::{
     create_csr_store, create_exp_store, create_gs_store, CsrPartition, GrootMultiPartition,
     SimplePartition, VineyardGraphWriter, VineyardMultiPartition,
 };
+// for gie benchmark test
+pub use adapters::{
+    to_empty_vertex, to_empty_vertex_with_label0, to_runtime_edge, to_runtime_vertex, LazyEdgeDetails,
+    LazyVertexDetails,
+};
 pub use errors::{GraphProxyError, GraphProxyResult};
 
 mod adapters;

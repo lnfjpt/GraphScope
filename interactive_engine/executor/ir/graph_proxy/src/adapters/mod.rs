@@ -20,5 +20,10 @@ mod vineyard_store;
 
 pub use csr_store::{create_csr_store, CsrPartition};
 pub use exp_store::{create_exp_store, SimplePartition};
+// for gie benchmark test
+pub use exp_store::{
+    to_empty_vertex, to_empty_vertex_with_label0, to_runtime_edge, to_runtime_vertex, LazyEdgeDetails,
+    LazyVertexDetails,
+};
 pub use gs_store::{create_gs_store, GrootMultiPartition, VineyardMultiPartition};
 pub use vineyard_store::VineyardGraphWriter;

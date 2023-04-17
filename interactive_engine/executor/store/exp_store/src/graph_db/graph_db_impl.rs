@@ -139,7 +139,7 @@ pub struct LargeGraphDB<
     /// The graph structure, the label will be encoded as `LabelId`
     pub(crate) topology: T,
     /// The schema of the vertex/edge property table
-    pub(crate) graph_schema: Arc<LDBCGraphSchema>,
+    pub graph_schema: Arc<LDBCGraphSchema>,
     /// Table from internal vertexs' indices to their properties
     pub(crate) vertex_prop_table: N,
     /// Table from internal edges' indices to their properties

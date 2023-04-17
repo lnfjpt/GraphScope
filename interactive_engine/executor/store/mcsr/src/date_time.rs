@@ -102,6 +102,13 @@ impl DateTime {
         Self::new(dt.timestamp_millis())
     }
 
+    pub fn date_to_i32(&self) -> i32 {
+        chrono::NaiveDateTime::from_timestamp_millis(self.inner)
+            .unwrap()
+            .date()
+            .num_days_from_ce()
+    }
+
     pub fn add_days(&self, days: u32) -> Self {
         let utc_dt = self.to_chrono_date_utc();
         let duration = Duration::days(days as i64);
