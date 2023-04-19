@@ -13,8 +13,8 @@
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
 
-mod partitioner;
-mod read_graph;
+pub mod partitioner;
+pub mod read_graph;
 
 pub use partitioner::CsrPartition;
 pub use read_graph::create_csr_store;

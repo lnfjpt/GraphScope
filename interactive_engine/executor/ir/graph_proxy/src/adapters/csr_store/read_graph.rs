@@ -190,7 +190,7 @@ pub fn create_csr_store() {
 }
 
 #[inline]
-fn to_runtime_vertex(
+pub fn to_runtime_vertex(
     v: LocalVertex<'static, DefaultId, DefaultId>, prop_keys: Option<Vec<NameOrId>>,
 ) -> Vertex {
     // For vertices, we query properties via vid

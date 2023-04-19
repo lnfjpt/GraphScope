@@ -1,6 +1,15 @@
 use std::collections::HashMap;
 
-use graph_store::prelude::*;
+use graph_proxy::adapters::csr_store::read_graph::to_runtime_vertex;
+use mcsr::graph_db::GlobalCsrTrait;
+use mcsr::graph_db_impl::*;
+use mcsr::ldbc_parser::LDBCVertexParser;
+use mcsr::schema::Schema;
+use mcsr::types::DefaultId;
+use mcsr::{
+    columns::{DateTimeColumn, StringColumn},
+    date,
+};
 use pegasus::api::{Fold, Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
 use pegasus::JobConf;
@@ -9,15 +18,15 @@ use crate::queries::graph::*;
 
 pub fn bi2_gie(conf: JobConf, date: String, tag_class: String) -> ResultStream<(String, i32, i32, i32)> {
     let workers = conf.workers;
-    let start_date = parse_datetime(&date).unwrap();
-    let duration = 100 * 24 * 3600 * 1000;
-    let first_window = date_to_timestamp(start_date) + duration;
-    let second_window = first_window + duration;
-    let first_window = parse_datetime(&first_window.to_string()).unwrap() / 1000000000;
-    let second_window = parse_datetime(&second_window.to_string()).unwrap() / 1000000000;
-    println!("three data is {} {} {}", start_date, first_window, second_window);
+    let start_date = date::parse_date(&date).unwrap();
+    let start_date_ts = start_date.to_i32();
+    let first_window = start_date.add_days(100);
+    let first_window_ts = first_window.to_i32();
+    let second_window = first_window.add_days(100);
+    let second_window_ts = second_window.to_i32();
+    println!("three data is {} {} {}", start_date_ts, first_window_ts, second_window_ts);
 
-    let schema = &GRAPH.graph_schema;
+    let schema = &CSR.graph_schema;
     let tagclass_label = schema.get_vertex_label_id("TAGCLASS").unwrap();
     let forum_label = schema.get_vertex_label_id("FORUM").unwrap();
     let hastype_label = schema.get_edge_label_id("HASTYPE").unwrap();
@@ -31,10 +40,10 @@ pub fn bi2_gie(conf: JobConf, date: String, tag_class: String) -> ResultStream<(
             stream
                 .flat_map(move |_source| {
                     let mut tag_id_list = vec![];
-                    let tagclass_vertices = GRAPH.get_all_vertices(Some(&vec![tagclass_label]));
+                    let tagclass_vertices = CSR.get_all_vertices(Some(&vec![tagclass_label]));
                     let tagclass_count = tagclass_vertices.count();
                     let partial_count = tagclass_count / workers as usize + 1;
-                    for vertex in GRAPH
+                    for vertex in CSR
                         .get_all_vertices(Some(&vec![tagclass_label]))
                         .skip((worker_id % workers) as usize * partial_count)
                         .take(partial_count)
@@ -48,7 +57,7 @@ pub fn bi2_gie(conf: JobConf, date: String, tag_class: String) -> ResultStream<(
                         if tagclass_name == tag_class {
                             let tagclass_internal_id = vertex.get_id();
                             for tag_vertex in
-                            GRAPH.get_in_vertices(tagclass_internal_id, Some(&vec![hastype_label]))
+                                CSR.get_in_vertices(tagclass_internal_id, Some(&vec![hastype_label]))
                             {
                                 let tag_internal_id = tag_vertex.get_id() as u64;
                                 tag_id_list.push(tag_internal_id);
@@ -63,9 +72,9 @@ pub fn bi2_gie(conf: JobConf, date: String, tag_class: String) -> ResultStream<(
                     // TODO: is this for count when 0 message?
                     message_id_list.push((0, tag_internal_id));
                     for vertex in
-                    GRAPH.get_in_vertices(tag_internal_id as DefaultId, Some(&vec![hastag_label]))
+                        CSR.get_in_vertices(tag_internal_id as DefaultId, Some(&vec![hastag_label]))
                     {
-                        if vertex.get_label()[0] == forum_label {
+                        if vertex.get_label() == forum_label {
                             continue;
                         }
                         message_id_list.push((vertex.get_id() as u64, tag_internal_id));
@@ -82,22 +91,22 @@ pub fn bi2_gie(conf: JobConf, date: String, tag_class: String) -> ResultStream<(
                                 collect.insert(tag_internal_id, (0, 0));
                             }
                         } else {
-                            let message_vertex = GRAPH
+                            let message_vertex = CSR
                                 .get_vertex(message_internal_id as DefaultId)
                                 .unwrap();
                             let create_date = message_vertex
                                 .get_property("creationDate")
                                 .unwrap()
-                                .as_u64()
+                                .as_datetime()
                                 .unwrap()
-                                / 1000000000;
-                            if create_date >= start_date && create_date < first_window {
+                                .date_to_i32();
+                            if create_date >= start_date_ts && create_date < first_window_ts {
                                 if let Some(data) = collect.get_mut(&tag_internal_id) {
                                     data.0 += 1;
                                 } else {
                                     collect.insert(tag_internal_id, (1, 0));
                                 }
-                            } else if create_date >= first_window && create_date < second_window {
+                            } else if create_date >= first_window_ts && create_date < second_window_ts {
                                 if let Some(data) = collect.get_mut(&tag_internal_id) {
                                     data.1 += 1;
                                 } else {
@@ -131,7 +140,7 @@ pub fn bi2_gie(conf: JobConf, date: String, tag_class: String) -> ResultStream<(
                     Ok(get_partition(id, workers as usize, pegasus::get_servers_len()))
                 })
                 .map(|(tag_internal_id, count1, count2, diff)| {
-                    let tag_vertex = GRAPH
+                    let tag_vertex = CSR
                         .get_vertex(tag_internal_id as DefaultId)
                         .unwrap();
                     let tag_name = tag_vertex
@@ -146,5 +155,5 @@ pub fn bi2_gie(conf: JobConf, date: String, tag_class: String) -> ResultStream<(
                 .sink_into(output)
         }
     })
-        .expect("submit bi2 job failure")
+    .expect("submit bi2 job failure")
 }

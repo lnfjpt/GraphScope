@@ -1,7 +1,12 @@
 use std::collections::HashMap;
 
-use graph_store::common::LabelId;
+use graph_proxy::adapters::csr_store::read_graph::to_runtime_vertex;
+use graph_proxy::apis::GraphElement;
+use mcsr::graph_db::GlobalCsrTrait;
+use mcsr::graph_db_impl::*;
 use mcsr::ldbc_parser::LDBCVertexParser;
+use mcsr::schema::Schema;
+use mcsr::types::DefaultId;
 use mcsr::{
     columns::{DateTimeColumn, StringColumn},
     date,
@@ -9,40 +14,10 @@ use mcsr::{
 use pegasus::api::{Fold, Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
 use pegasus::JobConf;
+use runtime::process::entry::{DynEntry, Entry};
+use runtime::process::record::Record;
 
-fn get_tag_list(tagclass: String) -> Vec<u64> {
-    let tagclass_num = crate::queries::graph::CSR.get_vertices_num(6 as LabelId);
-    let tagclass_name_col = &crate::queries::graph::CSR.vertex_prop_table[6_usize]
-        .get_column_by_name("name")
-        .as_any()
-        .downcast_ref::<StringColumn>()
-        .unwrap()
-        .data;
-    let mut tagclass_id = usize::MAX;
-    for v in 0..tagclass_num {
-        if tagclass_name_col[v] == tagclass {
-            tagclass_id = v;
-            break;
-        }
-    }
-    if tagclass_id == usize::MAX {
-        return vec![];
-    }
-    // info!("target tagclass id is {}", tagclass_id);
-
-    let mut tag_list = vec![];
-    if let Some(edges) = crate::queries::graph::TAG_HASTYPE_TAGCLASS_IN.get_adj_list(tagclass_id) {
-        for e in edges {
-            tag_list.push(
-                crate::queries::graph::CSR
-                    .get_global_id(e.neighbor, 7)
-                    .unwrap() as u64,
-            );
-        }
-    }
-
-    tag_list
-}
+use crate::queries::graph::*;
 
 pub fn bi2_record(conf: JobConf, date: String, tag_class: String) -> ResultStream<(String, i32, i32, i32)> {
     let workers = conf.workers;
@@ -52,132 +27,171 @@ pub fn bi2_record(conf: JobConf, date: String, tag_class: String) -> ResultStrea
     let first_window_ts = first_window.to_i32();
     let second_window = first_window.add_days(100);
     let second_window_ts = second_window.to_i32();
+    println!("three data is {} {} {}", start_date_ts, first_window_ts, second_window_ts);
 
-    let comment_createdate_col = &crate::queries::graph::CSR.vertex_prop_table[2_usize]
-        .get_column_by_name("creationDate")
-        .as_any()
-        .downcast_ref::<DateTimeColumn>()
-        .unwrap()
-        .data;
-    let post_createdate_col = &crate::queries::graph::CSR.vertex_prop_table[3_usize]
-        .get_column_by_name("creationDate")
-        .as_any()
-        .downcast_ref::<DateTimeColumn>()
-        .unwrap()
-        .data;
-    let tag_name_col = &crate::queries::graph::CSR.vertex_prop_table[7_usize]
-        .get_column_by_name("name")
-        .as_any()
-        .downcast_ref::<StringColumn>()
-        .unwrap()
-        .data;
+    let schema = &CSR.graph_schema;
+    let tagclass_label = schema.get_vertex_label_id("TAGCLASS").unwrap();
+    let forum_label = schema.get_vertex_label_id("FORUM").unwrap();
+    let hastype_label = schema.get_edge_label_id("HASTYPE").unwrap();
+    let hastag_label = schema.get_edge_label_id("HASTAG").unwrap();
 
     pegasus::run(conf, || {
         let tag_class = tag_class.clone();
-        let tag_list = get_tag_list(tag_class);
-
         move |input, output| {
-            let servers = pegasus::get_servers_len();
-            let stream = if input.get_worker_index() % workers == 0 {
-                input.input_from(vec![0_i32])
-            } else {
-                input.input_from(vec![])
-            }?;
+            let worker_id = input.get_worker_index();
+            let tagclass_vertices = CSR.get_all_vertices(Some(&vec![tagclass_label]));
+            let tagclass_count = tagclass_vertices.count();
+            let partial_count = tagclass_count / workers as usize + 1;
+            let mut tagclass_vertex = vec![];
+            for vertex in CSR
+                .get_all_vertices(Some(&vec![tagclass_label]))
+                .skip((worker_id % workers) as usize * partial_count)
+                .take(partial_count)
+            {
+                let tagclass_name = vertex
+                    .get_property("name")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .into_owned();
+                if tagclass_name == tag_class {
+                    let gie_vertex = to_runtime_vertex(vertex, None);
+                    let record = Record::new(gie_vertex, None);
+                    tagclass_vertex.push(record);
+                }
+            }
+            let stream = input.input_from(tagclass_vertex)?;
             stream
-                .flat_map(move |_| Ok(tag_list.clone().into_iter()))?
-                .repartition(move |id| Ok(crate::queries::graph::get_partition(id, workers as usize, servers)))
-                .flat_map(move |tag_global_id| {
-                    let mut result = vec![];
-                    result.push((0, tag_global_id));
-                    let tag_id = crate::queries::graph::CSR.get_internal_id(tag_global_id as usize);
-                    if let Some(edges) = crate::queries::graph::COMMENT_HASTAG_TAG_IN.get_adj_list(tag_id) {
-                        for e in edges {
-                            result.push((
-                                crate::queries::graph::CSR
-                                    .get_global_id(e.neighbor, 2)
-                                    .unwrap() as u64,
-                                tag_global_id,
-                            ));
-                        }
-                    }
-                    if let Some(edges) = crate::queries::graph::POST_HASTAG_TAG_IN.get_adj_list(tag_id) {
-                        for e in edges {
-                            result.push((
-                                crate::queries::graph::CSR
-                                    .get_global_id(e.neighbor, 3)
-                                    .unwrap() as u64,
-                                tag_global_id,
-                            ));
-                        }
-                    }
-
-                    Ok(result.into_iter())
+                .flat_map(move |mut record| {
+                    Ok(CSR
+                        .get_in_vertices(
+                            record
+                                .get(None)
+                                .unwrap()
+                                .as_vertex()
+                                .unwrap()
+                                .id() as usize,
+                            Some(&vec![hastype_label]),
+                        )
+                        .map(move |v| {
+                            let mut new_record = record.clone();
+                            new_record.append(DynEntry::new(to_runtime_vertex(v, None)), Some(7));
+                            new_record
+                        }))
                 })?
-                .repartition(move |(id, _)| Ok(crate::queries::graph::get_partition(id, workers as usize, servers)))
-                .filter_map(move |(message_global_id, tag_global_id)| {
-                    if message_global_id == 0 {
-                        return Ok(Some((tag_global_id, 0)));
-                    }
-                    let message_id = crate::queries::graph::CSR.get_internal_id(message_global_id as usize);
-                    let message_label = LDBCVertexParser::<usize>::get_label_id(message_global_id as usize);
-                    if message_label == 2 {
-                        let ts = comment_createdate_col[message_id].date_to_i32();
-                        if ts >= start_date_ts && ts < first_window_ts {
-                            Ok(Some((tag_global_id, 1)))
-                        } else if ts >= first_window_ts && ts < second_window_ts {
-                            Ok(Some((tag_global_id, 2)))
-                        } else {
-                            Ok(None)
-                        }
-                    } else {
-                        let ts = post_createdate_col[message_id].date_to_i32();
-                        if ts >= start_date_ts && ts < first_window_ts {
-                            Ok(Some((tag_global_id, 1)))
-                        } else if ts >= first_window_ts && ts < second_window_ts {
-                            Ok(Some((tag_global_id, 2)))
-                        } else {
-                            Ok(None)
-                        }
-                    }
+                .repartition(move |record| {
+                    Ok(get_partition(
+                        &(record
+                            .get(None)
+                            .unwrap()
+                            .as_vertex()
+                            .unwrap()
+                            .id() as u64),
+                        workers as usize,
+                        pegasus::get_servers_len(),
+                    ))
+                })
+                .flat_map(move |record| {
+                    CSR.get_in_vertices(
+                        record
+                            .get(None)
+                            .unwrap()
+                            .as_vertex()
+                            .unwrap()
+                            .id() as usize,
+                        Some(&vec![hastag_label]),
+                    )
+                    .map(move |v| {
+                        let mut new_record = record.clone();
+                        new_record.append(DynEntry::new(to_runtime_vertex(v, None)), None);
+                        new_record
+                    })
                 })?
-                .repartition(move |(id, _)| Ok(crate::queries::graph::get_partition(id, workers as usize, servers)))
+                .repartition(move |record| {
+                    Ok(get_partition(
+                        &(record
+                            .get(None)
+                            .unwrap()
+                            .as_vertex()
+                            .unwrap()
+                            .id() as u64),
+                        workers as usize,
+                        pegasus::get_servers_len(),
+                    ))
+                })
+                .repartition(move |(id, _)| {
+                    Ok(get_partition(id, workers as usize, pegasus::get_servers_len()))
+                })
                 .fold_partition(HashMap::<u64, (i32, i32)>::new(), move || {
-                    move |mut collect, (tag_global_id, windows)| {
-                        if let Some(count) = collect.get_mut(&tag_global_id) {
-                            if windows == 1 {
-                                count.0 += 1;
-                            } else if windows == 2 {
-                                count.1 += 1;
+                    move |mut collect, (message_internal_id, tag_internal_id)| {
+                        if message_internal_id == 0 {
+                            if let None = collect.get_mut(&tag_internal_id) {
+                                collect.insert(tag_internal_id, (0, 0));
                             }
                         } else {
-                            let data = if windows == 0 {
-                                (0, 0)
-                            } else if windows == 1 {
-                                (1, 0)
-                            } else {
-                                (0, 1)
-                            };
-                            collect.insert(tag_global_id, data);
+                            let message_vertex = CSR
+                                .get_vertex(message_internal_id as DefaultId)
+                                .unwrap();
+                            let create_date = message_vertex
+                                .get_property("creationDate")
+                                .unwrap()
+                                .as_datetime()
+                                .unwrap()
+                                .date_to_i32();
+                            if create_date >= start_date_ts && create_date < first_window_ts {
+                                if let Some(data) = collect.get_mut(&tag_internal_id) {
+                                    data.0 += 1;
+                                } else {
+                                    collect.insert(tag_internal_id, (1, 0));
+                                }
+                            } else if create_date >= first_window_ts && create_date < second_window_ts {
+                                if let Some(data) = collect.get_mut(&tag_internal_id) {
+                                    data.1 += 1;
+                                } else {
+                                    collect.insert(tag_internal_id, (0, 1));
+                                }
+                            }
                         }
                         Ok(collect)
                     }
                 })?
-                .unfold(move |map| {
-                    let mut result = vec![];
-                    for (tag_global_id, (count1, count2)) in map.iter() {
-                        let tag_id = crate::queries::graph::CSR.get_internal_id(*tag_global_id as usize);
-                        result.push((
-                            tag_name_col[tag_id].clone(),
-                            *count1,
-                            *count2,
-                            i32::abs(*count1 - *count2),
-                        ));
+                .unfold(|map| Ok(map.into_iter()))?
+                .fold(HashMap::<u64, (i32, i32)>::new(), || {
+                    |mut collect, (tag_internal_id, (count1, count2))| {
+                        if let Some(data) = collect.get_mut(&tag_internal_id) {
+                            data.0 += count1;
+                            data.1 += count2;
+                        } else {
+                            collect.insert(tag_internal_id, (count1, count2));
+                        }
+                        Ok(collect)
                     }
-                    Ok(result.into_iter())
                 })?
-                .sort_limit_by(100_u32, |x, y| y.3.cmp(&x.3).then(x.0.cmp(&y.0)))?
+                .unfold(|map| {
+                    Ok(map
+                        .into_iter()
+                        .map(|(tag_internal_id, (count1, count2))| {
+                            (tag_internal_id, count1, count2, (count1 - count2).abs())
+                        }))
+                })?
+                .repartition(move |(id, _, _, _)| {
+                    Ok(get_partition(id, workers as usize, pegasus::get_servers_len()))
+                })
+                .map(|(tag_internal_id, count1, count2, diff)| {
+                    let tag_vertex = CSR
+                        .get_vertex(tag_internal_id as DefaultId)
+                        .unwrap();
+                    let tag_name = tag_vertex
+                        .get_property("name")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .into_owned();
+                    Ok((tag_name, count1, count2, diff))
+                })?
+                .sort_limit_by(100, |x, y| x.3.cmp(&y.3).reverse().then(x.0.cmp(&y.0)))?
                 .sink_into(output)
         }
     })
-        .expect("submit bi2_sub job failed")
+    .expect("submit bi2 job failure")
 }

@@ -13,7 +13,7 @@
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
 
-mod csr_store;
+pub mod csr_store;
 mod exp_store;
 mod gs_store;
 mod vineyard_store;

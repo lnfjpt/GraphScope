@@ -28,7 +28,7 @@ pub use adapters::{
 };
 pub use errors::{GraphProxyError, GraphProxyResult};
 
-mod adapters;
+pub mod adapters;
 pub mod apis;
 mod errors;
 pub mod utils;
