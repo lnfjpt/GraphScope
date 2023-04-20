@@ -19,9 +19,9 @@
 //! protobuf structure.
 //!
 
-use ir_common::error::ParsePbError;
 use std::convert::TryInto;
 
+use ir_common::error::ParsePbError;
 use ir_common::expr_parse::str_to_expr_pb;
 use ir_common::generated::algebra as pb;
 use ir_common::generated::common as common_pb;
@@ -1507,6 +1507,128 @@ mod test {
         expected_builder.add_scan_source(source_opr);
         expected_builder.project(project_opr);
         assert_eq!(builder, expected_builder);
+    }
+
+    #[test]
+    fn bi2_as_physical() {
+        let source_opr = pb::Scan {
+            scan_opt: 0,
+            alias: None,
+            params: pb::QueryParams {
+                tables: vec!["tagclass".into()],
+                columns: vec![],
+                is_all_columns: false,
+                limit: None,
+                predicate: None,
+                sample_ratio: 1.0,
+                extra: HashMap::new(),
+            },
+            idx_predicate: None,
+            meta_data: None,
+        };
+
+        let edge_expand_hastype = pb::EdgeExpand {
+            v_tag: None,
+            direction: 0,
+            params: pb::QueryParams {
+                tables: vec!["has_type".into()],
+                columns: vec![],
+                is_all_columns: false,
+                limit: None,
+                predicate: None,
+                sample_ratio: 1.0,
+                extra: HashMap::new(),
+            },
+            expand_opt: 0,
+            alias: Some("tag"),
+            meta_data: None,
+        };
+
+        let mut expected_builder = JobBuilder::default();
+        expected_builder.add_scan_source(source_opr);
+        expected_builder.shuffle(None);
+        expected_builder.path_expand(edge_expand_hastype);
+    }
+
+    #[test]
+    fn bi18_as_physical() {
+        let source_opr = pb::Scan {
+            scan_opt: 0,
+            alias: Some(0),
+            params: pb::QueryParams {
+                tables: vec!["tag".into()],
+                columns: vec![],
+                is_all_columns: false,
+                limit: None,
+                predicate: str_to_expr_pb("@.name==\'Uzbekistan\'".to_string()).ok(),
+                sample_ratio: 1.0,
+                extra: HashMap::new(),
+            },
+            idx_predicate: None,
+            meta_data: None,
+        };
+
+        let edge_expand_hasinterest = pb::EdgeExpand {
+            v_tag: None,
+            direction: 0,
+            params: pb::QueryParams {
+                tables: vec!["hasInterest".into()],
+                columns: vec![],
+                is_all_columns: false,
+                limit: None,
+                predicate: None,
+                sample_ratio: 1.0,
+                extra: HashMap::new(),
+            },
+            expand_opt: 0,
+            alias: Some(1),
+            meta_data: None,
+        };
+
+        let edge_expand_knows = pb::EdgeExpand {
+            v_tag: None,
+            direction: 0,
+            params: pb::QueryParams {
+                tables: vec!["knows".into()],
+                columns: vec![],
+                is_all_columns: false,
+                limit: None,
+                predicate: None,
+                sample_ratio: 1.0,
+                extra: HashMap::new(),
+            },
+            expand_opt: 0,
+            alias: Some(2),
+            meta_data: None,
+        };
+
+        let edge_expand_knows2 = pb::EdgeExpand {
+            v_tag: None,
+            direction: 0,
+            params: pb::QueryParams {
+                tables: vec!["knows".into()],
+                columns: vec![],
+                is_all_columns: false,
+                limit: None,
+                predicate: None,
+                sample_ratio: 1.0,
+                extra: HashMap::new(),
+            },
+            expand_opt: 0,
+            alias: Some(3),
+            meta_data: None,
+        };
+
+        let mut expected_builder = JobBuilder::default();
+        expected_builder.add_scan_source(source_opr);
+        expected_builder.shuffle(None);
+        expected_builder.path_expand(edge_expand_hasinterest);
+        expected_builder.shuffle(None);
+        expected_builder.path_expand(edge_expand_knows);
+        expected_builder.shuffle(None);
+        expected_builder.path_expand(edge_expand_knows2);
+        expected_builder.select()
+        expected_builder.shuffle(None);
     }
 
     #[test]
