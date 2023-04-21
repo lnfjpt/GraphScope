@@ -10,9 +10,8 @@ use graph_store::config::{DIR_GRAPH_SCHEMA, FILE_SCHEMA};
 use graph_store::prelude::*;
 use mcsr::graph_db_impl::{CsrDB, SingleSubGraph, SubGraph};
 use pegasus::configure_with_default;
-use runtime::process::record::Record;
 use runtime::process::entry::{DynEntry, Entry, EntryType};
-
+use runtime::process::record::Record;
 
 use self::chrono::Datelike;
 
@@ -23,21 +22,23 @@ lazy_static! {
     pub static ref CSR_PATH: String = configure_with_default!(String, "CSR_PATH", "".to_string());
     pub static ref PARTITION_ID: usize = configure_with_default!(usize, "PARTITION_ID", 0);
     pub static ref COMMENT_REPLYOF_COMMENT_IN: SubGraph<'static, usize, usize> =
-        CSR.get_sub_graph(2, 5, 2, mcsr::graph::Direction::Incoming);
+        CSR.get_sub_graph(2, 3, 2, mcsr::graph::Direction::Incoming);
     pub static ref COMMENT_REPLYOF_POST_IN: SubGraph<'static, usize, usize> =
-        CSR.get_sub_graph(3, 5, 2, mcsr::graph::Direction::Incoming);
+        CSR.get_sub_graph(3, 3, 2, mcsr::graph::Direction::Incoming);
     pub static ref COMMENT_REPLYOF_COMMENT_OUT: SingleSubGraph<'static, usize, usize> =
-        CSR.get_single_sub_graph(2, 5, 2, mcsr::graph::Direction::Outgoing);
+        CSR.get_single_sub_graph(2, 3, 2, mcsr::graph::Direction::Outgoing);
     pub static ref COMMENT_REPLYOF_POST_OUT: SingleSubGraph<'static, usize, usize> =
-        CSR.get_single_sub_graph(2, 5, 3, mcsr::graph::Direction::Outgoing);
+        CSR.get_single_sub_graph(2, 3, 3, mcsr::graph::Direction::Outgoing);
     pub static ref COMMENT_HASTAG_TAG_IN: SubGraph<'static, usize, usize> =
-        CSR.get_sub_graph(7, 14, 2, mcsr::graph::Direction::Incoming);
+        CSR.get_sub_graph(7, 1, 2, mcsr::graph::Direction::Incoming);
     pub static ref POST_HASTAG_TAG_IN: SubGraph<'static, usize, usize> =
-        CSR.get_sub_graph(7, 14, 3, mcsr::graph::Direction::Incoming);
+        CSR.get_sub_graph(7, 1, 3, mcsr::graph::Direction::Incoming);
+    pub static ref FORUM_HASTAG_TAG_IN: SubGraph<'static, usize, usize> =
+        CSR.get_sub_graph(7, 1, 4, mcsr::graph::Direction::Incoming);
     pub static ref COMMENT_HASTAG_TAG_OUT: SubGraph<'static, usize, usize> =
-        CSR.get_sub_graph(2, 14, 7, mcsr::graph::Direction::Outgoing);
+        CSR.get_sub_graph(2, 1, 7, mcsr::graph::Direction::Outgoing);
     pub static ref POST_HASTAG_TAG_OUT: SubGraph<'static, usize, usize> =
-        CSR.get_sub_graph(3, 14, 7, mcsr::graph::Direction::Outgoing);
+        CSR.get_sub_graph(3, 1, 7, mcsr::graph::Direction::Outgoing);
     pub static ref FORUM_HASMODERATOR_PERSON_IN: SubGraph<'static, usize, usize> =
         CSR.get_sub_graph(1, 6, 4, mcsr::graph::Direction::Incoming);
     pub static ref FORUM_HASMODERATOR_PERSON_OUT: SingleSubGraph<'static, usize, usize> =
