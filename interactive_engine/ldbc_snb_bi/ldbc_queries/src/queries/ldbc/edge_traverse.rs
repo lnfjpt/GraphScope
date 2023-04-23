@@ -29,7 +29,7 @@ pub fn edge_traverse(conf: JobConf) -> ResultStream<u64> {
             stream
                 .map(move |_source| {
                     let mut comment_list = vec![];
-                    let post_num = CSR.get_vertices_num(3);
+                    let post_num = 100000;
                     for i in 0..post_num {
                         let post_global_id = CSR.get_global_id(i, 3).unwrap() as u64;
                         for comment in
@@ -42,7 +42,7 @@ pub fn edge_traverse(conf: JobConf) -> ResultStream<u64> {
                 })?
                 .map(move |_source| {
                     let mut comment_list = vec![];
-                    let post_num = CSR.get_vertices_num(3);
+                    let post_num = 100000;
                     for i in 0..post_num {
                         let post_global_id = CSR.get_global_id(i, 3).unwrap() as u64;
                         if let Some(edges) = crate::queries::graph::COMMENT_REPLYOF_POST_IN.get_adj_list(i)
