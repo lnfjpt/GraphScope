@@ -1627,7 +1627,7 @@ mod test {
         expected_builder.path_expand(edge_expand_knows);
         expected_builder.shuffle(None);
         expected_builder.path_expand(edge_expand_knows2);
-        expected_builder.select()
+        expected_builder.select();
         expected_builder.shuffle(None);
     }
 
