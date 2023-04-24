@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use graph_proxy::adapters::csr_store::read_graph::to_runtime_vertex;
 use log::debug;
 use mcsr::graph_db::GlobalCsrTrait;
 use mcsr::graph_db_impl::*;
@@ -42,9 +41,11 @@ pub fn edge_traverse(conf: JobConf) -> ResultStream<u64> {
                 })?
                 .map(move |_source| {
                     let mut comment_list = vec![];
+                    let mut post_list = vec![];
                     let post_num = 100000;
                     for i in 0..post_num {
                         let post_global_id = CSR.get_global_id(i, 3).unwrap() as u64;
+                        post_list.push(post_global_id);
                         if let Some(edges) = crate::queries::graph::COMMENT_REPLYOF_POST_IN.get_adj_list(i)
                         {
                             for edge in edges {

@@ -167,6 +167,42 @@ fn main() {
                     println!("{:?}", query_result);
                 }
             }
+            "gie_traverse" => {
+                println!("Start run query \"Property Traverse\"");
+                let result = queries::gie_traverse(conf);
+                if config.print_result {
+                    let input = vec![];
+                    let mut result_list = vec![];
+                    for x in result {
+                        let final_result = x.unwrap();
+                        result_list.push(vec![final_result.to_string()]);
+                    }
+                    let query_result = Result {
+                        query_type: split[0].to_string(),
+                        query_input: input,
+                        query_result: result_list,
+                    };
+                    println!("{:?}", query_result);
+                }
+            }
+            "handwriting_traverse" => {
+                println!("Start run query \"HandWriting Traverse\"");
+                let result = queries::handwriting_traverse(conf);
+                if config.print_result {
+                    let input = vec![];
+                    let mut result_list = vec![];
+                    for x in result {
+                        let final_result = x.unwrap();
+                        result_list.push(vec![final_result.to_string()]);
+                    }
+                    let query_result = Result {
+                        query_type: split[0].to_string(),
+                        query_input: input,
+                        query_result: result_list,
+                    };
+                    println!("{:?}", query_result);
+                }
+            }
             // "bi2_record" => {
             //     println!("Start run query \"BI RECORD 2\"");
             //     let result = queries::bi2_record(conf, split[1].to_string(), split[2].to_string());

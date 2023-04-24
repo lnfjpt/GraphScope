@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::CStr;
 
-use graph_proxy::adapters::csr_store::read_graph::to_runtime_vertex;
 use log::debug;
 use mcsr::graph_db::GlobalCsrTrait;
 use mcsr::graph_db_impl::*;
@@ -41,6 +40,7 @@ pub fn property_traverse(conf: JobConf) -> ResultStream<u64> {
             stream
                 .map(move |_source| {
                     let person_vertices = CSR.get_all_vertices(Some(&vec![1]));
+                    let mut result = vec![];
                     for i in person_vertices {
                         let first_name = i
                             .get_property("firstName")
@@ -54,28 +54,30 @@ pub fn property_traverse(conf: JobConf) -> ResultStream<u64> {
                             .as_str()
                             .unwrap()
                             .into_owned();
-                        debug!("Person name is {} {}", first_name, last_name);
+                        result.push((first_name, last_name));
                     }
                     Ok(0)
                 })?
                 .map(move |_source| {
                     let person_vertices = CSR.get_all_vertices(Some(&vec![1]));
                     let person_num = person_vertices.count();
+                    let mut result = vec![];
                     for i in 0..person_num {
                         let first_name = person_firstname_col[i].clone();
                         let last_name = person_lastname_col[i].clone();
-                        debug!("Person name is {} {}", first_name, last_name);
+                        result.push((first_name, last_name));
                     }
                     Ok(0)
                 })?
                 .map(move |_source| {
                     let person_vertices = CSR.get_all_vertices(Some(&vec![1]));
                     let person_num = person_vertices.count();
-                    for i in 0..person_num {
+                    let mut result = vec![];
+                    for _ in 0..person_num {
                         let random_index = rand::thread_rng().gen_range(0..person_num);
-                        let first_name = person_firstname_col[i].clone();
-                        let last_name = person_lastname_col[i].clone();
-                        debug!("Person name is {} {}", first_name, last_name);
+                        let first_name = person_firstname_col[random_index].clone();
+                        let last_name = person_lastname_col[random_index].clone();
+                        result.push((first_name, last_name));
                     }
                     Ok(0)
                 })?
