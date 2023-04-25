@@ -24,7 +24,7 @@ pub fn handwriting_traverse(conf: JobConf) -> ResultStream<u64> {
     let workers = conf.workers;
 
     let forum_name_col = &CSR.vertex_prop_table[4_usize]
-        .get_column_by_name("name")
+        .get_column_by_name("title")
         .as_any()
         .downcast_ref::<StringColumn>()
         .unwrap()

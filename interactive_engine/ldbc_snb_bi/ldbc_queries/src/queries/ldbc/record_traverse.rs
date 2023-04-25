@@ -20,7 +20,7 @@ use runtime::process::record::Record;
 
 use crate::queries::graph::*;
 
-pub fn gie_traverse(conf: JobConf) -> ResultStream<u64> {
+pub fn record_traverse(conf: JobConf) -> ResultStream<u64> {
     let workers = conf.workers;
     let schema = &CSR.graph_schema;
     let hasmoderator_label = schema
@@ -40,19 +40,39 @@ pub fn gie_traverse(conf: JobConf) -> ResultStream<u64> {
                         for forum_vertex in
                             CSR.get_in_vertices(person_global_id as usize, Some(&vec![hasmoderator_label]))
                         {
-                            forum.push(to_runtime_vertex(forum_vertex, None));
+                            let gie_vertex = to_runtime_vertex(forum_vertex, None);
+                            let record = Record::new(gie_vertex, None);
+                            forum.push(record);
                         }
                     }
                     Ok(forum.into_iter())
                 })?
-                .repartition(move |vertex| {
-                    Ok(get_partition(&(vertex.id() as u64), workers as usize, pegasus::get_servers_len()))
+                .repartition(move |record| {
+                    Ok(get_partition(
+                        &(record
+                            .get(None)
+                            .unwrap()
+                            .as_vertex()
+                            .unwrap()
+                            .id() as u64),
+                        workers as usize,
+                        pegasus::get_servers_len(),
+                    ))
                 })
-                .map(|forum| {
+                .map(|record| {
                     let mut name_list = vec![];
-                    let forum_vertex = CSR.get_vertex(forum.id() as usize).unwrap();
+                    let forum_vertex = CSR
+                        .get_vertex(
+                            record
+                                .get(None)
+                                .unwrap()
+                                .as_vertex()
+                                .unwrap()
+                                .id() as usize,
+                        )
+                        .unwrap();
                     let forum_name = forum_vertex
-                        .get_property("title")
+                        .get_property("name")
                         .unwrap()
                         .as_str()
                         .unwrap()
