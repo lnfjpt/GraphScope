@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::ffi::CStr;
 
+use graph_proxy::adapters::csr_store::read_graph::to_runtime_vertex;
+use graph_proxy::apis::GraphElement;
+use ir_common::NameOrId;
 use log::debug;
 use mcsr::graph_db::GlobalCsrTrait;
 use mcsr::graph_db_impl::*;
@@ -15,6 +18,8 @@ use pegasus::api::{Fold, Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
 use pegasus::JobConf;
 use rand::Rng;
+use runtime::process::entry::Entry;
+use runtime::process::record::Record;
 
 use crate::queries::graph::*;
 
@@ -50,6 +55,77 @@ pub fn property_traverse(conf: JobConf) -> ResultStream<u64> {
                             .into_owned();
                         let last_name = i
                             .get_property("lastName")
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .into_owned();
+                        result.push((first_name, last_name));
+                    }
+                    Ok(0)
+                })?
+                .map(move |_source| {
+                    let person_vertices = CSR.get_all_vertices(Some(&vec![1]));
+                    let mut result = vec![];
+                    for i in person_vertices {
+                        let vertex = to_runtime_vertex(
+                            i,
+                            Some(vec![
+                                NameOrId::Str("firstName".to_string()),
+                                NameOrId::Str("lastName".to_string()),
+                            ]),
+                        );
+                        let first_name = vertex
+                            .get_property(&NameOrId::Str("firstName".to_string()))
+                            .unwrap()
+                            .try_to_owned()
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .into_owned();
+                        let last_name = vertex
+                            .get_property(&NameOrId::Str("lastName".to_string()))
+                            .unwrap()
+                            .try_to_owned()
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .into_owned();
+                        result.push((first_name, last_name));
+                    }
+                    Ok(0)
+                })?
+                .map(move |_source| {
+                    let person_vertices = CSR.get_all_vertices(Some(&vec![1]));
+                    let mut result = vec![];
+                    for i in person_vertices {
+                        let vertex = to_runtime_vertex(
+                            i,
+                            Some(vec![
+                                NameOrId::Str("firstName".to_string()),
+                                NameOrId::Str("lastName".to_string()),
+                            ]),
+                        );
+                        let record = Record::new(vertex, None);
+                        let first_name = record
+                            .get(None)
+                            .unwrap()
+                            .as_vertex()
+                            .unwrap()
+                            .get_property(&NameOrId::Str("firstName".to_string()))
+                            .unwrap()
+                            .try_to_owned()
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .into_owned();
+                        let last_name = record
+                            .get(None)
+                            .unwrap()
+                            .as_vertex()
+                            .unwrap()
+                            .get_property(&NameOrId::Str("lastName".to_string()))
+                            .unwrap()
+                            .try_to_owned()
                             .unwrap()
                             .as_str()
                             .unwrap()

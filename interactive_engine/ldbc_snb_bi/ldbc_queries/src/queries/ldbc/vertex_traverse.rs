@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use graph_proxy::adapters::csr_store::read_graph::to_runtime_vertex;
+use graph_proxy::apis::GraphElement;
 use log::debug;
 use mcsr::graph_db::GlobalCsrTrait;
 use mcsr::graph_db_impl::*;
@@ -13,6 +15,8 @@ use mcsr::{
 use pegasus::api::{Fold, Map, Sink, SortLimitBy};
 use pegasus::result::ResultStream;
 use pegasus::JobConf;
+use runtime::process::entry::Entry;
+use runtime::process::record::Record;
 
 use crate::queries::graph::*;
 
@@ -27,6 +31,30 @@ pub fn vertex_traverse(conf: JobConf) -> ResultStream<u64> {
                     let mut result = vec![];
                     for i in CSR.get_all_vertices(Some(&vec![1, 2, 3, 4])) {
                         let global_id = i.get_id();
+                        result.push(global_id);
+                    }
+                    Ok(0)
+                })?
+                .map(move |_source| {
+                    let mut result = vec![];
+                    for i in CSR.get_all_vertices(Some(&vec![1, 2, 3, 4])) {
+                        let vertex = to_runtime_vertex(i, None);
+                        let global_id = vertex.id() as u64;
+                        result.push(global_id);
+                    }
+                    Ok(0)
+                })?
+                .map(move |_source| {
+                    let mut result = vec![];
+                    for i in CSR.get_all_vertices(Some(&vec![1, 2, 3, 4])) {
+                        let vertex = to_runtime_vertex(i, None);
+                        let record = Record::new(vertex, None);
+                        let global_id = record
+                            .get(None)
+                            .unwrap()
+                            .as_vertex()
+                            .unwrap()
+                            .id() as u64;
                         result.push(global_id);
                     }
                     Ok(0)

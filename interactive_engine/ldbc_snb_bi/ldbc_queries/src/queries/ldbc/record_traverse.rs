@@ -72,7 +72,7 @@ pub fn record_traverse(conf: JobConf) -> ResultStream<u64> {
                         )
                         .unwrap();
                     let forum_name = forum_vertex
-                        .get_property("name")
+                        .get_property("title")
                         .unwrap()
                         .as_str()
                         .unwrap()
