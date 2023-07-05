@@ -76,7 +76,7 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
         // set current worker's id into tls variable to make it accessible at anywhere;
         let _g = crate::worker_id::guard(self.id);
         let resource =
-            crate::communication::build_channel::<Event>(ChannelId::new(self.id.job_id, 0), &self.conf)?;
+            crate::communication::build_channel::<Event>(ChannelId::new(self.id.job_id, 0), &self.conf, self.id)?;
         assert_eq!(resource.ch_id.index, 0);
         let (mut tx, rx) = resource.take();
         if self.conf.total_workers() > 1 {
@@ -92,23 +92,18 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
             self.conf.batch_size as usize,
             self.conf.batch_capacity,
         );
+        println!("server size in dfb is {}", dfb.config.servers().len());
         let mut input = Source::new(root_builder.copy_data(), &dfb);
         let output = self.sink.clone();
-        println!("pegasus start build stream");
         func(&mut input, output)?;
-        println!("finish build stream");
         let mut sch = Schedule::new(event_emitter, rx);
         let df = dfb.build(&mut sch)?;
-        println!("finish build stream 1");
         self.task = WorkerTask::Dataflow(df, sch);
         let root = Box::new(root_builder)
             .build()
             .expect("no output;");
-        println!("finish build stream 2");
         let end = EndOfScope::new(Tag::Root, DynPeers::all(), 0, 0);
-        println!("finish build stream 3");
         root.notify_end(end).ok();
-        println!("finish build stream 4");
         root.close().ok();
         Ok(())
     }
