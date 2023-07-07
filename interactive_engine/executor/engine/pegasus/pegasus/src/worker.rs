@@ -15,11 +15,13 @@
 
 use std::any::TypeId;
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
 use pegasus_executor::{Task, TaskState};
+use pegasus_network::{get_msg_sender, get_recv_register};
 
 use crate::api::primitive::source::Source;
 use crate::channel_id::ChannelId;
@@ -70,13 +72,18 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
     }
 
     pub fn dataflow<F>(&mut self, func: F) -> Result<(), BuildJobError>
-        where
-            F: FnOnce(&mut Source<D>, ResultSink<T>) -> Result<(), BuildJobError>,
+    where
+        F: FnOnce(&mut Source<D>, ResultSink<T>) -> Result<(), BuildJobError>,
     {
         // set current worker's id into tls variable to make it accessible at anywhere;
         let _g = crate::worker_id::guard(self.id);
-        let resource =
-            crate::communication::build_channel::<Event>(ChannelId::new(self.id.job_id, 0), &self.conf, self.id)?;
+        let resource = crate::communication::build_channel::<Event>(
+            ChannelId::new(self.id.job_id, 0),
+            &self.conf,
+            self.id,
+            None,
+            None,
+        )?;
         assert_eq!(resource.ch_id.index, 0);
         let (mut tx, rx) = resource.take();
         if self.conf.total_workers() > 1 {
@@ -85,7 +92,13 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
             abort.close().ok();
         }
         let event_emitter = EventEmitter::new(tx);
-        let dfb = DataflowBuilder::new(self.id, event_emitter.clone(), &self.conf);
+        let dfb = DataflowBuilder::new(
+            self.id,
+            event_emitter.clone(),
+            &self.conf,
+            get_msg_sender(),
+            get_recv_register(),
+        );
         let root_builder = OutputBuilderImpl::new(
             Port::new(0, 0),
             0,
@@ -102,7 +115,7 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
         let root = Box::new(root_builder)
             .build()
             .expect("no output;");
-        let end = EndOfScope::new(Tag::Root, DynPeers::all(), 0, 0);
+        let end = EndOfScope::new(Tag::Root, DynPeers::all(self.id.total_peers()), 0, 0);
         root.notify_end(end).ok();
         root.close().ok();
         Ok(())
