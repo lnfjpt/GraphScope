@@ -36,7 +36,10 @@ impl<D: Data> Iteration<D> for Stream<D> {
     }
 
     fn iterate_emit_until<F>(
-        self, until: IterCondition<D>, emit_kind: EmitKind, func: F,
+        self,
+        until: IterCondition<D>,
+        emit_kind: EmitKind,
+        func: F,
     ) -> Result<Stream<D>, BuildJobError>
     where
         F: FnOnce(Stream<D>) -> Result<Stream<D>, BuildJobError>,
@@ -46,25 +49,28 @@ impl<D: Data> Iteration<D> for Stream<D> {
 }
 
 fn iterate<D, F>(
-    stream: Stream<D>, until: IterCondition<D>, emit_kind: Option<EmitKind>, func: F,
+    stream: Stream<D>,
+    until: IterCondition<D>,
+    emit_kind: Option<EmitKind>,
+    func: F,
 ) -> Result<Stream<D>, BuildJobError>
 where
     D: Data,
     F: FnOnce(Stream<D>) -> Result<Stream<D>, BuildJobError>,
 {
     let max_iters = until.max_iters;
-    let (leave, enter) = stream
-        .enter()?
-        .binary_branch_notify("switch", |info| {
-            SwitchOperator::<D>::new(info.scope_level, emit_kind, until)
-        })?;
+    let worker_index = stream.get_worker_id().index;
+    let (leave, enter) = stream.enter()?.binary_branch_notify("switch", |info| {
+        SwitchOperator::<D>::new(info.scope_level, emit_kind, until)
+    })?;
     let index = enter.get_upstream_port().index;
     let after_body = func(enter)?;
-    let feedback: Stream<D> = after_body
-        .sync_state()
-        .transform_notify("feedback", move |info| {
-            FeedbackOperator::<D>::new(info.scope_level, max_iters)
-        })?;
+    let feedback: Stream<D> =
+        after_body
+            .sync_state()
+            .transform_notify("feedback", move |info| {
+                FeedbackOperator::<D>::new(info.scope_level, max_iters, worker_index)
+            })?;
     feedback.feedback_to(index)?;
     leave.leave()
 }
