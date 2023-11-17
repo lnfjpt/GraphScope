@@ -131,7 +131,9 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
     }
 
     fn release(&mut self) {
-        self.peer_guard.fetch_sub(1, Ordering::SeqCst);
+        if self.peer_guard.fetch_sub(1, Ordering::SeqCst) == 1 {
+            pegasus_memory::alloc::remove_task(self.conf.job_id as usize);
+        }
     }
 }
 

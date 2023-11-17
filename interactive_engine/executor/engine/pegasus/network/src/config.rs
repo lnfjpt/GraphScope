@@ -153,7 +153,7 @@ pub struct NetworkConfig {
     no_delay: Option<bool>,
     send_buffer: Option<u32>,
     heartbeat_sec: Option<u32>,
-    servers: Option<Vec<Option<ServerAddr>>>,
+    pub servers: Option<Vec<Option<ServerAddr>>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
