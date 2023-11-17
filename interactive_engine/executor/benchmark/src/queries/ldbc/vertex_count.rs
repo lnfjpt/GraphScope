@@ -32,7 +32,7 @@ pub fn vertex_count(conf: JobConf) -> ResultStream<u64> {
                             count += super::graph::CSR.get_vertices_num(vertex_label as u8);
                         }
                     }
-                    Ok(0)
+                    Ok(count as u64)
                 })?
                 .fold(0, || {
                     |mut total_count, count| {
