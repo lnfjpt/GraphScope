@@ -1,10 +1,12 @@
 use std::fs::File;
 use std::io::{self, BufRead};
+use std::os::unix::thread;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use itertools::Itertools;
-#[cfg(not(target_env = "msvc"))]
+// #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
 use mcsr::graph_db::GlobalCsrTrait;
 use pegasus::{Configuration, JobConf, ServerConf};
@@ -13,9 +15,39 @@ use pegasus_network::config::{NetworkConfig, ServerAddr};
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 
-#[cfg(not(target_env = "msvc"))]
+use jemalloc_sys::mallctl;
+use std::os::raw::{c_char, c_int};
+use std::ptr;
+use std::thread::sleep;
+use std::time::Duration;
+
+// #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static ALLOC: Jemalloc = Jemalloc;
+
+pub fn spawn_dump(secs: u64) {
+    let thread = std::thread::Builder::new().name("spawn_dump".to_owned());
+    thread
+        .spawn(move || loop {
+            let r = dump();
+            println!("---------------dump ret: {} -------------------", r);
+            sleep(Duration::from_secs(secs));
+        })
+        .unwrap();
+}
+
+fn dump() -> c_int {
+    unsafe {
+        mallctl(
+            "prof.dump\0".as_bytes() as *const _ as *const c_char,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            0,
+        )
+    }
+}
+
 
 #[derive(Debug, Clone, StructOpt, Default)]
 pub struct Config {
@@ -39,6 +71,7 @@ pub struct Result {
 }
 
 fn main() {
+    // spawn_dump(5);
     let config: Config = Config::from_args();
 
     pegasus_common::logs::init_log();
@@ -64,6 +97,7 @@ fn main() {
             server_conf.network = Some(network);
         }
     }
+
     pegasus::startup(server_conf).ok();
     pegasus::wait_servers_ready(&ServerConf::All);
 
@@ -82,8 +116,10 @@ fn main() {
                 let final_result = x.unwrap();
             }
         }
+        // std::thread::sleep(std::time::Duration::from_secs(1));
         println!("Finished run batch {:?}", batch_id);
     }
     pegasus::shutdown_all();
+    // dump();
     println!("Finished query, elapsed time: {:?}", query_start.elapsed());
 }
