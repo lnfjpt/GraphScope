@@ -276,6 +276,7 @@ impl<D: Data, T: Debug + Send + 'static> Task for Worker<D, T> {
 
 impl<D: Data, T: Debug + Send + 'static> Drop for Worker<D, T> {
     fn drop(&mut self) {
+        crate::remove_cancel_hook(self.conf.job_id);
         self.release();
     }
 }
