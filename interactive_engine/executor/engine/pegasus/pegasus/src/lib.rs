@@ -308,6 +308,14 @@ pub fn cancel_job(job_id: u64) -> Result<(), CancelError> {
     Ok(())
 }
 
+pub fn remove_cancel_hook(job_id: u64) -> Result<(), CancelError> {
+    let mut hook = JOB_CANCEL_MAP.write().expect("lock poisoned");
+    if hook.contains_key(&job_id) {
+        hook.remove(&job_id);
+    }
+    Ok(())
+}
+
 #[inline]
 fn allocate_local_worker(conf: &Arc<JobConf>) -> Result<Option<WorkerIdIter>, BuildJobError> {
     let server_conf = conf.servers();
