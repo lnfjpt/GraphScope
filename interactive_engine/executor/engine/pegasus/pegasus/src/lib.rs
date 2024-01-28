@@ -325,9 +325,7 @@ where
     for id in worker_ids {
         let mut worker = Worker::new(&conf, id, &peer_guard, sink.clone());
         let _g = crate::worker_id::guard(worker.id);
-        info!("Finished set worker id");
         logic(&mut worker)?;
-        info!("Finished build worker");
         workers.push(worker);
     }
 
