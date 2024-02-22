@@ -54,6 +54,10 @@ impl<'a, G: Send + Sync + IndexType, I: Send + Sync + IndexType> SubGraph<'a, G,
     pub fn get_properties(&self) -> Option<&'a ColTable> {
         self.edge_data
     }
+
+    pub fn degree(&self, src_id: I) -> i64 {
+        self.csr.degree(src_id) as i64
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -106,5 +110,9 @@ impl<'a, G, I> SingleSubGraph<'a, G, I>
 
     pub fn get_edge_with_offset(&self, src: I) -> Option<(I, usize)> {
         self.csr.get_edge_with_offset(src)
+    }
+
+    pub fn degree(&self, src_id: I) -> i64 {
+        self.csr.degree(src_id) as i64
     }
 }
