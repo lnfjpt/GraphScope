@@ -6,8 +6,8 @@ use crate::graph::IndexType;
 use pegasus_common::codec::{ReadExt, WriteExt};
 
 pub struct BatchMutableCsr<I> {
-    neighbors: Vec<I>,
-    offsets: Vec<usize>,
+    pub neighbors: Vec<I>,
+    pub offsets: Vec<usize>,
 
     vertex_num: usize,
     edge_num: usize,
@@ -196,4 +196,6 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
     }
 
     fn as_any(&self) -> &dyn Any { self }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any { self }
 }

@@ -74,6 +74,32 @@ impl<I: IndexType> BatchMutableSingleCsr<I> {
         }
     }
 
+    pub fn resize_vertex(&mut self, vertex_num: usize) {
+        if vertex_num < self.vertex_num {
+            self.vertex_num = vertex_num;
+        } else if vertex_num == self.vertex_num {
+            return;
+        } else if vertex_num < self.vertex_capacity {
+            for i in self.vertex_num..vertex_num {
+                self.nbr_list[i] = <I as IndexType>::max();
+            }
+            self.vertex_num = vertex_num;
+        } else {
+            warn!("resize vertex capacity from {} to {}", self.vertex_capacity, vertex_num);
+            self.nbr_list.resize(vertex_num, <I as IndexType>::max());
+            self.vertex_num = vertex_num;
+            self.vertex_capacity = vertex_num;
+        }
+    }
+
+    pub fn put_edge(&mut self, src: I, dst: I) {
+        self.nbr_list[src.index()] = dst;
+    }
+
+    pub fn remove_vertex(&mut self, vertex: I) {
+        self.nbr_list[vertex.index()] = <I as IndexType>::max();
+    }
+
     pub fn get_edge(&self, src: I) -> Option<I> {
         if self.nbr_list[src.index()] == <I as IndexType>::max() {
             None
@@ -147,4 +173,6 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
     }
 
     fn as_any(&self) -> &dyn Any { self }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any { self }
 }

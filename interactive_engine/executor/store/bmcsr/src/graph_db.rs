@@ -1,21 +1,25 @@
+use std::any::Any;
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use chrono::format::parse;
+use itertools::Itertools;
 
 use crate::graph::{IndexType, Direction};
 use crate::sub_graph::{SubGraph, SingleSubGraph};
-use crate::schema::CsrGraphSchema;
+use crate::schema::{CsrGraphSchema, Schema};
 use crate::vertex_map::VertexMap;
 use crate::edge_trim::EdgeTrimJson;
 use crate::types::*;
-use crate::bmcsr::BatchMutableCsr;
+use crate::bmcsr::{BatchMutableCsr, BatchMutableCsrBuilder};
 use crate::bmscsr::BatchMutableSingleCsr;
 use crate::csr::CsrTrait;
 use crate::col_table::ColTable;
-use crate::columns::RefItem;
+use crate::columns::{RefItem, Item, DataType};
 use crate::error::GDBResult;
+use crate::graph::Direction::Outgoing;
 use crate::utils::{Iter, LabeledIterator, LabeledRangeIterator, Range};
 
 /// A data structure to maintain a local view of the vertex.
@@ -165,6 +169,94 @@ impl<'a, G: IndexType + Sync + Send, I: IndexType + Sync + Send> LocalEdge<'a, G
 }
 
 
+pub struct GraphDBModification<G: Send + Sync + IndexType = DefaultId> {
+    pub delete_edges: Vec<Vec<(G, G)>>,
+    pub delete_vertices: Vec<Vec<G>>,
+
+    pub add_edges: Vec<Vec<(G, G)>>,
+    pub add_edge_prop_tables: HashMap<usize, ColTable>,
+
+    pub vertex_label_num: usize,
+    pub edge_label_num: usize,
+}
+
+
+impl<G> GraphDBModification<G> where G: Eq + IndexType + Send + Sync, {
+    pub fn new() -> Self {
+        Self {
+            delete_edges: vec![],
+            delete_vertices: vec![],
+
+            add_edges: vec![],
+            add_edge_prop_tables: HashMap::new(),
+
+            vertex_label_num: 0,
+            edge_label_num: 0,
+        }
+    }
+
+    pub fn edge_label_to_index(
+        &self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId,
+    ) -> usize {
+        src_label as usize * self.vertex_label_num * self.edge_label_num
+            + dst_label as usize * self.edge_label_num
+            + edge_label as usize
+    }
+
+    pub fn edge_label_tuple_num(&self) -> usize {
+        self.vertex_label_num * self.vertex_label_num * self.edge_label_num
+    }
+
+    pub fn init(&mut self, graph_schema: &CsrGraphSchema) {
+        self.vertex_label_num = graph_schema.vertex_label_names().len();
+        self.edge_label_num = graph_schema.edge_label_names().len();
+
+        self.delete_edges.resize(self.edge_label_tuple_num(), vec![]);
+        self.delete_vertices.resize(self.vertex_label_num, vec![]);
+
+        for e_label_i in 0..self.edge_label_num {
+            for src_label_i in 0..self.vertex_label_num {
+                for dst_label_i in 0..self.vertex_label_num {
+                    let index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, e_label_i as LabelId);
+                    let mut header = vec![];
+                    for pair in graph_schema.get_edge_header(src_label_i as LabelId, dst_label_i as LabelId, e_label_i as LabelId).unwrap() {
+                        header.push((pair.1.clone(), pair.0.clone()));
+                    }
+                    if !header.is_empty() {
+                        self.add_edge_prop_tables.insert(index, ColTable::new(header));
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn delete_vertex(&mut self, label: LabelId, id: G) {
+        let index = label as usize;
+        self.delete_vertices[index].push(id);
+    }
+
+    pub fn insert_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G, properties: Option<Vec<Item>>) {
+        let index = self.edge_label_to_index(src_label, dst_label, edge_label);
+        self.insert_edge_opt(index, src, dst, properties);
+    }
+
+    pub fn insert_edge_opt(&mut self, index: usize, src: G, dst: G, properties: Option<Vec<Item>>) {
+        self.add_edges[index].push((src, dst));
+        if let Some(properties) = properties {
+            self.add_edge_prop_tables.get_mut(&index).unwrap().push(&properties);
+        }
+    }
+
+    pub fn delete_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G) {
+        let index = self.edge_label_to_index(src_label, dst_label, edge_label);
+        self.delete_edge_opt(index, src, dst);
+    }
+
+    pub fn delete_edge_opt(&mut self, index: usize, src: G, dst: G) {
+        self.delete_edges[index].push((src, dst));
+    }
+}
+
 pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + IndexType = InternalId> {
     pub partition: usize,
     pub ie: Vec<Box<dyn CsrTrait<I>>>,
@@ -180,6 +272,8 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
 
     pub vertex_label_num: usize,
     pub edge_label_num: usize,
+
+    pub modification: GraphDBModification<G>,
 }
 
 impl<G, I> GraphDB<G, I>
@@ -187,7 +281,7 @@ impl<G, I> GraphDB<G, I>
         G: Eq + IndexType + Send + Sync,
         I: IndexType + Send + Sync,
 {
-    fn edge_label_to_index(
+    pub fn edge_label_to_index(
         &self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, dir: Direction,
     ) -> usize {
         match dir {
@@ -417,6 +511,9 @@ impl<G, I> GraphDB<G, I>
         vertex_map.deserialize(&vm_path_str);
         info!("finish import corner vertex map");
 
+        let mut modification = GraphDBModification::new();
+        modification.init(&graph_schema);
+
         Ok(Self {
             partition,
             ie,
@@ -428,6 +525,7 @@ impl<G, I> GraphDB<G, I>
             oe_edge_prop_table,
             vertex_label_num,
             edge_label_num,
+            modification,
         })
     }
 
@@ -493,5 +591,392 @@ impl<G, I> GraphDB<G, I>
                 self.ie_edge_prop_table.get(&index),
             ),
         }
+    }
+
+    pub fn insert_vertex(&mut self, label: LabelId, id: G, properties: Option<Vec<Item>>) {
+        let lid = self.vertex_map.add_vertex(id, label);
+        if let Some(properties) = properties {
+            self.vertex_prop_table[label as usize].insert(lid.index(), &properties);
+        }
+    }
+
+    pub fn delete_vertex(&mut self, label: LabelId, id: G) {
+        self.modification.delete_vertex(label, id);
+    }
+
+    pub fn insert_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G, properties: Option<Vec<Item>>) {
+        self.modification.insert_edge(src_label, dst_label, edge_label, src, dst, properties);
+    }
+
+    pub fn insert_edge_opt(&mut self, index: usize, src: G, dst: G, properties: Option<Vec<Item>>) {
+        self.modification.insert_edge_opt(index, src, dst, properties);
+    }
+
+    pub fn delete_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G) {
+        self.modification.delete_edge(src_label, dst_label, edge_label, src, dst);
+    }
+
+    pub fn delete_edge_opt(&mut self, index: usize, src: G, dst: G) {
+        self.modification.delete_edge_opt(index, src, dst);
+    }
+
+    pub fn apply_modifications_on_csr(&mut self,
+                                      index: usize,
+                                      modification_index: usize,
+                                      cols: Vec<(String, DataType)>,
+                                      new_vertex_num: usize,
+                                      vertices_to_delete: &Vec<I>,
+                                      delete_edges: &Vec<(I, I)>,
+                                      add_edges: &Vec<(I, I)>, dir: Direction) {
+        let csr = if dir == Direction::Outgoing {
+            self.oe[index]
+                .as_mut_any()
+                .downcast_mut::<BatchMutableCsr<I>>()
+                .unwrap()
+        } else {
+            self.ie[index]
+                .as_mut_any()
+                .downcast_mut::<BatchMutableCsr<I>>()
+                .unwrap()
+        };
+        let table = if dir == Direction::Outgoing {
+            self.oe_edge_prop_table.get_mut(&index)
+        } else {
+            self.ie_edge_prop_table.get_mut(&index)
+        };
+        let add_edges_table = if table.is_some() {
+            self.modification.add_edge_prop_tables.get(&modification_index)
+        } else {
+            None
+        };
+        let mut new_degree = vec![];
+        new_degree.resize(new_vertex_num, 0);
+        let old_vertex_num = csr.vertex_num();
+        for v in 0..old_vertex_num.index() {
+            new_degree[v] = csr.degree(I::new(v)) as i64;
+        }
+        for id in vertices_to_delete {
+            new_degree[id.index()] = 0;
+        }
+        if dir == Direction::Outgoing {
+            let mut last_vertex = <I as IndexType>::max();
+            let mut nbr_set = HashSet::new();
+            for (src, dst) in delete_edges {
+                if *src != last_vertex {
+                    if !nbr_set.is_empty() && new_degree[last_vertex.index()] > 0 {
+                        let mut deleted_edges = 0;
+                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1] {
+                            if nbr_set.contains(&csr.neighbors[offset]) {
+                                csr.neighbors[offset] = <I as IndexType>::max();
+                                deleted_edges += 1;
+                            }
+                        }
+                        new_degree[last_vertex.index()] -= deleted_edges;
+                        nbr_set.clear();
+                    }
+                    last_vertex = *src;
+                }
+                nbr_set.insert(*dst);
+            }
+            if !nbr_set.is_empty() && new_degree[last_vertex.index()] > 0 {
+                let mut deleted_edges = 0;
+                for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1] {
+                    if nbr_set.contains(&csr.neighbors[offset]) {
+                        csr.neighbors[offset] = <I as IndexType>::max();
+                        deleted_edges += 1;
+                    }
+                }
+                new_degree[last_vertex.index()] -= deleted_edges;
+            }
+
+            for (src, dst) in add_edges {
+                new_degree[src.index()] += 1;
+            }
+        } else {
+            let mut last_vertex = <I as IndexType>::max();
+            let mut nbr_set = HashSet::new();
+            for (dst, src) in delete_edges {
+                if *src != last_vertex {
+                    if !nbr_set.is_empty() && new_degree[last_vertex.index()] > 0 {
+                        let mut deleted_edges = 0;
+                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1] {
+                            if nbr_set.contains(&csr.neighbors[offset]) {
+                                csr.neighbors[offset] = <I as IndexType>::max();
+                                deleted_edges += 1;
+                            }
+                        }
+                        new_degree[last_vertex.index()] -= deleted_edges;
+                        nbr_set.clear();
+                    }
+                    last_vertex = *src;
+                }
+                nbr_set.insert(*dst);
+            }
+            if !nbr_set.is_empty() && new_degree[last_vertex.index()] > 0 {
+                let mut deleted_edges = 0;
+                for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1] {
+                    if nbr_set.contains(&csr.neighbors[offset]) {
+                        csr.neighbors[offset] = <I as IndexType>::max();
+                        deleted_edges += 1;
+                    }
+                }
+                new_degree[last_vertex.index()] -= deleted_edges;
+            }
+
+            for (dst, src) in add_edges {
+                new_degree[dst.index()] += 1;
+            }
+        }
+
+        let mut builder = BatchMutableCsrBuilder::new();
+        builder.init(&new_degree, 1.0);
+        if let Some(t) = table {
+            let mut header = vec![];
+            for pair in cols.iter() {
+                header.push((pair.1.clone(), pair.0.clone()));
+            }
+            let mut new_table = ColTable::new(header);
+            for v in 0..old_vertex_num.index() {
+                for offset in csr.offsets[v]..csr.offsets[v + 1] {
+                    if csr.neighbors[offset] != <I as IndexType>::max() {
+                        let index = builder.put_edge(I::new(v), csr.neighbors[offset]).unwrap();
+                        new_table.insert(index, &t.get_row(offset).unwrap());
+                    }
+                }
+            }
+            if dir == Direction::Outgoing {
+                for (offset, (src, dst)) in add_edges.iter().enumerate() {
+                    let index = builder.put_edge(*src, *dst).unwrap();
+                    new_table.insert(index, &t.get_row(offset).unwrap());
+                }
+            } else {
+                for (offset, (src, dst)) in add_edges.iter().enumerate() {
+                    let index = builder.put_edge(*dst, *src).unwrap();
+                    new_table.insert(index, &t.get_row(offset).unwrap());
+                }
+            }
+            *t = new_table;
+        } else {
+            for v in 0..old_vertex_num.index() {
+                for offset in csr.offsets[v]..csr.offsets[v + 1] {
+                    if csr.neighbors[offset] != <I as IndexType>::max() {
+                        builder.put_edge(I::new(v), csr.neighbors[offset]);
+                    }
+                }
+            }
+            if dir == Direction::Outgoing {
+                for (src, dst) in add_edges {
+                    builder.put_edge(*src, *dst);
+                }
+            } else {
+                for (src, dst) in add_edges {
+                    builder.put_edge(*dst, *src);
+                }
+            }
+        }
+
+        *csr = builder.finish().unwrap();
+    }
+
+    pub fn apply_modifications_on_single_csr(&mut self,
+                                             index: usize,
+                                             modification_index: usize,
+                                             new_vertex_num: usize,
+                                             vertices_to_delete: &Vec<I>,
+                                             delete_edges: &Vec<(I, I)>,
+                                             add_edges: &Vec<(I, I)>, dir: Direction) {
+        let csr = if dir == Direction::Outgoing {
+            self.oe[index]
+                .as_mut_any()
+                .downcast_mut::<BatchMutableSingleCsr<I>>()
+                .unwrap()
+        } else {
+            self.ie[index]
+                .as_mut_any()
+                .downcast_mut::<BatchMutableSingleCsr<I>>()
+                .unwrap()
+        };
+        let table = if dir == Direction::Outgoing {
+            self.oe_edge_prop_table.get_mut(&index)
+        } else {
+            self.ie_edge_prop_table.get_mut(&index)
+        };
+        let add_edges_table = if table.is_some() {
+            self.modification.add_edge_prop_tables.get(&modification_index)
+        } else {
+            None
+        };
+        csr.resize_vertex(new_vertex_num);
+        for id in vertices_to_delete {
+            csr.remove_vertex(*id);
+        }
+        if dir == Direction::Outgoing {
+            for (src, dst) in delete_edges {
+                csr.remove_vertex(*src);
+            }
+        } else {
+            for (src, dst) in delete_edges {
+                csr.remove_vertex(*dst);
+            }
+        }
+        if let Some(t) = table {
+            if dir == Direction::Outgoing {
+                for (index, (src, dst)) in add_edges.iter().enumerate() {
+                    csr.put_edge(*src, *dst);
+                    t.insert(src.index(), &add_edges_table.unwrap().get_row(index).unwrap());
+                }
+            } else {
+                for (index, (src, dst)) in add_edges.iter().enumerate() {
+                    csr.put_edge(*dst, *src);
+                    t.insert(dst.index(), &add_edges_table.unwrap().get_row(index).unwrap());
+                }
+            }
+        } else {
+            if dir == Direction::Outgoing {
+                for (src, dst) in add_edges {
+                    csr.put_edge(*src, *dst)
+                }
+            } else {
+                for (src, dst) in add_edges {
+                    csr.put_edge(*dst, *src)
+                }
+            }
+        }
+    }
+
+    pub fn apply_modifications(&mut self) {
+        let mut vertices_to_delete = vec![];
+        for (label, ids) in self.modification.delete_vertices.iter_mut().enumerate() {
+            let mut parsed_ids = vec![];
+            for id in ids.into_iter() {
+                let (got_label, lid) = self.vertex_map.get_internal_id(*id).unwrap();
+                if (got_label as usize) == label {
+                    parsed_ids.push(lid);
+                } else {
+                    warn!("label not match, got: {}, expect: {}", got_label, label);
+                }
+            }
+            ids.clear();
+
+            vertices_to_delete.push(parsed_ids);
+        }
+
+        for edge_label_i in 0..self.edge_label_num {
+            for src_label_i in 0..self.vertex_label_num {
+                for dst_label_i in 0..self.vertex_label_num {
+                    let modification_index = self.modification.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId);
+
+                    let inserted_edges = !self.modification.add_edges[modification_index].is_empty();
+                    let deleted_edges = !self.modification.delete_edges[modification_index].is_empty();
+
+                    let oe_index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId, Direction::Outgoing);
+                    let ie_index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId, Direction::Incoming);
+
+                    let inserted_src = !self.vertex_map.vertex_num(src_label_i as LabelId) != self.oe[oe_index].vertex_num().index();
+                    let inserted_dst = !self.vertex_map.vertex_num(dst_label_i as LabelId) != self.ie[ie_index].vertex_num().index();
+
+                    let deleted_src = !vertices_to_delete[src_label_i].is_empty();
+                    let deleted_dst = !vertices_to_delete[dst_label_i].is_empty();
+
+                    if !inserted_edges && !deleted_edges && !inserted_src && !inserted_dst && !deleted_src && !deleted_dst {
+                        continue;
+                    }
+
+                    let mut parsed_add_edges = vec![];
+                    let mut parsed_delete_edges = vec![];
+
+                    for (src, dst) in self.modification.delete_edges[modification_index].iter() {
+                        let (got_src_label, src_lid) = self.vertex_map.get_internal_id(*src).unwrap();
+                        let (got_dst_label, dst_lid) = self.vertex_map.get_internal_id(*dst).unwrap();
+                        if (got_src_label as usize) == src_label_i && (got_dst_label as usize) == dst_label_i {
+                            parsed_delete_edges.push((src_lid, dst_lid));
+                        } else {
+                            warn!("label not match, got: {}->{}, expect: {}->{}", got_src_label, got_dst_label, src_label_i, dst_label_i);
+                        }
+                    }
+                    self.modification.delete_edges[modification_index].clear();
+
+                    for (src, dst) in self.modification.add_edges[modification_index].iter() {
+                        let (got_src_label, src_lid) = self.vertex_map.get_internal_id(*src).unwrap();
+                        let (got_dst_label, dst_lid) = self.vertex_map.get_internal_id(*dst).unwrap();
+                        if (got_src_label as usize) == src_label_i && (got_dst_label as usize) == dst_label_i {
+                            parsed_add_edges.push((src_lid, dst_lid));
+                        } else {
+                            warn!("label not match, got: {}->{}, expect: {}->{}", got_src_label, got_dst_label, src_label_i, dst_label_i);
+                        }
+                    }
+                    self.modification.add_edges[modification_index].clear();
+
+                    let ie_index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId, Direction::Incoming);
+                    if self.graph_schema.is_single_ie(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId) {
+                        self.apply_modifications_on_single_csr(
+                            ie_index,
+                            modification_index,
+                            self.vertex_map.vertex_num(dst_label_i as LabelId),
+                            &vertices_to_delete[dst_label_i],
+                            &parsed_delete_edges,
+                            &parsed_delete_edges,
+                            Direction::Incoming
+                        );
+                    } else {
+                        let mut cols = vec![];
+                        {
+                            if let Some(cols_ref) = self.graph_schema.get_edge_header(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId) {
+                                for (name, data_type) in cols_ref.iter() {
+                                    cols.push((name.clone(), data_type.clone()));
+                                }
+                            }
+                        }
+                        parsed_delete_edges.sort_by(|a, b| a.1.index().cmp(&b.1.index()));
+                        self.apply_modifications_on_csr(
+                            ie_index,
+                            modification_index,
+                            cols,
+                            self.vertex_map.vertex_num(dst_label_i as LabelId),
+                            &vertices_to_delete[dst_label_i],
+                            &parsed_delete_edges,
+                            &parsed_delete_edges,
+                            Direction::Incoming
+                        );
+                    }
+
+                    let oe_index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId, Direction::Outgoing);
+                    if self.graph_schema.is_single_oe(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId) {
+                        self.apply_modifications_on_single_csr(
+                            oe_index,
+                            modification_index,
+                            self.vertex_map.vertex_num(src_label_i as LabelId),
+                            &vertices_to_delete[src_label_i],
+                            &parsed_delete_edges,
+                            &parsed_delete_edges,
+                            Direction::Outgoing
+                        );
+                    } else {
+                        let mut cols = vec![];
+                        {
+                            if let Some(cols_ref) = self.graph_schema.get_edge_header(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId) {
+                                for (name, data_type) in cols_ref.iter() {
+                                    cols.push((name.clone(), data_type.clone()));
+                                }
+                            }
+                        }
+                        parsed_delete_edges.sort_by(|a, b| a.0.index().cmp(&b.0.index()));
+                        self.apply_modifications_on_csr(
+                            oe_index,
+                            modification_index,
+                            cols,
+                            // self.graph_schema.get_edge_header(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId),
+                            self.vertex_map.vertex_num(src_label_i as LabelId),
+                            &vertices_to_delete[src_label_i],
+                            &parsed_delete_edges,
+                            &parsed_delete_edges,
+                            Direction::Outgoing
+                        );
+                    }
+                }
+            }
+        }
+
+        self.modification.add_edge_prop_tables.clear();
     }
 }

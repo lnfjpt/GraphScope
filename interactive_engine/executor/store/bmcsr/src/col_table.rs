@@ -142,6 +142,18 @@ impl ColTable {
         }
     }
 
+    pub fn get_row(&self, row_i: usize) -> Option<Vec<Item>> {
+        if row_i < self.row_num {
+            let mut row = Vec::new();
+            for col in self.columns.iter() {
+                row.push(col.get(row_i).unwrap().to_owned());
+            }
+            Some(row)
+        } else {
+            None
+        }
+    }
+
     pub fn serialize_table(&self, path: &String) {
         let mut f = File::create(path).unwrap();
         f.write_u64(self.row_num as u64).unwrap();

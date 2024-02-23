@@ -62,6 +62,7 @@ pub trait CsrTrait<I: IndexType>: Send + Sync {
     fn get_edges_with_offset(&self, u: I) -> Option<NbrOffsetIter<I>>;
 
     fn as_any(&self) -> &dyn Any;
+    fn as_mut_any(&mut self) -> &mut dyn Any;
 }
 
 #[derive(Debug)]
