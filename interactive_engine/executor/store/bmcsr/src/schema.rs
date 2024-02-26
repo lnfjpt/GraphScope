@@ -187,11 +187,27 @@ impl CsrGraphSchema {
             self.vertex_type_to_id.len(),
             self.edge_type_to_id.len()
         );
+        let mut vertex_type_names = vec![];
+        let mut edge_type_names = vec![];
+        vertex_type_names.resize(self.vertex_type_to_id.len(), "".to_string());
+        edge_type_names.resize(self.edge_type_to_id.len(), "".to_string());
+
         for pair in self.vertex_type_to_id.iter() {
+            vertex_type_names[*pair.1 as usize] = pair.0.clone();
             info!("vertex label: {}, id: {}", pair.0.clone(), pair.1);
         }
         for pair in self.edge_type_to_id.iter() {
+            edge_type_names[*pair.1 as usize] = pair.0.clone();
             info!("edge label: {}, id: {}", pair.0.clone(), pair.1);
+        }
+
+        info!("Single IE: ");
+        for tup in self.edge_single_ie.iter() {
+            info!("\t{} - {} - {}", vertex_type_names[tup.0 as usize], edge_type_names[tup.1 as usize], vertex_type_names[tup.2 as usize]);
+        }
+        info!("Single OE: ");
+        for tup in self.edge_single_oe.iter() {
+            info!("\t{} - {} - {}", vertex_type_names[tup.0 as usize], edge_type_names[tup.1 as usize], vertex_type_names[tup.2 as usize]);
         }
     }
 

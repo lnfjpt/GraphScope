@@ -190,6 +190,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                         edge_label as LabelId,
                         dst_label as LabelId,
                     ) {
+                        info!("Output out single edge file: {:?} from {}", oe_file_path, oe_index);
                         let csr = graph.oe[oe_index]
                             .as_any()
                             .downcast_ref::<BatchMutableSingleCsr<usize>>()
@@ -204,6 +205,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                             Direction::Outgoing,
                         );
                     } else {
+                        info!("Output out edge file: {:?} from {}", oe_file_path, oe_index);
                         let csr = graph.oe[oe_index]
                             .as_any()
                             .downcast_ref::<BatchMutableCsr<usize>>()
@@ -224,9 +226,10 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                     let ie_file_path = PathBuf::from_str(output_dir)
                         .unwrap()
                         .join(ie_file_name);
+                    // reverse src and dst label
                     let ie_index = graph.edge_label_to_index(
-                        src_label as LabelId,
                         dst_label as LabelId,
+                        src_label as LabelId,
                         edge_label as LabelId,
                         Direction::Incoming,
                     );
@@ -235,6 +238,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                         edge_label as LabelId,
                         dst_label as LabelId,
                     ) {
+                        info!("Output in single edge file: {:?} from {}", ie_file_path, ie_index);
                         let csr = graph.ie[ie_index]
                             .as_any()
                             .downcast_ref::<BatchMutableSingleCsr<usize>>()
@@ -244,11 +248,12 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                             ie_file_path.to_str().unwrap(),
                             csr,
                             graph.ie_edge_prop_table.get(&ie_index),
-                            src_label as LabelId,
                             dst_label as LabelId,
+                            src_label as LabelId,
                             Direction::Incoming,
                         );
                     } else {
+                        info!("Output in edge file: {:?} from {}", ie_file_path, ie_index);
                         let csr = graph.ie[ie_index]
                             .as_any()
                             .downcast_ref::<BatchMutableCsr<usize>>()
@@ -258,8 +263,8 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                             ie_file_path.to_str().unwrap(),
                             csr,
                             graph.ie_edge_prop_table.get(&ie_index),
-                            src_label as LabelId,
                             dst_label as LabelId,
+                            src_label as LabelId,
                             Direction::Incoming,
                         );
                     }

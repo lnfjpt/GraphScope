@@ -3,6 +3,7 @@ use crate::columns::{Column, StringColumn};
 use csv::ReaderBuilder;
 use rust_htslib::bgzf::Reader as GzReader;
 use std::collections::HashSet;
+use std::fmt::format;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -72,10 +73,11 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
             (files_list_prefix.clone() + "/*.csv.gz").to_string(),
             (files_list_prefix.clone() + "/*.csv").to_string(),
         ];
+        info!("files_list: {:?} {:?}", &self.input_dir, &files_list_input);
         let vertex_files = get_files_list(&self.input_dir, &files_list_input).unwrap();
         let parser = LDBCVertexParser::new(
             self.graph_schema
-                .get_vertex_label_id(label_name)
+                .get_vertex_label_id(label_name.to_uppercase().as_str())
                 .unwrap(),
             1,
         );
@@ -186,14 +188,14 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
             .graph_schema
             .get_vertex_label_id("COMMENT")
             .unwrap();
-        let post_replyOf_comment =
-            graph.get_sub_graph(post_label, replyOf_label, comment_label, Direction::Outgoing);
+        let comment_replyOf_post =
+            graph.get_sub_graph(post_label, replyOf_label, comment_label, Direction::Incoming);
         for post in self.posts_to_delete.iter() {
             let (got_label, lid) = graph.vertex_map.get_internal_id(*post).unwrap();
             if got_label != post_label {
                 continue;
             }
-            for e in post_replyOf_comment.get_adj_list(lid).unwrap() {
+            for e in comment_replyOf_post.get_adj_list(lid).unwrap() {
                 let oid = graph
                     .vertex_map
                     .get_global_id(comment_label, *e)
@@ -285,11 +287,11 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
             .unwrap();
 
         let comment_hasCreator_person =
-            graph.get_sub_graph(comment_label, hasCreator_label, person_label, Direction::Incoming);
+            graph.get_sub_graph(person_label, hasCreator_label, comment_label, Direction::Incoming);
         let post_hasCreator_person =
-            graph.get_sub_graph(post_label, hasCreator_label, person_label, Direction::Incoming);
+            graph.get_sub_graph(person_label, hasCreator_label, post_label, Direction::Incoming);
         let forum_hasModerator_person =
-            graph.get_sub_graph(forum_label, hasModerator_label, person_label, Direction::Incoming);
+            graph.get_sub_graph(person_label, hasModerator_label, forum_label, Direction::Incoming);
 
         let forum_title_column = graph.vertex_prop_table[forum_label as usize]
             .get_column_by_name("title")
@@ -354,28 +356,34 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
         self.posts_to_delete = self.load_vertices_to_delete("Post", batch)?;
         self.comments_to_delete = self.load_vertices_to_delete("Comment", batch)?;
 
+        info!("enter delete persons");
         self.delete_persons(graph)?;
+        info!("enter delete forums");
         self.delete_forums(graph)?;
+        info!("enter delete posts");
         self.delete_posts(graph)?;
+        info!("enter delete comments");
         self.delete_comments(graph)?;
+        info!("exit delete comments");
 
         let edges_to_delete = vec![
             (("COMMENT", "HASCREATOR", "PERSON"), "Comment_hasCreator_Person"),
-            (("COMMENT", "ISLOCATEDIN", "COUNTRY"), "Comment_isLocatedIn_Country"),
+            (("COMMENT", "ISLOCATEDIN", "PLACE"), "Comment_isLocatedIn_Country"),
             (("COMMENT", "REPLYOF", "COMMENT"), "Comment_replyOf_Comment"),
             (("COMMENT", "REPLYOF", "POST"), "Comment_replyOf_Post"),
             (("FORUM", "CONTAINEROF", "POST"), "Forum_containerOf_Post"),
             (("FORUM", "HASMEMBER", "PERSON"), "Forum_hasMember_Person"),
             (("FORUM", "HASMODERATOR", "PERSON"), "Forum_hasModerator_Person"),
-            (("PERSON", "ISLOCATEDIN", "CITY"), "Person_isLocatedIn_City"),
+            (("PERSON", "ISLOCATEDIN", "PLACE"), "Person_isLocatedIn_City"),
             (("PERSON", "KNOWS", "PERSON"), "Person_knows_Person"),
             (("PERSON", "LIKES", "COMMENT"), "Person_likes_Comment"),
             (("PERSON", "LIKES", "POST"), "Person_likes_Post"),
             (("POST", "HASCREATOR", "PERSON"), "Post_hasCreator_Person"),
-            (("POST", "ISLOCATEDIN", "COUNTRY"), "Post_isLocatedIn_Country"),
+            (("POST", "ISLOCATEDIN", "PLACE"), "Post_isLocatedIn_Country"),
         ];
 
         for (edge, edge_name) in edges_to_delete {
+            info!("enter delete edges: {:?} {:?}", &edge, &edge_name);
             let src_label = self
                 .graph_schema
                 .get_vertex_label_id(edge.0)
@@ -430,8 +438,9 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
                     }
                 }
                 let parser = LDBCVertexParser::<G>::new(v_label_i as LabelId, id_col_id);
-                let vertex_files_prefix = self.input_dir.clone().join("/inserts/");
+                let vertex_files_prefix = self.input_dir.clone().join("inserts");
 
+                info!("vertex_files_prefix: {:?}, {:?}, {:?}", &self.input_dir, &vertex_files_prefix, &vertex_file_strings);
                 let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings).unwrap();
                 for vertex_file in vertex_files.iter() {
                     if vertex_file
@@ -529,13 +538,14 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
                             dst_label_i as LabelId,
                             e_label_i as LabelId,
                         );
+                        parser.with_endpoint_col_id(src_col_id, dst_col_id);
                         let index = graph.modification.edge_label_to_index(
                             src_label_i as LabelId,
                             dst_label_i as LabelId,
                             e_label_i as LabelId,
                         );
 
-                        let edge_files_prefix = self.input_dir.clone().join("/inserts/");
+                        let edge_files_prefix = self.input_dir.clone().join("inserts");
                         let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings).unwrap();
 
                         for edge_file in edge_files.iter() {

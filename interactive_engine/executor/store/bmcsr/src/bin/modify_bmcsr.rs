@@ -77,14 +77,15 @@ fn main() {
 
     let mut graph = GraphDB::deserialize(&graph_data_dir, 0, None).unwrap();
 
-    let init_output = output_dir.to_string().clone() + "/init";
-    std::fs::create_dir_all(&init_output).unwrap();
-    traverse(&graph, &init_output);
+    // let init_output = output_dir.to_string().clone() + "/init";
+    // std::fs::create_dir_all(&init_output).unwrap();
+    // traverse(&graph, &init_output);
 
     let insert_schema_file_path = PathBuf::from(&insert_schema_file);
 
     let mut graph_modifier = GraphModifier::<DefaultId>::new(input_dir, graph_schema_file, 0, 1);
-    let batch = format!("batch_id={}", batch_id);
+    graph_modifier.skip_header();
+    let batch = format!("{}", batch_id);
     graph_modifier
         .modify(&mut graph, batch.as_str(), &insert_schema_file_path)
         .unwrap();
