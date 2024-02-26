@@ -93,7 +93,9 @@ impl<I: IndexType> BatchMutableSingleCsr<I> {
     }
 
     pub fn remove_vertex(&mut self, vertex: I) {
+        info!("before remove, vertex {}'s edge is {:?}", vertex.index(), self.nbr_list[vertex.index()]);
         self.nbr_list[vertex.index()] = <I as IndexType>::max();
+        info!("after remove, vertex {}'s edge is {:?}", vertex.index(), self.nbr_list[vertex.index()]);
     }
 
     pub fn get_edge(&self, src: I) -> Option<I> {

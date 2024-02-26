@@ -39,7 +39,7 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
     ) -> GraphModifier<G> {
         let graph_schema =
             CsrGraphSchema::from_json_file(graph_schema_file).expect("Read trim schema error!");
-        graph_schema.desc();
+        // graph_schema.desc();
 
         Self {
             input_dir: input_dir.as_ref().to_path_buf(),
@@ -73,7 +73,6 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
             (files_list_prefix.clone() + "/*.csv.gz").to_string(),
             (files_list_prefix.clone() + "/*.csv").to_string(),
         ];
-        info!("files_list: {:?} {:?}", &self.input_dir, &files_list_input);
         let vertex_files = get_files_list(&self.input_dir, &files_list_input).unwrap();
         let parser = LDBCVertexParser::new(
             self.graph_schema
@@ -356,15 +355,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
         self.posts_to_delete = self.load_vertices_to_delete("Post", batch)?;
         self.comments_to_delete = self.load_vertices_to_delete("Comment", batch)?;
 
-        info!("enter delete persons");
         self.delete_persons(graph)?;
-        info!("enter delete forums");
         self.delete_forums(graph)?;
-        info!("enter delete posts");
         self.delete_posts(graph)?;
-        info!("enter delete comments");
         self.delete_comments(graph)?;
-        info!("exit delete comments");
 
         let edges_to_delete = vec![
             (("COMMENT", "HASCREATOR", "PERSON"), "Comment_hasCreator_Person"),
@@ -383,7 +377,6 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
         ];
 
         for (edge, edge_name) in edges_to_delete {
-            info!("enter delete edges: {:?} {:?}", &edge, &edge_name);
             let src_label = self
                 .graph_schema
                 .get_vertex_label_id(edge.0)
@@ -440,7 +433,6 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphModifier<G> {
                 let parser = LDBCVertexParser::<G>::new(v_label_i as LabelId, id_col_id);
                 let vertex_files_prefix = self.input_dir.clone().join("inserts");
 
-                info!("vertex_files_prefix: {:?}, {:?}, {:?}", &self.input_dir, &vertex_files_prefix, &vertex_file_strings);
                 let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings).unwrap();
                 for vertex_file in vertex_files.iter() {
                     if vertex_file

@@ -105,7 +105,6 @@ impl<G: FromStr + PartialEq + Default + IndexType> LDBCEdgeParser<G> {
     }
 
     pub fn parse_edge_meta(&self, record: &StringRecord) -> EdgeMeta<G> {
-        info!("parse edge meta: {:?}, src_col_id = {}, dst_col_id = {}", record, self.src_col_id, self.dst_col_id);
         let src_global_id = LDBCVertexParser::to_global_id(
             record
                 .get(self.src_col_id)

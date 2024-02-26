@@ -26,7 +26,6 @@ fn traverse_vertices(graph: &GraphDB, output_dir: &str) {
                 .unwrap();
             let file_name = format!("{}.csv", n);
             let file_path = output_dir_path.join(file_name);
-            info!("Output vertex file: {:?}", file_path);
             let mut file = File::create(file_path).unwrap();
 
             let v_labels = vec![v_label];
@@ -95,9 +94,9 @@ fn output_csr<G, I>(
                     let dst_global_id = graph.get_global_id(*e, neighbor_label).unwrap();
                     let dst_oid = LDBCVertexParser::<G>::get_original_id(dst_global_id);
                     if dir == Direction::Outgoing {
-                        write!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
+                        writeln!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
                     } else {
-                        write!(file, "{}|{}", dst_oid.index(), src_oid.index()).unwrap();
+                        writeln!(file, "{}|{}", dst_oid.index(), src_oid.index()).unwrap();
                     }
                 }
             }
@@ -149,9 +148,9 @@ fn output_single_csr<G, I>(
                     let dst_global_id = graph.get_global_id(*e, neighbor_label).unwrap();
                     let dst_oid = LDBCVertexParser::<G>::get_original_id(dst_global_id);
                     if dir == Direction::Outgoing {
-                        write!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
+                        writeln!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
                     } else {
-                        write!(file, "{}|{}", dst_oid.index(), src_oid.index()).unwrap();
+                        writeln!(file, "{}|{}", dst_oid.index(), src_oid.index()).unwrap();
                     }
                 }
             }
@@ -190,7 +189,6 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                         edge_label as LabelId,
                         dst_label as LabelId,
                     ) {
-                        info!("Output out single edge file: {:?} from {}", oe_file_path, oe_index);
                         let csr = graph.oe[oe_index]
                             .as_any()
                             .downcast_ref::<BatchMutableSingleCsr<usize>>()
@@ -205,7 +203,6 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                             Direction::Outgoing,
                         );
                     } else {
-                        info!("Output out edge file: {:?} from {}", oe_file_path, oe_index);
                         let csr = graph.oe[oe_index]
                             .as_any()
                             .downcast_ref::<BatchMutableCsr<usize>>()
@@ -238,7 +235,6 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                         edge_label as LabelId,
                         dst_label as LabelId,
                     ) {
-                        info!("Output in single edge file: {:?} from {}", ie_file_path, ie_index);
                         let csr = graph.ie[ie_index]
                             .as_any()
                             .downcast_ref::<BatchMutableSingleCsr<usize>>()
@@ -253,7 +249,6 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                             Direction::Incoming,
                         );
                     } else {
-                        info!("Output in edge file: {:?} from {}", ie_file_path, ie_index);
                         let csr = graph.ie[ie_index]
                             .as_any()
                             .downcast_ref::<BatchMutableCsr<usize>>()
