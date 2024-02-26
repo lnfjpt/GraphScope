@@ -8,9 +8,7 @@ pub struct NbrIter<'a, I> {
 
 impl<'a, I> NbrIter<'a, I> {
     pub fn new(vec: &'a Vec<I>, start: usize, end: usize) -> Self {
-        NbrIter {
-            inner: vec[start..end].iter(),
-        }
+        NbrIter { inner: vec[start..end].iter() }
     }
 }
 
@@ -29,10 +27,7 @@ pub struct NbrOffsetIter<'a, I> {
 
 impl<'a, I> NbrOffsetIter<'a, I> {
     pub fn new(vec: &'a Vec<I>, start: usize, end: usize) -> Self {
-        NbrOffsetIter {
-            inner: vec[start..end].iter(),
-            offset: start,
-        }
+        NbrOffsetIter { inner: vec[start..end].iter(), offset: start }
     }
 }
 
@@ -70,4 +65,3 @@ pub enum CsrBuildError {
     OffsetOutOfCapacity,
     UnfinishedVertex,
 }
-

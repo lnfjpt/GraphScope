@@ -20,7 +20,10 @@ fn traverse_vertices(graph: &GraphDB, output_dir: &str) {
     let output_dir_path = PathBuf::from_str(output_dir).unwrap();
     for n in vertex_label_names.iter() {
         if let Some(v_label) = graph.graph_schema.get_vertex_label_id(n) {
-            let header = graph.graph_schema.get_vertex_header(v_label).unwrap();
+            let header = graph
+                .graph_schema
+                .get_vertex_header(v_label)
+                .unwrap();
             let file_name = format!("{}.csv", n);
             let file_path = output_dir_path.join(file_name);
             info!("Output vertex file: {:?}", file_path);
@@ -32,7 +35,14 @@ fn traverse_vertices(graph: &GraphDB, output_dir: &str) {
                 write!(file, "{}", id.to_string()).unwrap();
                 for c in header {
                     if c.1 != DataType::ID {
-                        write!(file, "|{}", v.get_property(c.0.as_str()).unwrap().to_string()).unwrap();
+                        write!(
+                            file,
+                            "|{}",
+                            v.get_property(c.0.as_str())
+                                .unwrap()
+                                .to_string()
+                        )
+                        .unwrap();
                     }
                 }
                 writeln!(file).unwrap();
@@ -41,10 +51,12 @@ fn traverse_vertices(graph: &GraphDB, output_dir: &str) {
     }
 }
 
-fn output_csr<G, I>(graph: &GraphDB<G, I>, output_path: &str, csr: &BatchMutableCsr<I>, prop_table: Option<&ColTable>,
-                 label: LabelId, neighbor_label: LabelId, dir: Direction)
-    where G: Eq + IndexType + Send + Sync,
-          I: IndexType + Send + Sync,
+fn output_csr<G, I>(
+    graph: &GraphDB<G, I>, output_path: &str, csr: &BatchMutableCsr<I>, prop_table: Option<&ColTable>,
+    label: LabelId, neighbor_label: LabelId, dir: Direction,
+) where
+    G: Eq + IndexType + Send + Sync,
+    I: IndexType + Send + Sync,
 {
     let mut file = File::create(output_path).unwrap();
     for v in 0..csr.vertex_num().index() {
@@ -54,7 +66,9 @@ fn output_csr<G, I>(graph: &GraphDB<G, I>, output_path: &str, csr: &BatchMutable
             let col_num = table.col_num();
             if let Some(edges) = csr.get_edges_with_offset(I::new(v)) {
                 for (nbr, offset) in edges {
-                    let dst_global_id = graph.get_global_id(nbr, neighbor_label).unwrap();
+                    let dst_global_id = graph
+                        .get_global_id(nbr, neighbor_label)
+                        .unwrap();
                     let dst_oid = LDBCVertexParser::<G>::get_original_id(dst_global_id);
                     if dir == Direction::Outgoing {
                         write!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
@@ -62,7 +76,15 @@ fn output_csr<G, I>(graph: &GraphDB<G, I>, output_path: &str, csr: &BatchMutable
                         write!(file, "{}|{}", dst_oid.index(), src_oid.index()).unwrap();
                     }
                     for c in 0..col_num {
-                        write!(file, "|{}", table.get_item_by_index(c, offset).unwrap().to_string()).unwrap();
+                        write!(
+                            file,
+                            "|{}",
+                            table
+                                .get_item_by_index(c, offset)
+                                .unwrap()
+                                .to_string()
+                        )
+                        .unwrap();
                     }
                     writeln!(file).unwrap();
                 }
@@ -83,10 +105,12 @@ fn output_csr<G, I>(graph: &GraphDB<G, I>, output_path: &str, csr: &BatchMutable
     }
 }
 
-fn output_single_csr<G, I>(graph: &GraphDB<G, I>, output_path: &str, csr: &BatchMutableSingleCsr<I>, prop_table: Option<&ColTable>,
-                 label: LabelId, neighbor_label: LabelId, dir: Direction)
-    where G: Eq + IndexType + Send + Sync,
-          I: IndexType + Send + Sync,
+fn output_single_csr<G, I>(
+    graph: &GraphDB<G, I>, output_path: &str, csr: &BatchMutableSingleCsr<I>,
+    prop_table: Option<&ColTable>, label: LabelId, neighbor_label: LabelId, dir: Direction,
+) where
+    G: Eq + IndexType + Send + Sync,
+    I: IndexType + Send + Sync,
 {
     let mut file = File::create(output_path).unwrap();
     for v in 0..csr.vertex_num().index() {
@@ -96,7 +120,9 @@ fn output_single_csr<G, I>(graph: &GraphDB<G, I>, output_path: &str, csr: &Batch
             let col_num = table.col_num();
             if let Some(edges) = csr.get_edges_with_offset(I::new(v)) {
                 for (nbr, offset) in edges {
-                    let dst_global_id = graph.get_global_id(nbr, neighbor_label).unwrap();
+                    let dst_global_id = graph
+                        .get_global_id(nbr, neighbor_label)
+                        .unwrap();
                     let dst_oid = LDBCVertexParser::<G>::get_original_id(dst_global_id);
                     if dir == Direction::Outgoing {
                         write!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
@@ -104,7 +130,15 @@ fn output_single_csr<G, I>(graph: &GraphDB<G, I>, output_path: &str, csr: &Batch
                         write!(file, "{}|{}", dst_oid.index(), src_oid.index()).unwrap();
                     }
                     for c in 0..col_num {
-                        write!(file, "|{}", table.get_item_by_index(c, offset).unwrap().to_string()).unwrap();
+                        write!(
+                            file,
+                            "|{}",
+                            table
+                                .get_item_by_index(c, offset)
+                                .unwrap()
+                                .to_string()
+                        )
+                        .unwrap();
                     }
                     writeln!(file).unwrap();
                 }
@@ -134,28 +168,100 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
             let dst_label_name = graph.graph_schema.vertex_label_names()[dst_label].clone();
             for edge_label in 0..edge_label_num {
                 let edge_label_name = graph.graph_schema.edge_label_names()[edge_label].clone();
-                if let Some(header) = graph.graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
-                    let oe_file_name = format!("oe_{}_{}_{}.csv", src_label_name, edge_label_name, dst_label_name);
-                    let oe_file_path = PathBuf::from_str(output_dir).unwrap().join(oe_file_name);
+                if let Some(header) = graph.graph_schema.get_edge_header(
+                    src_label as LabelId,
+                    edge_label as LabelId,
+                    dst_label as LabelId,
+                ) {
+                    let oe_file_name =
+                        format!("oe_{}_{}_{}.csv", src_label_name, edge_label_name, dst_label_name);
+                    let oe_file_path = PathBuf::from_str(output_dir)
+                        .unwrap()
+                        .join(oe_file_name);
 
-                    let oe_index = graph.edge_label_to_index(src_label as LabelId, dst_label as LabelId, edge_label as LabelId, Direction::Outgoing);
-                    if graph.graph_schema.is_single_oe(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
-                        let csr = graph.oe[oe_index].as_any().downcast_ref::<BatchMutableSingleCsr<usize>>().unwrap();
-                        output_single_csr(graph, oe_file_path.to_str().unwrap(), csr, graph.oe_edge_prop_table.get(&oe_index), src_label as LabelId, dst_label as LabelId, Direction::Outgoing);
+                    let oe_index = graph.edge_label_to_index(
+                        src_label as LabelId,
+                        dst_label as LabelId,
+                        edge_label as LabelId,
+                        Direction::Outgoing,
+                    );
+                    if graph.graph_schema.is_single_oe(
+                        src_label as LabelId,
+                        edge_label as LabelId,
+                        dst_label as LabelId,
+                    ) {
+                        let csr = graph.oe[oe_index]
+                            .as_any()
+                            .downcast_ref::<BatchMutableSingleCsr<usize>>()
+                            .unwrap();
+                        output_single_csr(
+                            graph,
+                            oe_file_path.to_str().unwrap(),
+                            csr,
+                            graph.oe_edge_prop_table.get(&oe_index),
+                            src_label as LabelId,
+                            dst_label as LabelId,
+                            Direction::Outgoing,
+                        );
                     } else {
-                        let csr = graph.oe[oe_index].as_any().downcast_ref::<BatchMutableCsr<usize>>().unwrap();
-                        output_csr(graph, oe_file_path.to_str().unwrap(), csr, graph.oe_edge_prop_table.get(&oe_index), src_label as LabelId, dst_label as LabelId, Direction::Outgoing);
+                        let csr = graph.oe[oe_index]
+                            .as_any()
+                            .downcast_ref::<BatchMutableCsr<usize>>()
+                            .unwrap();
+                        output_csr(
+                            graph,
+                            oe_file_path.to_str().unwrap(),
+                            csr,
+                            graph.oe_edge_prop_table.get(&oe_index),
+                            src_label as LabelId,
+                            dst_label as LabelId,
+                            Direction::Outgoing,
+                        );
                     }
 
-                    let ie_file_name = format!("ie_{}_{}_{}.csv", src_label_name, edge_label_name, dst_label_name);
-                    let ie_file_path = PathBuf::from_str(output_dir).unwrap().join(ie_file_name);
-                    let ie_index = graph.edge_label_to_index(src_label as LabelId, dst_label as LabelId, edge_label as LabelId, Direction::Incoming);
-                    if graph.graph_schema.is_single_ie(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
-                        let csr = graph.ie[ie_index].as_any().downcast_ref::<BatchMutableSingleCsr<usize>>().unwrap();
-                        output_single_csr(graph, ie_file_path.to_str().unwrap(), csr, graph.ie_edge_prop_table.get(&ie_index), src_label as LabelId, dst_label as LabelId, Direction::Incoming);
+                    let ie_file_name =
+                        format!("ie_{}_{}_{}.csv", src_label_name, edge_label_name, dst_label_name);
+                    let ie_file_path = PathBuf::from_str(output_dir)
+                        .unwrap()
+                        .join(ie_file_name);
+                    let ie_index = graph.edge_label_to_index(
+                        src_label as LabelId,
+                        dst_label as LabelId,
+                        edge_label as LabelId,
+                        Direction::Incoming,
+                    );
+                    if graph.graph_schema.is_single_ie(
+                        src_label as LabelId,
+                        edge_label as LabelId,
+                        dst_label as LabelId,
+                    ) {
+                        let csr = graph.ie[ie_index]
+                            .as_any()
+                            .downcast_ref::<BatchMutableSingleCsr<usize>>()
+                            .unwrap();
+                        output_single_csr(
+                            graph,
+                            ie_file_path.to_str().unwrap(),
+                            csr,
+                            graph.ie_edge_prop_table.get(&ie_index),
+                            src_label as LabelId,
+                            dst_label as LabelId,
+                            Direction::Incoming,
+                        );
                     } else {
-                        let csr = graph.ie[ie_index].as_any().downcast_ref::<BatchMutableCsr<usize>>().unwrap();
-                        output_csr(graph, ie_file_path.to_str().unwrap(), csr, graph.ie_edge_prop_table.get(&ie_index), src_label as LabelId, dst_label as LabelId, Direction::Incoming);
+                        let csr = graph.ie[ie_index]
+                            .as_any()
+                            .downcast_ref::<BatchMutableCsr<usize>>()
+                            .unwrap();
+                        output_csr(
+                            graph,
+                            ie_file_path.to_str().unwrap(),
+                            csr,
+                            graph.ie_edge_prop_table.get(&ie_index),
+                            src_label as LabelId,
+                            dst_label as LabelId,
+                            Direction::Incoming,
+                        );
                     }
                 }
             }

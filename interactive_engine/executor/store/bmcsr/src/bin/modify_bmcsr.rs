@@ -1,6 +1,6 @@
+use clap::{App, Arg};
 use std::ops::Index;
 use std::path::PathBuf;
-use clap::{App, Arg};
 
 use bmcsr::graph_db::GraphDB;
 use bmcsr::graph_modifier::GraphModifier;
@@ -85,7 +85,9 @@ fn main() {
 
     let mut graph_modifier = GraphModifier::<DefaultId>::new(input_dir, graph_schema_file, 0, 1);
     let batch = format!("batch_id={}", batch_id);
-    graph_modifier.modify(&mut graph, batch.as_str(), &insert_schema_file_path).unwrap();
+    graph_modifier
+        .modify(&mut graph, batch.as_str(), &insert_schema_file_path)
+        .unwrap();
 
     let modified_output = output_dir.to_string().clone() + "/modified";
     std::fs::create_dir_all(&modified_output).unwrap();

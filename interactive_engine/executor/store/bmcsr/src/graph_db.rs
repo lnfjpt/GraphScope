@@ -1,26 +1,26 @@
+use chrono::format::parse;
+use itertools::Itertools;
 use std::any::Any;
-use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use chrono::format::parse;
-use itertools::Itertools;
+use std::sync::Arc;
 
-use crate::graph::{IndexType, Direction};
-use crate::sub_graph::{SubGraph, SingleSubGraph};
-use crate::schema::{CsrGraphSchema, Schema};
-use crate::vertex_map::VertexMap;
-use crate::edge_trim::EdgeTrimJson;
-use crate::types::*;
 use crate::bmcsr::{BatchMutableCsr, BatchMutableCsrBuilder};
 use crate::bmscsr::BatchMutableSingleCsr;
-use crate::csr::CsrTrait;
 use crate::col_table::ColTable;
-use crate::columns::{RefItem, Item, DataType};
+use crate::columns::{DataType, Item, RefItem};
+use crate::csr::CsrTrait;
+use crate::edge_trim::EdgeTrimJson;
 use crate::error::GDBResult;
 use crate::graph::Direction::Outgoing;
+use crate::graph::{Direction, IndexType};
+use crate::schema::{CsrGraphSchema, Schema};
+use crate::sub_graph::{SingleSubGraph, SubGraph};
+use crate::types::*;
 use crate::utils::{Iter, LabeledIterator, LabeledRangeIterator, Range};
+use crate::vertex_map::VertexMap;
 
 /// A data structure to maintain a local view of the vertex.
 #[derive(Debug, Clone)]
@@ -168,7 +168,6 @@ impl<'a, G: IndexType + Sync + Send, I: IndexType + Sync + Send> LocalEdge<'a, G
     }
 }
 
-
 pub struct GraphDBModification<G: Send + Sync + IndexType = DefaultId> {
     pub delete_edges: Vec<Vec<(G, G)>>,
     pub delete_outgoing_edges: Vec<Vec<(G, G)>>,
@@ -183,8 +182,10 @@ pub struct GraphDBModification<G: Send + Sync + IndexType = DefaultId> {
     pub edge_label_num: usize,
 }
 
-
-impl<G> GraphDBModification<G> where G: Eq + IndexType + Send + Sync, {
+impl<G> GraphDBModification<G>
+where
+    G: Eq + IndexType + Send + Sync,
+{
     pub fn new() -> Self {
         Self {
             delete_edges: vec![],
@@ -216,23 +217,36 @@ impl<G> GraphDBModification<G> where G: Eq + IndexType + Send + Sync, {
         self.vertex_label_num = graph_schema.vertex_label_names().len();
         self.edge_label_num = graph_schema.edge_label_names().len();
 
-        self.delete_edges.resize(self.edge_label_tuple_num(), vec![]);
-        self.delete_outgoing_edges.resize(self.edge_label_tuple_num(), vec![]);
-        self.delete_incoming_edges.resize(self.edge_label_tuple_num(), vec![]);
-        self.delete_vertices.resize(self.vertex_label_num, vec![]);
+        self.delete_edges
+            .resize(self.edge_label_tuple_num(), vec![]);
+        self.delete_outgoing_edges
+            .resize(self.edge_label_tuple_num(), vec![]);
+        self.delete_incoming_edges
+            .resize(self.edge_label_tuple_num(), vec![]);
+        self.delete_vertices
+            .resize(self.vertex_label_num, vec![]);
 
         for e_label_i in 0..self.edge_label_num {
             for src_label_i in 0..self.vertex_label_num {
                 for dst_label_i in 0..self.vertex_label_num {
                     let mut header = vec![];
-                    if let Some(headers) = graph_schema.get_edge_header(src_label_i as LabelId, e_label_i as LabelId, dst_label_i as LabelId) {
+                    if let Some(headers) = graph_schema.get_edge_header(
+                        src_label_i as LabelId,
+                        e_label_i as LabelId,
+                        dst_label_i as LabelId,
+                    ) {
                         for pair in headers {
                             header.push((pair.1.clone(), pair.0.clone()));
                         }
                     }
                     if !header.is_empty() {
-                        let index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, e_label_i as LabelId);
-                        self.add_edge_prop_tables.insert(index, ColTable::new(header));
+                        let index = self.edge_label_to_index(
+                            src_label_i as LabelId,
+                            dst_label_i as LabelId,
+                            e_label_i as LabelId,
+                        );
+                        self.add_edge_prop_tables
+                            .insert(index, ColTable::new(header));
                     }
                 }
             }
@@ -244,7 +258,10 @@ impl<G> GraphDBModification<G> where G: Eq + IndexType + Send + Sync, {
         self.delete_vertices[index].push(id);
     }
 
-    pub fn insert_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G, properties: Option<Vec<Item>>) {
+    pub fn insert_edge(
+        &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G,
+        properties: Option<Vec<Item>>,
+    ) {
         let index = self.edge_label_to_index(src_label, dst_label, edge_label);
         self.insert_edge_opt(index, src, dst, properties);
     }
@@ -252,11 +269,16 @@ impl<G> GraphDBModification<G> where G: Eq + IndexType + Send + Sync, {
     pub fn insert_edge_opt(&mut self, index: usize, src: G, dst: G, properties: Option<Vec<Item>>) {
         self.add_edges[index].push((src, dst));
         if let Some(properties) = properties {
-            self.add_edge_prop_tables.get_mut(&index).unwrap().push(&properties);
+            self.add_edge_prop_tables
+                .get_mut(&index)
+                .unwrap()
+                .push(&properties);
         }
     }
 
-    pub fn delete_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G) {
+    pub fn delete_edge(
+        &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G,
+    ) {
         let index = self.edge_label_to_index(src_label, dst_label, edge_label);
         self.delete_edge_opt(index, src, dst);
     }
@@ -265,7 +287,9 @@ impl<G> GraphDBModification<G> where G: Eq + IndexType + Send + Sync, {
         self.delete_edges[index].push((src, dst));
     }
 
-    pub fn delete_outgoing_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G) {
+    pub fn delete_outgoing_edge(
+        &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G,
+    ) {
         let index = self.edge_label_to_index(src_label, dst_label, edge_label);
         self.delete_outgoing_edge_opt(index, src, dst);
     }
@@ -274,7 +298,9 @@ impl<G> GraphDBModification<G> where G: Eq + IndexType + Send + Sync, {
         self.delete_outgoing_edges[index].push((src, dst));
     }
 
-    pub fn delete_incoming_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G) {
+    pub fn delete_incoming_edge(
+        &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G,
+    ) {
         let index = self.edge_label_to_index(src_label, dst_label, edge_label);
         self.delete_incoming_edge_opt(index, src, dst);
     }
@@ -304,9 +330,9 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
 }
 
 impl<G, I> GraphDB<G, I>
-    where
-        G: Eq + IndexType + Send + Sync,
-        I: IndexType + Send + Sync,
+where
+    G: Eq + IndexType + Send + Sync,
+    I: IndexType + Send + Sync,
 {
     pub fn edge_label_to_index(
         &self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, dir: Direction,
@@ -369,15 +395,18 @@ impl<G, I> GraphDB<G, I>
                 iters.push(Range::new(I::new(0), I::new(self.get_vertices_num(v as LabelId))).into_iter());
                 got_labels.push(v as LabelId)
             }
-            Iter::from_iter(LabeledIterator::new(got_labels, iters).map(move |(label, index)| {
-                self.index_to_local_vertex(label, index, true)
-            }))
+            Iter::from_iter(
+                LabeledIterator::new(got_labels, iters)
+                    .map(move |(label, index)| self.index_to_local_vertex(label, index, true)),
+            )
         } else if labels.unwrap().len() == 1 {
             let label = labels.unwrap()[0];
             let range = Range::new(I::new(0), I::new(self.get_vertices_num(label)));
-            Iter::from_iter(range.into_iter().map(move |index| {
-                self.index_to_local_vertex(label, index, true)
-            }))
+            Iter::from_iter(
+                range
+                    .into_iter()
+                    .map(move |index| self.index_to_local_vertex(label, index, true)),
+            )
         } else {
             let mut iters = vec![];
             let mut got_labels = vec![];
@@ -385,9 +414,10 @@ impl<G, I> GraphDB<G, I>
                 iters.push(Range::new(I::new(0), I::new(self.get_vertices_num(*v))).into_iter());
                 got_labels.push(*v)
             }
-            Iter::from_iter(LabeledIterator::new(got_labels, iters).map(move |(label, index)| {
-                self.index_to_local_vertex(label, index, true)
-            }))
+            Iter::from_iter(
+                LabeledIterator::new(got_labels, iters)
+                    .map(move |(label, index)| self.index_to_local_vertex(label, index, true)),
+            )
         }
     }
 
@@ -503,7 +533,10 @@ impl<G, I> GraphDB<G, I>
 
                     let oe_edge_property_path = &partition_dir
                         .join(format!("oep_{}_{}_{}", src_label_name, edge_label_name, dst_label_name));
-                    let oe_edge_property_path_str = oe_edge_property_path.to_str().unwrap().to_string();
+                    let oe_edge_property_path_str = oe_edge_property_path
+                        .to_str()
+                        .unwrap()
+                        .to_string();
                     if Path::new(&oe_edge_property_path_str).exists() {
                         let mut table = ColTable::new(vec![]);
                         info!(
@@ -516,7 +549,10 @@ impl<G, I> GraphDB<G, I>
 
                     let ie_edge_property_path = &partition_dir
                         .join(format!("iep_{}_{}_{}", src_label_name, edge_label_name, dst_label_name));
-                    let ie_edge_property_path_str = ie_edge_property_path.to_str().unwrap().to_string();
+                    let ie_edge_property_path_str = ie_edge_property_path
+                        .to_str()
+                        .unwrap()
+                        .to_string();
                     if Path::new(&ie_edge_property_path_str).exists() {
                         let mut table = ColTable::new(vec![]);
                         info!(
@@ -631,31 +667,36 @@ impl<G, I> GraphDB<G, I>
         self.modification.delete_vertex(label, id);
     }
 
-    pub fn insert_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G, properties: Option<Vec<Item>>) {
-        self.modification.insert_edge(src_label, dst_label, edge_label, src, dst, properties);
+    pub fn insert_edge(
+        &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G,
+        properties: Option<Vec<Item>>,
+    ) {
+        self.modification
+            .insert_edge(src_label, dst_label, edge_label, src, dst, properties);
     }
 
     pub fn insert_edge_opt(&mut self, index: usize, src: G, dst: G, properties: Option<Vec<Item>>) {
-        self.modification.insert_edge_opt(index, src, dst, properties);
+        self.modification
+            .insert_edge_opt(index, src, dst, properties);
     }
 
-    pub fn delete_edge(&mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G) {
-        self.modification.delete_edge(src_label, dst_label, edge_label, src, dst);
+    pub fn delete_edge(
+        &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, src: G, dst: G,
+    ) {
+        self.modification
+            .delete_edge(src_label, dst_label, edge_label, src, dst);
     }
 
     pub fn delete_edge_opt(&mut self, index: usize, src: G, dst: G) {
-        self.modification.delete_edge_opt(index, src, dst);
+        self.modification
+            .delete_edge_opt(index, src, dst);
     }
 
-    pub fn apply_modifications_on_csr(&mut self,
-                                      index: usize,
-                                      modification_index: usize,
-                                      cols: Vec<(String, DataType)>,
-                                      new_vertex_num: usize,
-                                      vertices_to_delete: &Vec<I>,
-                                      delete_edges: &Vec<(I, I)>,
-                                      delete_edges2: &Vec<(I, I)>,
-                                      add_edges: &Vec<(I, I)>, dir: Direction) {
+    pub fn apply_modifications_on_csr(
+        &mut self, index: usize, modification_index: usize, cols: Vec<(String, DataType)>,
+        new_vertex_num: usize, vertices_to_delete: &Vec<I>, delete_edges: &Vec<(I, I)>,
+        delete_edges2: &Vec<(I, I)>, add_edges: &Vec<(I, I)>, dir: Direction,
+    ) {
         let csr = if dir == Direction::Outgoing {
             self.oe[index]
                 .as_mut_any()
@@ -673,7 +714,9 @@ impl<G, I> GraphDB<G, I>
             self.ie_edge_prop_table.get_mut(&index)
         };
         let add_edges_table = if table.is_some() {
-            self.modification.add_edge_prop_tables.get(&modification_index)
+            self.modification
+                .add_edge_prop_tables
+                .get(&modification_index)
         } else {
             None
         };
@@ -693,7 +736,8 @@ impl<G, I> GraphDB<G, I>
                 if *src != last_vertex {
                     if !nbr_set.is_empty() && new_degree[last_vertex.index()] > 0 {
                         let mut deleted_edges = 0;
-                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1] {
+                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1]
+                        {
                             if nbr_set.contains(&csr.neighbors[offset]) {
                                 csr.neighbors[offset] = <I as IndexType>::max();
                                 deleted_edges += 1;
@@ -710,7 +754,8 @@ impl<G, I> GraphDB<G, I>
                 if *src != last_vertex {
                     if !nbr_set.is_empty() && new_degree[last_vertex.index()] > 0 {
                         let mut deleted_edges = 0;
-                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1] {
+                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1]
+                        {
                             if nbr_set.contains(&csr.neighbors[offset]) {
                                 csr.neighbors[offset] = <I as IndexType>::max();
                                 deleted_edges += 1;
@@ -744,7 +789,8 @@ impl<G, I> GraphDB<G, I>
                 if *src != last_vertex {
                     if !nbr_set.is_empty() && new_degree[last_vertex.index()] > 0 {
                         let mut deleted_edges = 0;
-                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1] {
+                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1]
+                        {
                             if nbr_set.contains(&csr.neighbors[offset]) {
                                 csr.neighbors[offset] = <I as IndexType>::max();
                                 deleted_edges += 1;
@@ -761,7 +807,8 @@ impl<G, I> GraphDB<G, I>
                 if *src != last_vertex {
                     if !nbr_set.is_empty() && new_degree[last_vertex.index()] > 0 {
                         let mut deleted_edges = 0;
-                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1] {
+                        for offset in csr.offsets[last_vertex.index()]..csr.offsets[last_vertex.index() + 1]
+                        {
                             if nbr_set.contains(&csr.neighbors[offset]) {
                                 csr.neighbors[offset] = <I as IndexType>::max();
                                 deleted_edges += 1;
@@ -801,7 +848,9 @@ impl<G, I> GraphDB<G, I>
             for v in 0..old_vertex_num.index() {
                 for offset in csr.offsets[v]..csr.offsets[v + 1] {
                     if csr.neighbors[offset] != <I as IndexType>::max() {
-                        let index = builder.put_edge(I::new(v), csr.neighbors[offset]).unwrap();
+                        let index = builder
+                            .put_edge(I::new(v), csr.neighbors[offset])
+                            .unwrap();
                         new_table.insert(index, &t.get_row(offset).unwrap());
                     }
                 }
@@ -840,14 +889,11 @@ impl<G, I> GraphDB<G, I>
         *csr = builder.finish().unwrap();
     }
 
-    pub fn apply_modifications_on_single_csr(&mut self,
-                                             index: usize,
-                                             modification_index: usize,
-                                             new_vertex_num: usize,
-                                             vertices_to_delete: &Vec<I>,
-                                             delete_edges: &Vec<(I, I)>,
-                                             delete_edges2: &Vec<(I, I)>,
-                                             add_edges: &Vec<(I, I)>, dir: Direction) {
+    pub fn apply_modifications_on_single_csr(
+        &mut self, index: usize, modification_index: usize, new_vertex_num: usize,
+        vertices_to_delete: &Vec<I>, delete_edges: &Vec<(I, I)>, delete_edges2: &Vec<(I, I)>,
+        add_edges: &Vec<(I, I)>, dir: Direction,
+    ) {
         let csr = if dir == Direction::Outgoing {
             self.oe[index]
                 .as_mut_any()
@@ -865,7 +911,9 @@ impl<G, I> GraphDB<G, I>
             self.ie_edge_prop_table.get_mut(&index)
         };
         let add_edges_table = if table.is_some() {
-            self.modification.add_edge_prop_tables.get(&modification_index)
+            self.modification
+                .add_edge_prop_tables
+                .get(&modification_index)
         } else {
             None
         };
@@ -915,7 +963,12 @@ impl<G, I> GraphDB<G, I>
 
     pub fn apply_modifications(&mut self) {
         let mut vertices_to_delete = vec![];
-        for (label, ids) in self.modification.delete_vertices.iter_mut().enumerate() {
+        for (label, ids) in self
+            .modification
+            .delete_vertices
+            .iter_mut()
+            .enumerate()
+        {
             let mut parsed_ids = vec![];
             for id in ids.into_iter() {
                 let (got_label, lid) = self.vertex_map.get_internal_id(*id).unwrap();
@@ -933,21 +986,49 @@ impl<G, I> GraphDB<G, I>
         for edge_label_i in 0..self.edge_label_num {
             for src_label_i in 0..self.vertex_label_num {
                 for dst_label_i in 0..self.vertex_label_num {
-                    let modification_index = self.modification.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId);
+                    let modification_index = self.modification.edge_label_to_index(
+                        src_label_i as LabelId,
+                        dst_label_i as LabelId,
+                        edge_label_i as LabelId,
+                    );
 
                     let inserted_edges = !self.modification.add_edges[modification_index].is_empty();
-                    let deleted_edges = !self.modification.delete_edges[modification_index].is_empty() && !self.modification.delete_outgoing_edges[modification_index].is_empty() && !self.modification.delete_incoming_edges[modification_index].is_empty();
+                    let deleted_edges = !self.modification.delete_edges[modification_index].is_empty()
+                        && !self.modification.delete_outgoing_edges[modification_index].is_empty()
+                        && !self.modification.delete_incoming_edges[modification_index].is_empty();
 
-                    let oe_index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId, Direction::Outgoing);
-                    let ie_index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId, Direction::Incoming);
+                    let oe_index = self.edge_label_to_index(
+                        src_label_i as LabelId,
+                        dst_label_i as LabelId,
+                        edge_label_i as LabelId,
+                        Direction::Outgoing,
+                    );
+                    let ie_index = self.edge_label_to_index(
+                        src_label_i as LabelId,
+                        dst_label_i as LabelId,
+                        edge_label_i as LabelId,
+                        Direction::Incoming,
+                    );
 
-                    let inserted_src = !self.vertex_map.vertex_num(src_label_i as LabelId) != self.oe[oe_index].vertex_num().index();
-                    let inserted_dst = !self.vertex_map.vertex_num(dst_label_i as LabelId) != self.ie[ie_index].vertex_num().index();
+                    let inserted_src = !self
+                        .vertex_map
+                        .vertex_num(src_label_i as LabelId)
+                        != self.oe[oe_index].vertex_num().index();
+                    let inserted_dst = !self
+                        .vertex_map
+                        .vertex_num(dst_label_i as LabelId)
+                        != self.ie[ie_index].vertex_num().index();
 
                     let deleted_src = !vertices_to_delete[src_label_i].is_empty();
                     let deleted_dst = !vertices_to_delete[dst_label_i].is_empty();
 
-                    if !inserted_edges && !deleted_edges && !inserted_src && !inserted_dst && !deleted_src && !deleted_dst {
+                    if !inserted_edges
+                        && !deleted_edges
+                        && !inserted_src
+                        && !inserted_dst
+                        && !deleted_src
+                        && !deleted_dst
+                    {
                         continue;
                     }
 
@@ -959,28 +1040,43 @@ impl<G, I> GraphDB<G, I>
                     for (src, dst) in self.modification.delete_edges[modification_index].iter() {
                         let (got_src_label, src_lid) = self.vertex_map.get_internal_id(*src).unwrap();
                         let (got_dst_label, dst_lid) = self.vertex_map.get_internal_id(*dst).unwrap();
-                        if (got_src_label as usize) == src_label_i && (got_dst_label as usize) == dst_label_i {
+                        if (got_src_label as usize) == src_label_i
+                            && (got_dst_label as usize) == dst_label_i
+                        {
                             parsed_delete_edges.push((src_lid, dst_lid));
                         } else {
-                            warn!("label not match, got: {}->{}, expect: {}->{}", got_src_label, got_dst_label, src_label_i, dst_label_i);
+                            warn!(
+                                "label not match, got: {}->{}, expect: {}->{}",
+                                got_src_label, got_dst_label, src_label_i, dst_label_i
+                            );
                         }
                     }
                     for (src, dst) in self.modification.delete_outgoing_edges[modification_index].iter() {
                         let (got_src_label, src_lid) = self.vertex_map.get_internal_id(*src).unwrap();
                         let (got_dst_label, dst_lid) = self.vertex_map.get_internal_id(*dst).unwrap();
-                        if (got_src_label as usize) == src_label_i && (got_dst_label as usize) == dst_label_i {
+                        if (got_src_label as usize) == src_label_i
+                            && (got_dst_label as usize) == dst_label_i
+                        {
                             parsed_delete_oe.push((src_lid, dst_lid));
                         } else {
-                            warn!("label not match, got: {}->{}, expect: {}->{}", got_src_label, got_dst_label, src_label_i, dst_label_i);
+                            warn!(
+                                "label not match, got: {}->{}, expect: {}->{}",
+                                got_src_label, got_dst_label, src_label_i, dst_label_i
+                            );
                         }
                     }
                     for (src, dst) in self.modification.delete_incoming_edges[modification_index].iter() {
                         let (got_src_label, src_lid) = self.vertex_map.get_internal_id(*src).unwrap();
                         let (got_dst_label, dst_lid) = self.vertex_map.get_internal_id(*dst).unwrap();
-                        if (got_src_label as usize) == src_label_i && (got_dst_label as usize) == dst_label_i {
+                        if (got_src_label as usize) == src_label_i
+                            && (got_dst_label as usize) == dst_label_i
+                        {
                             parsed_delete_ie.push((src_lid, dst_lid));
                         } else {
-                            warn!("label not match, got: {}->{}, expect: {}->{}", got_src_label, got_dst_label, src_label_i, dst_label_i);
+                            warn!(
+                                "label not match, got: {}->{}, expect: {}->{}",
+                                got_src_label, got_dst_label, src_label_i, dst_label_i
+                            );
                         }
                     }
                     self.modification.delete_edges[modification_index].clear();
@@ -988,30 +1084,49 @@ impl<G, I> GraphDB<G, I>
                     for (src, dst) in self.modification.add_edges[modification_index].iter() {
                         let (got_src_label, src_lid) = self.vertex_map.get_internal_id(*src).unwrap();
                         let (got_dst_label, dst_lid) = self.vertex_map.get_internal_id(*dst).unwrap();
-                        if (got_src_label as usize) == src_label_i && (got_dst_label as usize) == dst_label_i {
+                        if (got_src_label as usize) == src_label_i
+                            && (got_dst_label as usize) == dst_label_i
+                        {
                             parsed_add_edges.push((src_lid, dst_lid));
                         } else {
-                            warn!("label not match, got: {}->{}, expect: {}->{}", got_src_label, got_dst_label, src_label_i, dst_label_i);
+                            warn!(
+                                "label not match, got: {}->{}, expect: {}->{}",
+                                got_src_label, got_dst_label, src_label_i, dst_label_i
+                            );
                         }
                     }
                     self.modification.add_edges[modification_index].clear();
 
-                    let ie_index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId, Direction::Incoming);
-                    if self.graph_schema.is_single_ie(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId) {
+                    let ie_index = self.edge_label_to_index(
+                        src_label_i as LabelId,
+                        dst_label_i as LabelId,
+                        edge_label_i as LabelId,
+                        Direction::Incoming,
+                    );
+                    if self.graph_schema.is_single_ie(
+                        src_label_i as LabelId,
+                        edge_label_i as LabelId,
+                        dst_label_i as LabelId,
+                    ) {
                         self.apply_modifications_on_single_csr(
                             ie_index,
                             modification_index,
-                            self.vertex_map.vertex_num(dst_label_i as LabelId),
+                            self.vertex_map
+                                .vertex_num(dst_label_i as LabelId),
                             &vertices_to_delete[dst_label_i],
                             &parsed_delete_edges,
                             &parsed_delete_ie,
                             &parsed_delete_edges,
-                            Direction::Incoming
+                            Direction::Incoming,
                         );
                     } else {
                         let mut cols = vec![];
                         {
-                            if let Some(cols_ref) = self.graph_schema.get_edge_header(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId) {
+                            if let Some(cols_ref) = self.graph_schema.get_edge_header(
+                                src_label_i as LabelId,
+                                edge_label_i as LabelId,
+                                dst_label_i as LabelId,
+                            ) {
                                 for (name, data_type) in cols_ref.iter() {
                                     cols.push((name.clone(), data_type.clone()));
                                 }
@@ -1022,31 +1137,46 @@ impl<G, I> GraphDB<G, I>
                             ie_index,
                             modification_index,
                             cols,
-                            self.vertex_map.vertex_num(dst_label_i as LabelId),
+                            self.vertex_map
+                                .vertex_num(dst_label_i as LabelId),
                             &vertices_to_delete[dst_label_i],
                             &parsed_delete_edges,
                             &parsed_delete_ie,
                             &parsed_delete_edges,
-                            Direction::Incoming
+                            Direction::Incoming,
                         );
                     }
 
-                    let oe_index = self.edge_label_to_index(src_label_i as LabelId, dst_label_i as LabelId, edge_label_i as LabelId, Direction::Outgoing);
-                    if self.graph_schema.is_single_oe(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId) {
+                    let oe_index = self.edge_label_to_index(
+                        src_label_i as LabelId,
+                        dst_label_i as LabelId,
+                        edge_label_i as LabelId,
+                        Direction::Outgoing,
+                    );
+                    if self.graph_schema.is_single_oe(
+                        src_label_i as LabelId,
+                        edge_label_i as LabelId,
+                        dst_label_i as LabelId,
+                    ) {
                         self.apply_modifications_on_single_csr(
                             oe_index,
                             modification_index,
-                            self.vertex_map.vertex_num(src_label_i as LabelId),
+                            self.vertex_map
+                                .vertex_num(src_label_i as LabelId),
                             &vertices_to_delete[src_label_i],
                             &parsed_delete_edges,
                             &parsed_delete_oe,
                             &parsed_delete_edges,
-                            Direction::Outgoing
+                            Direction::Outgoing,
                         );
                     } else {
                         let mut cols = vec![];
                         {
-                            if let Some(cols_ref) = self.graph_schema.get_edge_header(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId) {
+                            if let Some(cols_ref) = self.graph_schema.get_edge_header(
+                                src_label_i as LabelId,
+                                edge_label_i as LabelId,
+                                dst_label_i as LabelId,
+                            ) {
                                 for (name, data_type) in cols_ref.iter() {
                                     cols.push((name.clone(), data_type.clone()));
                                 }
@@ -1058,12 +1188,13 @@ impl<G, I> GraphDB<G, I>
                             modification_index,
                             cols,
                             // self.graph_schema.get_edge_header(src_label_i as LabelId, edge_label_i as LabelId, dst_label_i as LabelId),
-                            self.vertex_map.vertex_num(src_label_i as LabelId),
+                            self.vertex_map
+                                .vertex_num(src_label_i as LabelId),
                             &vertices_to_delete[src_label_i],
                             &parsed_delete_edges,
                             &parsed_delete_oe,
                             &parsed_delete_edges,
-                            Direction::Outgoing
+                            Direction::Outgoing,
                         );
                     }
                 }

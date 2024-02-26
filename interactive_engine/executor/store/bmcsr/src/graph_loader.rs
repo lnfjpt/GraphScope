@@ -1,24 +1,24 @@
+use csv::{Reader, ReaderBuilder};
+use rust_htslib::bgzf::Reader as GzReader;
 use std::collections::HashSet;
 use std::fs::{create_dir_all, read_dir, File};
-use std::io::{Read, BufReader};
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use csv::{Reader, ReaderBuilder};
-use rust_htslib::bgzf::Reader as GzReader;
 
-use crate::error::{GDBError, GDBResult};
-use crate::col_table::{ColTable, parse_properties};
-use crate::columns::Item;
-use crate::graph::IndexType;
-use regex::Regex;
-use crate::ldbc_parser::{LDBCVertexParser, LDBCEdgeParser};
-use crate::schema::{CsrGraphSchema, InputSchema, Schema};
-use crate::types::{DefaultId, DIR_BINARY_DATA, InternalId, LabelId};
-use crate::vertex_map::VertexMap;
-use crate::csr::CsrTrait;
 use crate::bmcsr::BatchMutableCsrBuilder;
 use crate::bmscsr::BatchMutableSingleCsrBuilder;
+use crate::col_table::{parse_properties, ColTable};
+use crate::columns::Item;
+use crate::csr::CsrTrait;
+use crate::error::{GDBError, GDBResult};
+use crate::graph::IndexType;
+use crate::ldbc_parser::{LDBCEdgeParser, LDBCVertexParser};
+use crate::schema::{CsrGraphSchema, InputSchema, Schema};
+use crate::types::{DefaultId, InternalId, LabelId, DIR_BINARY_DATA};
+use crate::vertex_map::VertexMap;
+use regex::Regex;
 
 pub fn get_files_list(prefix: &PathBuf, file_strings: &Vec<String>) -> GDBResult<Vec<PathBuf>> {
     let mut path_lists = vec![];
@@ -56,8 +56,10 @@ pub(crate) fn keep_vertex<G: IndexType>(vid: G, peers: usize, work_id: usize) ->
     vid.index() % peers == work_id
 }
 
-pub struct GraphLoader<G: FromStr + Send + Sync + IndexType = DefaultId,
-    I: Send + Sync + IndexType = InternalId> {
+pub struct GraphLoader<
+    G: FromStr + Send + Sync + IndexType = DefaultId,
+    I: Send + Sync + IndexType = InternalId,
+> {
     input_dir: PathBuf,
     partition_dir: PathBuf,
 

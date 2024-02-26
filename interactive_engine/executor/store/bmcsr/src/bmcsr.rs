@@ -174,11 +174,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
         if u >= self.vertex_num {
             None
         } else {
-            Some(NbrIter::new(
-                &self.neighbors,
-                self.offsets[u],
-                self.offsets[u + 1],
-            ))
+            Some(NbrIter::new(&self.neighbors, self.offsets[u], self.offsets[u + 1]))
         }
     }
 
@@ -187,15 +183,15 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
         if u >= self.vertex_num {
             None
         } else {
-            Some(NbrOffsetIter::new(
-                &self.neighbors,
-                self.offsets[u],
-                self.offsets[u + 1],
-            ))
+            Some(NbrOffsetIter::new(&self.neighbors, self.offsets[u], self.offsets[u + 1]))
         }
     }
 
-    fn as_any(&self) -> &dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 
-    fn as_mut_any(&mut self) -> &mut dyn Any { self }
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
 }

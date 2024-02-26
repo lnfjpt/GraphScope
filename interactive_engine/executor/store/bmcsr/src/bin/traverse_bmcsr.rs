@@ -19,12 +19,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use clap::{App, Arg};
 use bmcsr::columns::DataType;
 use bmcsr::graph_db::GraphDB;
 use bmcsr::ldbc_parser::LDBCVertexParser;
 use bmcsr::schema::Schema;
 use bmcsr::types::{DefaultId, LabelId, DIR_BINARY_DATA, NAME, VERSION};
+use clap::{App, Arg};
 
 fn get_partition_num(graph_data_dir: &String) -> usize {
     let root_dir = PathBuf::from_str(graph_data_dir.as_str()).unwrap();

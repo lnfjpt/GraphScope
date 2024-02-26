@@ -20,23 +20,10 @@ pub struct SubGraph<'a, G: Send + Sync + IndexType = DefaultId, I: Send + Sync +
 
 impl<'a, G: Send + Sync + IndexType, I: Send + Sync + IndexType> SubGraph<'a, G, I> {
     pub fn new(
-        csr: &'a BatchMutableCsr<I>,
-        vm: &'a VertexMap<G, I>,
-        src_label: LabelId,
-        dst_label: LabelId,
-        e_label: LabelId,
-        vertex_data: &'a ColTable,
-        edge_data: Option<&'a ColTable>,
+        csr: &'a BatchMutableCsr<I>, vm: &'a VertexMap<G, I>, src_label: LabelId, dst_label: LabelId,
+        e_label: LabelId, vertex_data: &'a ColTable, edge_data: Option<&'a ColTable>,
     ) -> Self {
-        SubGraph {
-            csr,
-            vm,
-            src_label,
-            dst_label,
-            e_label,
-            vertex_data,
-            edge_data,
-        }
+        SubGraph { csr, vm, src_label, dst_label, e_label, vertex_data, edge_data }
     }
 
     pub fn get_vertex_num(&self) -> I {
@@ -77,9 +64,9 @@ pub struct SingleSubGraph<
 }
 
 impl<'a, G, I> SingleSubGraph<'a, G, I>
-    where
-        G: Send + Sync + IndexType,
-        I: Send + Sync + IndexType,
+where
+    G: Send + Sync + IndexType,
+    I: Send + Sync + IndexType,
 {
     pub fn new(
         csr: &'a BatchMutableSingleCsr<I>, vm: &'a VertexMap<G, I>, src_label: LabelId, dst_label: LabelId,

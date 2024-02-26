@@ -1,5 +1,5 @@
-use std::fs::File;
 use std::any::Any;
+use std::fs::File;
 
 use crate::csr::{CsrBuildError, CsrTrait, NbrIter, NbrOffsetIter};
 use crate::graph::IndexType;
@@ -66,12 +66,7 @@ impl<I: IndexType> BatchMutableSingleCsrBuilder<I> {
 
 impl<I: IndexType> BatchMutableSingleCsr<I> {
     pub fn new() -> Self {
-        BatchMutableSingleCsr {
-            nbr_list: Vec::new(),
-            vertex_num: 0,
-            edge_num: 0,
-            vertex_capacity: 0,
-        }
+        BatchMutableSingleCsr { nbr_list: Vec::new(), vertex_num: 0, edge_num: 0, vertex_capacity: 0 }
     }
 
     pub fn resize_vertex(&mut self, vertex_num: usize) {
@@ -86,7 +81,8 @@ impl<I: IndexType> BatchMutableSingleCsr<I> {
             self.vertex_num = vertex_num;
         } else {
             warn!("resize vertex capacity from {} to {}", self.vertex_capacity, vertex_num);
-            self.nbr_list.resize(vertex_num, <I as IndexType>::max());
+            self.nbr_list
+                .resize(vertex_num, <I as IndexType>::max());
             self.vertex_num = vertex_num;
             self.vertex_capacity = vertex_num;
         }
@@ -137,10 +133,13 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
         let mut file = File::create(path).unwrap();
         file.write_u64(self.vertex_num as u64).unwrap();
         file.write_u64(self.edge_num as u64).unwrap();
-        file.write_u64(self.vertex_capacity as u64).unwrap();
-        file.write_u64(self.nbr_list.len() as u64).unwrap();
+        file.write_u64(self.vertex_capacity as u64)
+            .unwrap();
+        file.write_u64(self.nbr_list.len() as u64)
+            .unwrap();
         for i in 0..self.nbr_list.len() {
-            file.write_u64(self.nbr_list[i].index() as u64).unwrap();
+            file.write_u64(self.nbr_list[i].index() as u64)
+                .unwrap();
         }
     }
 
@@ -150,7 +149,8 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
         self.edge_num = file.read_u64().unwrap() as usize;
         self.vertex_capacity = file.read_u64().unwrap() as usize;
         let len = file.read_u64().unwrap() as usize;
-        self.nbr_list.resize(len, <I as IndexType>::max());
+        self.nbr_list
+            .resize(len, <I as IndexType>::max());
         for i in 0..len {
             self.nbr_list[i] = I::new(file.read_u64().unwrap() as usize);
         }
@@ -172,7 +172,11 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
         }
     }
 
-    fn as_any(&self) -> &dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 
-    fn as_mut_any(&mut self) -> &mut dyn Any { self }
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
 }

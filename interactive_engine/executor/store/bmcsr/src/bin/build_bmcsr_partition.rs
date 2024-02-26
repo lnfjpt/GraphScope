@@ -15,11 +15,11 @@
 
 use std::path::PathBuf;
 
-use clap::{App, Arg};
-use env_logger;
 use bmcsr::graph_loader::GraphLoader;
 use bmcsr::schema::CsrGraphSchema;
 use bmcsr::types::*;
+use clap::{App, Arg};
+use env_logger;
 
 fn main() {
     env_logger::init();
