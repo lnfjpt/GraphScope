@@ -225,7 +225,8 @@ where
             .resize(self.edge_label_tuple_num(), vec![]);
         self.delete_vertices
             .resize(self.vertex_label_num, vec![]);
-        self.add_edges.resize(self.edge_label_tuple_num(), vec![]);
+        self.add_edges
+            .resize(self.edge_label_tuple_num(), vec![]);
 
         for e_label_i in 0..self.edge_label_num {
             for src_label_i in 0..self.vertex_label_num {
@@ -926,11 +927,15 @@ where
         for edge_label_i in 0..self.edge_label_num {
             for src_label_i in 0..self.vertex_label_num {
                 for dst_label_i in 0..self.vertex_label_num {
-                    if self.graph_schema.get_edge_header(
-                        src_label_i as LabelId,
-                        edge_label_i as LabelId,
-                        dst_label_i as LabelId,
-                    ).is_none() {
+                    if self
+                        .graph_schema
+                        .get_edge_header(
+                            src_label_i as LabelId,
+                            edge_label_i as LabelId,
+                            dst_label_i as LabelId,
+                        )
+                        .is_none()
+                    {
                         continue;
                     }
                     let modification_index = self.modification.edge_label_to_index(
@@ -991,7 +996,13 @@ where
                         if (got_src_label as usize) == src_label_i
                             && (got_dst_label as usize) == dst_label_i
                         {
-                            info!("delete edge: ({} -> {}) -> ({} -> {})", src.index(), dst.index(), src_lid.index(), dst_lid.index());
+                            info!(
+                                "delete edge: ({} -> {}) -> ({} -> {})",
+                                src.index(),
+                                dst.index(),
+                                src_lid.index(),
+                                dst_lid.index()
+                            );
                             parsed_delete_edges.insert((src_lid, dst_lid));
                         } else {
                             warn!(
@@ -1065,7 +1076,14 @@ where
                         edge_label_i as LabelId,
                         dst_label_i as LabelId,
                     ) {
-                        info!("single-ie-{}-{}-{}: delete {}, {}", self.graph_schema.vertex_label_names()[src_label_i], self.graph_schema.edge_label_names()[edge_label_i], self.graph_schema.vertex_label_names()[dst_label_i], parsed_delete_edges.len(), parsed_delete_ie.len());
+                        info!(
+                            "single-ie-{}-{}-{}: delete {}, {}",
+                            self.graph_schema.vertex_label_names()[src_label_i],
+                            self.graph_schema.edge_label_names()[edge_label_i],
+                            self.graph_schema.vertex_label_names()[dst_label_i],
+                            parsed_delete_edges.len(),
+                            parsed_delete_ie.len()
+                        );
                         self.apply_modifications_on_single_csr(
                             ie_index,
                             modification_index,
@@ -1090,7 +1108,14 @@ where
                                 }
                             }
                         }
-                        info!("ie-{}-{}-{}: delete {}, {}", self.graph_schema.vertex_label_names()[src_label_i], self.graph_schema.edge_label_names()[edge_label_i], self.graph_schema.vertex_label_names()[dst_label_i], parsed_delete_edges.len(), parsed_delete_ie.len());
+                        info!(
+                            "ie-{}-{}-{}: delete {}, {}",
+                            self.graph_schema.vertex_label_names()[src_label_i],
+                            self.graph_schema.edge_label_names()[edge_label_i],
+                            self.graph_schema.vertex_label_names()[dst_label_i],
+                            parsed_delete_edges.len(),
+                            parsed_delete_ie.len()
+                        );
                         self.apply_modifications_on_csr(
                             ie_index,
                             modification_index,
@@ -1116,7 +1141,14 @@ where
                         edge_label_i as LabelId,
                         dst_label_i as LabelId,
                     ) {
-                        info!("single-oe-{}-{}-{}: delete {}, {}", self.graph_schema.vertex_label_names()[src_label_i], self.graph_schema.edge_label_names()[edge_label_i], self.graph_schema.vertex_label_names()[dst_label_i], parsed_delete_edges.len(), parsed_delete_oe.len());
+                        info!(
+                            "single-oe-{}-{}-{}: delete {}, {}",
+                            self.graph_schema.vertex_label_names()[src_label_i],
+                            self.graph_schema.edge_label_names()[edge_label_i],
+                            self.graph_schema.vertex_label_names()[dst_label_i],
+                            parsed_delete_edges.len(),
+                            parsed_delete_oe.len()
+                        );
                         self.apply_modifications_on_single_csr(
                             oe_index,
                             modification_index,
@@ -1141,7 +1173,14 @@ where
                                 }
                             }
                         }
-                        info!("oe-{}-{}-{}: delete {}, {}", self.graph_schema.vertex_label_names()[src_label_i], self.graph_schema.edge_label_names()[edge_label_i], self.graph_schema.vertex_label_names()[dst_label_i], parsed_delete_edges.len(), parsed_delete_oe.len());
+                        info!(
+                            "oe-{}-{}-{}: delete {}, {}",
+                            self.graph_schema.vertex_label_names()[src_label_i],
+                            self.graph_schema.edge_label_names()[edge_label_i],
+                            self.graph_schema.vertex_label_names()[dst_label_i],
+                            parsed_delete_edges.len(),
+                            parsed_delete_oe.len()
+                        );
                         self.apply_modifications_on_csr(
                             oe_index,
                             modification_index,

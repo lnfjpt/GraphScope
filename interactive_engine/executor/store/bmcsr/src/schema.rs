@@ -203,11 +203,21 @@ impl CsrGraphSchema {
 
         info!("Single IE: ");
         for tup in self.edge_single_ie.iter() {
-            info!("\t{} - {} - {}", vertex_type_names[tup.0 as usize], edge_type_names[tup.1 as usize], vertex_type_names[tup.2 as usize]);
+            info!(
+                "\t{} - {} - {}",
+                vertex_type_names[tup.0 as usize],
+                edge_type_names[tup.1 as usize],
+                vertex_type_names[tup.2 as usize]
+            );
         }
         info!("Single OE: ");
         for tup in self.edge_single_oe.iter() {
-            info!("\t{} - {} - {}", vertex_type_names[tup.0 as usize], edge_type_names[tup.1 as usize], vertex_type_names[tup.2 as usize]);
+            info!(
+                "\t{} - {} - {}",
+                vertex_type_names[tup.0 as usize],
+                edge_type_names[tup.1 as usize],
+                vertex_type_names[tup.2 as usize]
+            );
         }
     }
 
