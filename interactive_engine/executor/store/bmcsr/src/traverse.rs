@@ -23,6 +23,7 @@ fn traverse_vertices(graph: &GraphDB, output_dir: &str) {
             let header = graph.graph_schema.get_vertex_header(v_label).unwrap();
             let file_name = format!("{}.csv", n);
             let file_path = output_dir_path.join(file_name);
+            info!("Output vertex file: {:?}", file_path);
             let mut file = File::create(file_path).unwrap();
 
             let v_labels = vec![v_label];
@@ -133,7 +134,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
             let dst_label_name = graph.graph_schema.vertex_label_names()[dst_label].clone();
             for edge_label in 0..edge_label_num {
                 let edge_label_name = graph.graph_schema.edge_label_names()[edge_label].clone();
-                if let Some(header) = graph.graph_schema.get_edge_header(src_label as LabelId, dst_label as LabelId, edge_label as LabelId) {
+                if let Some(header) = graph.graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
                     let oe_file_name = format!("oe_{}_{}_{}.csv", src_label_name, edge_label_name, dst_label_name);
                     let oe_file_path = PathBuf::from_str(output_dir).unwrap().join(oe_file_name);
 

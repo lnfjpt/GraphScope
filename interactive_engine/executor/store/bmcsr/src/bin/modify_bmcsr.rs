@@ -78,6 +78,7 @@ fn main() {
     let mut graph = GraphDB::deserialize(&graph_data_dir, 0, None).unwrap();
 
     let init_output = output_dir.to_string().clone() + "/init";
+    std::fs::create_dir_all(&init_output).unwrap();
     traverse(&graph, &init_output);
 
     let insert_schema_file_path = PathBuf::from(&insert_schema_file);
@@ -87,5 +88,6 @@ fn main() {
     graph_modifier.modify(&mut graph, batch.as_str(), &insert_schema_file_path).unwrap();
 
     let modified_output = output_dir.to_string().clone() + "/modified";
+    std::fs::create_dir_all(&modified_output).unwrap();
     traverse(&graph, &modified_output);
 }
