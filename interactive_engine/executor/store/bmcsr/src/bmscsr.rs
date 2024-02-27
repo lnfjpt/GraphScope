@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::collections::HashSet;
 use std::fs::File;
 
 use crate::csr::{CsrBuildError, CsrTrait, NbrIter, NbrOffsetIter};
@@ -93,9 +94,13 @@ impl<I: IndexType> BatchMutableSingleCsr<I> {
     }
 
     pub fn remove_vertex(&mut self, vertex: I) {
-        info!("before remove, vertex {}'s edge is {:?}", vertex.index(), self.nbr_list[vertex.index()]);
         self.nbr_list[vertex.index()] = <I as IndexType>::max();
-        info!("after remove, vertex {}'s edge is {:?}", vertex.index(), self.nbr_list[vertex.index()]);
+    }
+
+    pub fn remove_edge(&mut self, src: I, dst: I) {
+        if self.nbr_list[src.index()] == dst {
+            self.nbr_list[src.index()] = <I as IndexType>::max();
+        }
     }
 
     pub fn get_edge(&self, src: I) -> Option<I> {
@@ -112,6 +117,10 @@ impl<I: IndexType> BatchMutableSingleCsr<I> {
         } else {
             Some((self.nbr_list[src.index()], src.index()))
         }
+    }
+
+    pub fn insert_edge(&mut self, src: I, dst: I) {
+        self.nbr_list[src.index()] = dst;
     }
 }
 
@@ -180,5 +189,23 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
 
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn delete_vertices(&mut self, vertices: &HashSet<I>) {
+        for vertex in vertices {
+            self.remove_vertex(*vertex);
+        }
+    }
+
+    fn delete_edges(&mut self, edges: &HashSet<(I, I)>, reverse: bool) {
+        if reverse {
+            for (dst, src) in edges {
+                self.remove_edge(*src, *dst);
+            }
+        } else {
+            for (src, dst) in edges {
+                self.remove_edge(*src, *dst);
+            }
+        }
     }
 }

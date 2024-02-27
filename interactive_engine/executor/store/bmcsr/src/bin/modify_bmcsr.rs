@@ -86,9 +86,9 @@ fn main() {
     let mut graph_modifier = GraphModifier::<DefaultId>::new(input_dir, graph_schema_file, 0, 1);
     graph_modifier.skip_header();
     let batch = format!("{}", batch_id);
-    graph_modifier
-        .modify(&mut graph, batch.as_str(), &insert_schema_file_path)
-        .unwrap();
+    // graph_modifier
+    //     .modify(&mut graph, batch.as_str(), &insert_schema_file_path)
+    //     .unwrap();
 
     let modified_output = output_dir.to_string().clone() + "/modified";
     std::fs::create_dir_all(&modified_output).unwrap();

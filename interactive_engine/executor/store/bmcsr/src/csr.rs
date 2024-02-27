@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::collections::HashSet;
 
 use crate::graph::IndexType;
 
@@ -58,6 +59,9 @@ pub trait CsrTrait<I: IndexType>: Send + Sync {
 
     fn as_any(&self) -> &dyn Any;
     fn as_mut_any(&mut self) -> &mut dyn Any;
+
+    fn delete_vertices(&mut self, vertices: &HashSet<I>);
+    fn delete_edges(&mut self, edges: &HashSet<(I, I)>, reverse: bool);
 }
 
 #[derive(Debug)]
