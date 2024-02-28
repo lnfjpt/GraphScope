@@ -365,7 +365,17 @@ impl GraphModifier {
                 if !vertex_file_strings.is_empty() {
                     info!("Deleting vertex - {}", graph.graph_schema.vertex_label_names()[v_label_i as usize]);
                     let vertex_files_prefix = self.input_dir.clone();
-                    let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings).unwrap();
+                    let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings);
+                    if vertex_files.is_err() {
+                        warn!("Get vertex files failed: {:?}", vertex_files.err().unwrap());
+                        delete_sets.push(delete_set);
+                        continue;
+                    }
+                    let vertex_files = vertex_files.unwrap();
+                    if vertex_files.is_empty() {
+                        delete_sets.push(delete_set);
+                        continue;
+                    }
                     let input_header = input_schema.get_vertex_header(v_label_i as LabelId).unwrap();
                     let mut id_col = 0;
                     for (index, (n, _)) in input_header.iter().enumerate() {
@@ -473,14 +483,17 @@ impl GraphModifier {
                             e_label_i as LabelId,
                         );
                         parser.with_endpoint_col_id(src_col_id, dst_col_id);
-                        let index = graph.modification.edge_label_to_index(
-                            src_label_i as LabelId,
-                            dst_label_i as LabelId,
-                            e_label_i as LabelId,
-                        );
 
                         let edge_files_prefix = self.input_dir.clone();
-                        let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings).unwrap();
+                        let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings);
+                        if edge_files.is_err() {
+                            warn!("Get edge files failed: {:?}", edge_files.err().unwrap());
+                            continue;
+                        }
+                        let edge_files = edge_files.unwrap();
+                        if edge_files.is_empty() {
+                            continue;
+                        }
 
                         for edge_file in edge_files.iter() {
                             if edge_file
@@ -501,10 +514,18 @@ impl GraphModifier {
                                         let edge_meta = parser.parse_edge_meta(&record);
                                         let (got_src_label, src_lid) = graph.vertex_map.get_internal_id(edge_meta.src_global_id).unwrap();
                                         let (got_dst_label, dst_lid) = graph.vertex_map.get_internal_id(edge_meta.dst_global_id).unwrap();
-                                        if got_src_label != src_label_i as LabelId || got_dst_label == dst_label_i as LabelId {
+                                        if got_src_label != src_label_i as LabelId || got_dst_label != dst_label_i as LabelId {
+                                            if got_src_label != src_label_i as LabelId {
+                                                warn!("Got src vertex label - {}, expected - {}", graph.graph_schema.vertex_label_names()[got_src_label as usize], graph.graph_schema.vertex_label_names()[src_label_i as usize]);
+                                            }
+                                            if got_dst_label != dst_label_i as LabelId {
+                                                warn!("Got dst vertex label - {}, expected - {}", graph.graph_schema.vertex_label_names()[got_dst_label as usize], graph.graph_schema.vertex_label_names()[dst_label_i as usize]);
+                                            }
+                                            warn!("Edge - {} - {} does not exist", LDBCVertexParser::<G>::get_original_id(edge_meta.src_global_id).index(), LDBCVertexParser::<G>::get_original_id(edge_meta.dst_global_id).index());
                                             continue;
                                         }
                                         if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
+                                            warn!("Edge - {} - {} will be removed by vertices", LDBCVertexParser::<G>::get_original_id(edge_meta.src_global_id).index(), LDBCVertexParser::<G>::get_original_id(edge_meta.dst_global_id).index());
                                             continue;
                                         }
                                         delete_edge_set.insert((src_lid, dst_lid));
