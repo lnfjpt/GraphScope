@@ -1041,17 +1041,17 @@ where
                 }
                 for offset in csr.offsets[v]..csr.offsets[v + 1] {
                     if csr.neighbors[offset] != <I as IndexType>::max() {
-                        builder.put_edge(I::new(v), csr.neighbors[offset]);
+                        let _ = builder.put_edge(I::new(v), csr.neighbors[offset]);
                     }
                 }
             }
             if dir == Direction::Outgoing {
                 for (src, dst) in add_edges {
-                    builder.put_edge(*src, *dst);
+                    let _ = builder.put_edge(*src, *dst);
                 }
             } else {
                 for (src, dst) in add_edges {
-                    builder.put_edge(*dst, *src);
+                    let _ = builder.put_edge(*dst, *src);
                 }
             }
         }

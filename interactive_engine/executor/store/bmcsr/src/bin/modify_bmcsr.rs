@@ -1,9 +1,9 @@
 use clap::{App, Arg};
 use std::ops::Index;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bmcsr::graph_db::GraphDB;
-use bmcsr::graph_modifier::GraphModifier;
+use bmcsr::graph_modifier::{DeleteGenerator, GraphModifier};
 use bmcsr::traverse::traverse;
 use bmcsr::types::{DefaultId, LabelId, DIR_BINARY_DATA, NAME, VERSION};
 
@@ -31,22 +31,11 @@ fn main() {
                 .required(true)
                 .takes_value(true)
                 .index(3),
-            Arg::with_name("graph_schema_file")
-                .long_help("The graph schema file")
-                .required(true)
-                .takes_value(true)
-                .index(4),
             Arg::with_name("insert_schema_file")
                 .long_help("The insert schema file")
                 .required(true)
                 .takes_value(true)
-                .index(5),
-            Arg::with_name("batch_id")
-                .short("b")
-                .long_help("The batch id")
-                .required(true)
-                .takes_value(true)
-                .index(6),
+                .index(4),
         ])
         .get_matches();
 
@@ -62,35 +51,29 @@ fn main() {
         .value_of("input_dir")
         .unwrap()
         .to_string();
-    let graph_schema_file = matches
-        .value_of("graph_schema_file")
-        .unwrap()
-        .to_string();
     let insert_schema_file = matches
         .value_of("insert_schema_file")
-        .unwrap()
-        .to_string();
-    let batch_id = matches
-        .value_of("batch_id")
         .unwrap()
         .to_string();
 
     let mut graph = GraphDB::deserialize(&graph_data_dir, 0, None).unwrap();
 
-    // let init_output = output_dir.to_string().clone() + "/init";
-    // std::fs::create_dir_all(&init_output).unwrap();
-    // traverse(&graph, &init_output);
+    let init_output = output_dir.to_string().clone() + "/init";
+    std::fs::create_dir_all(&init_output).unwrap();
+    traverse(&graph, &init_output);
 
     let insert_schema_file_path = PathBuf::from(&insert_schema_file);
 
-    let mut graph_modifier = GraphModifier::<DefaultId>::new(input_dir, graph_schema_file, 0, 1);
+    let mut graph_modifier = GraphModifier::new(&input_dir);
     graph_modifier.skip_header();
-    let batch = format!("{}", batch_id);
-    // graph_modifier
-    //     .modify(&mut graph, batch.as_str(), &insert_schema_file_path)
-    //     .unwrap();
+    graph_modifier.insert(&mut graph, &insert_schema_file_path).unwrap();
 
     let modified_output = output_dir.to_string().clone() + "/modified";
     std::fs::create_dir_all(&modified_output).unwrap();
     traverse(&graph, &modified_output);
+
+    let mut delete_generator = DeleteGenerator::new(PathBuf::from(&input_dir));
+    delete_generator.skip_header();
+    let delete_output_dir = output_dir.to_string().clone() + "/delete";
+    delete_generator.generate(&mut graph, &PathBuf::from(&delete_output_dir));
 }

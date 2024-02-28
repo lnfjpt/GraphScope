@@ -288,9 +288,4 @@ fn main() {
             writeln!(comment_file, "{}|{}", dt, LDBCVertexParser::<usize>::get_original_id(*id)).unwrap();
         }
     }
-
-    // let mut input_persons = Vec::new();
-    // let mut input_forums = Vec::new();
-    // let mut input_posts = Vec::new();
-    // let mut input_comments = Vec::new();
 }
