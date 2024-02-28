@@ -827,7 +827,7 @@ where
 
 
     pub fn insert_edges(
-        &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, edges: Vec<(G, G)>,
+        &mut self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, edges: Vec<(G, G)>,
         table: Option<ColTable>,
     ) {
         let mut parsed_edges = vec![];

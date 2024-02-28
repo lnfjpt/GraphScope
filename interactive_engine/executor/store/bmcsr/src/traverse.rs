@@ -207,6 +207,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                             .as_any()
                             .downcast_ref::<BatchMutableCsr<usize>>()
                             .unwrap();
+                        info!("output oe csr: {}", oe_file_path.to_str().unwrap());
                         output_csr(
                             graph,
                             oe_file_path.to_str().unwrap(),
@@ -253,6 +254,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                             .as_any()
                             .downcast_ref::<BatchMutableCsr<usize>>()
                             .unwrap();
+                        info!("output ie csr: {}", ie_file_path.to_str().unwrap());
                         output_csr(
                             graph,
                             ie_file_path.to_str().unwrap(),

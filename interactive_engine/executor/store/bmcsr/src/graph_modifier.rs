@@ -73,6 +73,20 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
                         ret.push((record.get(0).unwrap().parse::<String>().unwrap(), vertex_meta.global_id));
                     }
                 }
+            } else if file.clone().to_str().unwrap().ends_with(".csv") {
+                let mut rdr = ReaderBuilder::new()
+                    .delimiter(b'|')
+                    .buffer_capacity(4096)
+                    .comment(Some(b'#'))
+                    .flexible(true)
+                    .has_headers(self.skip_header)
+                    .from_reader(BufReader::new(File::open(&file).unwrap()));
+                for result in rdr.records() {
+                    if let Ok(record) = result {
+                        let vertex_meta = parser.parse_vertex_meta(&record);
+                        ret.push((record.get(0).unwrap().parse::<String>().unwrap(), vertex_meta.global_id));
+                    }
+                }
             }
         }
 
@@ -232,10 +246,13 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
     }
 
 
-    pub fn generate<I>(&mut self, graph: &GraphDB<G, I>, output_dir: &PathBuf)
+    pub fn generate<I>(&mut self, graph: &GraphDB<G, I>, batch_id: &str)
     where
         I: Send + Sync + IndexType,
     {
+        let output_dir = self.input_dir.join("extra_deletes").join("dynamic");
+        std::fs::create_dir_all(&output_dir).unwrap();
+
         let prefix = self.input_dir.join("deletes").join("dynamic");
 
         let person_label = graph.graph_schema.get_vertex_label_id("PERSON").unwrap();
@@ -259,7 +276,11 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
         self.iterate_posts(graph);
         self.iterate_comments(graph);
 
-        let mut person_file = File::create(&(output_dir.clone().join("Person.csv"))).unwrap();
+        let batch_dir = format!("batch_id={}", batch_id);
+
+        let person_dir_path = output_dir.clone().join("Person").join(&batch_dir);
+        std::fs::create_dir_all(&person_dir_path).unwrap();
+        let mut person_file = File::create(person_dir_path.join("part-0.csv")).unwrap();
         writeln!(person_file, "deletionDate|id").unwrap();
         for (dt, id) in self.persons.iter() {
             if !self.person_set.contains(id) {
@@ -268,7 +289,9 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
             }
         }
 
-        let mut forum_file = File::create(&(output_dir.join("Forum.csv"))).unwrap();
+        let forum_dir_path = output_dir.clone().join("Forum").join(&batch_dir);
+        std::fs::create_dir_all(&forum_dir_path).unwrap();
+        let mut forum_file = File::create(forum_dir_path.join("part-0.csv")).unwrap();
         writeln!(forum_file, "deletionDate|id").unwrap();
         for (dt, id) in self.forums.iter() {
             if !self.forum_set.contains(id) {
@@ -277,7 +300,9 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
             }
         }
 
-        let mut post_file = File::create(&(output_dir.join("Post.csv"))).unwrap();
+        let post_dir_path = output_dir.clone().join("Post").join(&batch_dir);
+        std::fs::create_dir_all(&post_dir_path).unwrap();
+        let mut post_file = File::create(post_dir_path.join("part-0.csv")).unwrap();
         writeln!(post_file, "deletionDate|id").unwrap();
         for (dt, id) in self.posts.iter() {
             if !self.post_set.contains(id) {
@@ -286,8 +311,9 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
             }
         }
 
-        let mut comment_file = File::create(&(output_dir.join("Comment.csv"))).unwrap();
-
+        let comment_dir_path = output_dir.clone().join("Comment").join(&batch_dir);
+        std::fs::create_dir_all(&comment_dir_path).unwrap();
+        let mut comment_file = File::create(comment_dir_path.join("part-0.csv")).unwrap();
         writeln!(comment_file, "deletionDate|id").unwrap();
         for (dt, id) in self.comments.iter() {
             if !self.comment_set.contains(id) {
@@ -337,9 +363,18 @@ impl GraphModifier {
             let mut delete_set = HashSet::new();
             if let Some(vertex_file_strings) = input_schema.get_vertex_file(v_label_i as LabelId) {
                 if !vertex_file_strings.is_empty() {
-                    let vertex_files_prefix = self.input_dir.clone().join("deletes");
+                    info!("Deleting vertex - {}", graph.graph_schema.vertex_label_names()[v_label_i as usize]);
+                    let vertex_files_prefix = self.input_dir.clone();
                     let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings).unwrap();
-                    let parser = LDBCVertexParser::<G>::new(v_label_i as LabelId, 1);
+                    let input_header = input_schema.get_vertex_header(v_label_i as LabelId).unwrap();
+                    let mut id_col = 0;
+                    for (index, (n, _)) in input_header.iter().enumerate() {
+                        if n == "id" {
+                            id_col = index;
+                            break;
+                        }
+                    }
+                    let parser = LDBCVertexParser::<G>::new(v_label_i as LabelId, id_col);
                     for vertex_file in vertex_files.iter() {
                         if vertex_file
                             .clone()
@@ -363,6 +398,28 @@ impl GraphModifier {
                                     }
                                 }
                             }
+                        } else if vertex_file
+                            .clone()
+                            .to_str()
+                            .unwrap()
+                            .ends_with(".csv")
+                        {
+                            let mut rdr = ReaderBuilder::new()
+                                .delimiter(self.delim)
+                                .buffer_capacity(4096)
+                                .comment(Some(b'#'))
+                                .flexible(true)
+                                .has_headers(self.skip_header)
+                                .from_reader(BufReader::new(File::open(&vertex_file).unwrap()));
+                            for result in rdr.records() {
+                                if let Ok(record) = result {
+                                    let vertex_meta = parser.parse_vertex_meta(&record);
+                                    let (got_label, lid) = graph.vertex_map.get_internal_id(vertex_meta.global_id).unwrap();
+                                    if got_label == v_label_i as LabelId {
+                                        delete_set.insert(lid);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -376,6 +433,13 @@ impl GraphModifier {
                 for dst_label_i in 0..vertex_label_num {
                     let dst_delete_set = &delete_sets[dst_label_i];
                     let mut delete_edge_set = HashSet::new();
+                    if graph.graph_schema.get_edge_header(
+                        src_label_i as LabelId,
+                        e_label_i as LabelId,
+                        dst_label_i as LabelId,
+                    ).is_none() {
+                        continue;
+                    }
                     if let Some(edge_file_strings) = input_schema.get_edge_file(
                         src_label_i as LabelId,
                         e_label_i as LabelId,
@@ -384,9 +448,24 @@ impl GraphModifier {
                         if edge_file_strings.is_empty() {
                             continue;
                         }
+                        info!("Deleting edge - {} - {} - {}", graph.graph_schema.vertex_label_names()[src_label_i as usize], graph.graph_schema.edge_label_names()[e_label_i as usize], graph.graph_schema.vertex_label_names()[dst_label_i as usize]);
+                        let input_header = input_schema.get_edge_header(
+                            src_label_i as LabelId,
+                            e_label_i as LabelId,
+                            dst_label_i as LabelId,
+                        ).unwrap();
 
-                        let src_col_id = 1;
-                        let dst_col_id = 2;
+                        let mut src_col_id = 0;
+                        let mut dst_col_id = 1;
+
+                        for (index, (n, _)) in input_header.iter().enumerate() {
+                            if n == "start_id" {
+                                src_col_id = index;
+                            }
+                            if n == "end_id" {
+                                dst_col_id = index;
+                            }
+                        }
 
                         let mut parser = LDBCEdgeParser::<G>::new(
                             src_label_i as LabelId,
@@ -400,7 +479,7 @@ impl GraphModifier {
                             e_label_i as LabelId,
                         );
 
-                        let edge_files_prefix = self.input_dir.clone().join("inserts");
+                        let edge_files_prefix = self.input_dir.clone();
                         let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings).unwrap();
 
                         for edge_file in edge_files.iter() {
@@ -417,6 +496,33 @@ impl GraphModifier {
                                     .flexible(true)
                                     .has_headers(self.skip_header)
                                     .from_reader(BufReader::new(GzReader::from_path(&edge_file).unwrap()));
+                                for result in rdr.records() {
+                                    if let Ok(record) = result {
+                                        let edge_meta = parser.parse_edge_meta(&record);
+                                        let (got_src_label, src_lid) = graph.vertex_map.get_internal_id(edge_meta.src_global_id).unwrap();
+                                        let (got_dst_label, dst_lid) = graph.vertex_map.get_internal_id(edge_meta.dst_global_id).unwrap();
+                                        if got_src_label != src_label_i as LabelId || got_dst_label == dst_label_i as LabelId {
+                                            continue;
+                                        }
+                                        if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
+                                            continue;
+                                        }
+                                        delete_edge_set.insert((src_lid, dst_lid));
+                                    }
+                                }
+                            } else if edge_file
+                                .clone()
+                                .to_str()
+                                .unwrap()
+                                .ends_with(".csv")
+                            {
+                                let mut rdr = ReaderBuilder::new()
+                                    .delimiter(self.delim)
+                                    .buffer_capacity(4096)
+                                    .comment(Some(b'#'))
+                                    .flexible(true)
+                                    .has_headers(self.skip_header)
+                                    .from_reader(BufReader::new(File::open(&edge_file).unwrap()));
                                 for result in rdr.records() {
                                     if let Ok(record) = result {
                                         let edge_meta = parser.parse_edge_meta(&record);
@@ -482,7 +588,7 @@ impl GraphModifier {
                     }
                 }
                 let parser = LDBCVertexParser::<G>::new(v_label_i as LabelId, id_col_id);
-                let vertex_files_prefix = self.input_dir.clone().join("inserts");
+                let vertex_files_prefix = self.input_dir.clone();
 
                 let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings).unwrap();
                 for vertex_file in vertex_files.iter() {
@@ -499,6 +605,33 @@ impl GraphModifier {
                             .flexible(true)
                             .has_headers(self.skip_header)
                             .from_reader(BufReader::new(GzReader::from_path(&vertex_file).unwrap()));
+                        for result in rdr.records() {
+                            if let Ok(record) = result {
+                                let vertex_meta = parser.parse_vertex_meta(&record);
+                                if let Ok(properties) =
+                                    parse_properties(&record, input_header, selected.as_slice())
+                                {
+                                    graph.insert_vertex(
+                                        vertex_meta.label,
+                                        vertex_meta.global_id,
+                                        Some(properties),
+                                    );
+                                }
+                            }
+                        }
+                    } else if vertex_file
+                        .clone()
+                        .to_str()
+                        .unwrap()
+                        .ends_with(".csv")
+                    {
+                        let mut rdr = ReaderBuilder::new()
+                            .delimiter(self.delim)
+                            .buffer_capacity(4096)
+                            .comment(Some(b'#'))
+                            .flexible(true)
+                            .has_headers(self.skip_header)
+                            .from_reader(BufReader::new(File::open(&vertex_file).unwrap()));
                         for result in rdr.records() {
                             if let Ok(record) = result {
                                 let vertex_meta = parser.parse_vertex_meta(&record);
@@ -569,6 +702,20 @@ impl GraphModifier {
                         edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
                     }
                 }
+            } else if file.clone().to_str().unwrap().ends_with(".csv") {
+                let mut rdr = ReaderBuilder::new()
+                    .delimiter(self.delim)
+                    .buffer_capacity(4096)
+                    .comment(Some(b'#'))
+                    .flexible(true)
+                    .has_headers(self.skip_header)
+                    .from_reader(BufReader::new(File::open(&file).unwrap()));
+                for result in rdr.records() {
+                    if let Ok(record) = result {
+                        let edge_meta = parser.parse_edge_meta(&record);
+                        edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                    }
+                }
             }
         }
 
@@ -628,6 +775,22 @@ impl GraphModifier {
                         prop_table.push(&properties);
                     }
                 }
+            } else if file.clone().to_str().unwrap().ends_with(".csv") {
+                let mut rdr = ReaderBuilder::new()
+                    .delimiter(self.delim)
+                    .buffer_capacity(4096)
+                    .comment(Some(b'#'))
+                    .flexible(true)
+                    .has_headers(self.skip_header)
+                    .from_reader(BufReader::new(File::open(&file).unwrap()));
+                for result in rdr.records() {
+                    if let Ok(record) = result {
+                        let edge_meta = parser.parse_edge_meta(&record);
+                        let properties = parse_properties(&record, input_header, selected.as_slice()).unwrap();
+                        edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                        prop_table.push(&properties);
+                    }
+                }
             }
         }
 
@@ -663,12 +826,17 @@ impl GraphModifier {
                                 dst_label_i as LabelId,
                             )
                             .unwrap();
-                        let edge_files_prefix = self.input_dir.clone().join("inserts");
+                        let edge_files_prefix = self.input_dir.clone();
                         let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings).unwrap();
-                        let (edges, table) = if graph_header.len() > 2 {
+                        info!("header = {:?}", graph_header);
+                        let (edges, table) = if graph_header.len() > 0 {
+                            info!("Loading edges with properties: {}, {}, {}", graph.graph_schema.vertex_label_names()[src_label_i as usize],
+                                  graph.graph_schema.edge_label_names()[e_label_i as usize], graph.graph_schema.vertex_label_names()[dst_label_i as usize]);
                             self.load_insert_edges_with_prop(src_label_i as LabelId, e_label_i as LabelId, dst_label_i as LabelId,
                                                              input_schema, &graph.graph_schema, &edge_files).unwrap()
                         } else {
+                            info!("Loading edges with no property: {}, {}, {}", graph.graph_schema.vertex_label_names()[src_label_i as usize],
+                                  graph.graph_schema.edge_label_names()[e_label_i as usize], graph.graph_schema.vertex_label_names()[dst_label_i as usize]);
                             self.load_insert_edges_with_no_prop(src_label_i as LabelId, e_label_i as LabelId, dst_label_i as LabelId,
                                                                 input_schema, &graph.graph_schema, &edge_files).unwrap()
                         };
@@ -690,7 +858,7 @@ impl GraphModifier {
         let input_schema = InputSchema::from_json_file(insert_schema_file, &graph.graph_schema).unwrap();
         self.apply_vertices_inserts(graph, &input_schema)?;
         self.apply_edges_inserts(graph, &input_schema)?;
-        graph.apply_modifications();
+        // graph.apply_modifications();
         Ok(())
     }
 

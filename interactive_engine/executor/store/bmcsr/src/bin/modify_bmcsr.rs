@@ -36,6 +36,11 @@ fn main() {
                 .required(true)
                 .takes_value(true)
                 .index(4),
+            Arg::with_name("delete_schema_file")
+                .long_help("The delete schema file")
+                .required(true)
+                .takes_value(true)
+                .index(5),
         ])
         .get_matches();
 
@@ -55,8 +60,12 @@ fn main() {
         .value_of("insert_schema_file")
         .unwrap()
         .to_string();
+    let delete_schema_file = matches
+        .value_of("delete_schema_file")
+        .unwrap()
+        .to_string();
 
-    let mut graph = GraphDB::deserialize(&graph_data_dir, 0, None).unwrap();
+    let mut graph = GraphDB::<usize, usize>::deserialize(&graph_data_dir, 0, None).unwrap();
 
     let init_output = output_dir.to_string().clone() + "/init";
     std::fs::create_dir_all(&init_output).unwrap();
@@ -74,6 +83,12 @@ fn main() {
 
     let mut delete_generator = DeleteGenerator::new(PathBuf::from(&input_dir));
     delete_generator.skip_header();
-    let delete_output_dir = output_dir.to_string().clone() + "/delete";
-    delete_generator.generate(&mut graph, &PathBuf::from(&delete_output_dir));
+    let batch_id = "2012-11-29";
+    delete_generator.generate(&mut graph, batch_id);
+
+    graph_modifier.delete(&mut graph, &PathBuf::from(delete_schema_file)).unwrap();
+
+    let modified2_output = output_dir.to_string().clone() + "/modified2";
+    std::fs::create_dir_all(&modified2_output).unwrap();
+    traverse(&graph, &modified2_output);
 }
