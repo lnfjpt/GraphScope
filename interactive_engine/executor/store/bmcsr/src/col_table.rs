@@ -16,10 +16,10 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use csv::StringRecord;
-use pegasus_common::codec::{Decode, Encode, ReadExt, WriteExt};
 
 use crate::columns::*;
 use crate::date::parse_date;
@@ -155,168 +155,111 @@ impl ColTable {
     }
 
     pub fn serialize_table(&self, path: &String) {
-        let mut f = File::create(path).unwrap();
-        f.write_u64(self.row_num as u64).unwrap();
-        let mut header_bytes = Vec::new();
-        header_bytes
-            .write_u64(self.header.len() as u64)
+        let f = File::create(path).unwrap();
+        let mut writer = BufWriter::new(f);
+        writer
+            .write_u64::<LittleEndian>(self.row_num as u64)
+            .unwrap();
+        writer
+            .write_u64::<LittleEndian>(self.header.len() as u64)
             .unwrap();
         for pair in self.header.iter() {
-            pair.0.write_to(&mut header_bytes).unwrap();
-            header_bytes.write_u64(*pair.1 as u64).unwrap();
+            writer
+                .write_u64::<LittleEndian>(pair.0.len() as u64)
+                .unwrap();
+            writer.write_all(pair.0.as_bytes()).unwrap();
+            writer
+                .write_u64::<LittleEndian>(*pair.1 as u64)
+                .unwrap();
         }
-        f.write_u64(header_bytes.len() as u64).unwrap();
-        f.write(&header_bytes).unwrap();
-        f.write_u64(self.columns.len() as u64).unwrap();
 
+        writer
+            .write_u64::<LittleEndian>(self.columns.len() as u64)
+            .unwrap();
         for col in self.columns.iter() {
-            match col.get_type() {
-                DataType::Int32 => {
-                    f.write_u8(0).unwrap();
-                    col.as_any()
-                        .downcast_ref::<Int32Column>()
-                        .unwrap()
-                        .serialize(&mut f);
-                }
-                DataType::UInt32 => {
-                    f.write_u8(1).unwrap();
-                    col.as_any()
-                        .downcast_ref::<UInt32Column>()
-                        .unwrap()
-                        .serialize(&mut f);
-                }
-                DataType::Int64 => {
-                    f.write_u8(2).unwrap();
-                    col.as_any()
-                        .downcast_ref::<Int64Column>()
-                        .unwrap()
-                        .serialize(&mut f);
-                }
-                DataType::UInt64 => {
-                    f.write_u8(3).unwrap();
-                    col.as_any()
-                        .downcast_ref::<UInt64Column>()
-                        .unwrap()
-                        .serialize(&mut f);
-                }
-                DataType::Double => {
-                    f.write_u8(4).unwrap();
-                    col.as_any()
-                        .downcast_ref::<DoubleColumn>()
-                        .unwrap()
-                        .serialize(&mut f);
-                }
-                DataType::String => {
-                    f.write_u8(5).unwrap();
-                    let string_array = &col
-                        .as_any()
-                        .downcast_ref::<StringColumn>()
-                        .unwrap()
-                        .data;
-                    let mut string_column_bytes = Vec::new();
-                    string_column_bytes
-                        .write_u64(string_array.len() as u64)
-                        .unwrap();
-                    for str in string_array.iter() {
-                        str.write_to(&mut string_column_bytes).unwrap();
-                    }
-                    f.write_u64(string_column_bytes.len() as u64)
-                        .unwrap();
-                    f.write(&string_column_bytes).unwrap();
-                }
-                DataType::Date => {
-                    f.write_u8(6).unwrap();
-                    col.as_any()
-                        .downcast_ref::<DateColumn>()
-                        .unwrap()
-                        .serialize(&mut f);
-                }
-                DataType::DateTime => {
-                    f.write_u8(7).unwrap();
-                    col.as_any()
-                        .downcast_ref::<DateTimeColumn>()
-                        .unwrap()
-                        .serialize(&mut f);
-                }
-                DataType::LCString => {
-                    f.write_u8(8).unwrap();
-                    col.as_any()
-                        .downcast_ref::<LCStringColumn>()
-                        .unwrap()
-                        .serialize(&mut f);
-                }
-                _ => {
-                    info!("unexpected type...");
-                }
-            }
+            writer
+                .write_i32::<LittleEndian>(col.get_type().to_i32())
+                .unwrap();
+            col.serialize(&mut writer).unwrap();
         }
     }
 
     pub fn deserialize_table(&mut self, path: &String) {
-        let mut f = File::open(path).unwrap();
-        self.row_num = f.read_u64().unwrap() as usize;
-        let header_bytes_len = f.read_u64().unwrap() as usize;
-        let mut header_bytes = vec![0_u8; header_bytes_len];
-        f.read_exact(&mut header_bytes).unwrap();
-        let mut header_bytes_slice = header_bytes.as_slice();
-        self.header = HashMap::new();
-        let header_len = header_bytes_slice.read_u64().unwrap();
+        let f = File::open(path).unwrap();
+        let mut reader = BufReader::new(f);
+        self.row_num = reader.read_u64::<LittleEndian>().unwrap() as usize;
+        let header_len = reader.read_u64::<LittleEndian>().unwrap() as usize;
+        self.header.clear();
         for _ in 0..header_len {
-            let str = String::read_from(&mut header_bytes_slice).unwrap();
-            let index = header_bytes_slice.read_u64().unwrap() as usize;
-            self.header.insert(str, index);
+            let str_len = reader.read_u64::<LittleEndian>().unwrap() as usize;
+            let mut str_bytes = vec![0u8; str_len];
+            reader.read_exact(&mut str_bytes).unwrap();
+            let s = String::from_utf8(str_bytes).unwrap();
+            let ind = reader.read_u64::<LittleEndian>().unwrap() as usize;
+
+            self.header.insert(s, ind);
         }
 
-        let column_len = f.read_u64().unwrap() as usize;
+        let column_len = reader.read_u64::<LittleEndian>().unwrap() as usize;
+        self.columns.clear();
         for _ in 0..column_len {
-            let t = f.read_u8().unwrap();
-            if t == 0 {
-                let mut col = Int32Column::new();
-                col.deserialize(&mut f);
-                self.columns.push(Box::new(col));
-            } else if t == 1 {
-                let mut col = UInt32Column::new();
-                col.deserialize(&mut f);
-                self.columns.push(Box::new(col));
-            } else if t == 2 {
-                let mut col = Int64Column::new();
-                col.deserialize(&mut f);
-                self.columns.push(Box::new(col));
-            } else if t == 3 {
-                let mut col = UInt64Column::new();
-                col.deserialize(&mut f);
-                self.columns.push(Box::new(col));
-            } else if t == 4 {
-                let mut col = DoubleColumn::new();
-                col.deserialize(&mut f);
-                self.columns.push(Box::new(col));
-            } else if t == 5 {
-                let mut col = StringColumn::new();
-                let string_array = &mut col.data;
-                let string_column_bytes_len = f.read_u64().unwrap() as usize;
-                let mut string_column_bytes = vec![0_u8; string_column_bytes_len];
-                f.read_exact(&mut string_column_bytes).unwrap();
-                let mut string_column_bytes_slice = string_column_bytes.as_slice();
-                let string_array_len = string_column_bytes_slice.read_u64().unwrap() as usize;
-                for _ in 0..string_array_len {
-                    string_array.push(String::read_from(&mut string_column_bytes_slice).unwrap());
+            let t = DataType::from_i32(reader.read_i32::<LittleEndian>().unwrap()).unwrap();
+            match t {
+                DataType::Int32 => {
+                    let mut col = Int32Column::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
                 }
-                self.columns.push(Box::new(col));
-            } else if t == 6 {
-                let mut col = DateColumn::new();
-                col.deserialize(&mut f);
-                self.columns.push(Box::new(col));
-            } else if t == 7 {
-                let mut col = DateTimeColumn::new();
-                col.deserialize(&mut f);
-                self.columns.push(Box::new(col));
-            } else if t == 8 {
-                let mut col = LCStringColumn::new();
-                col.deserialize(&mut f);
-                self.columns.push(Box::new(col));
-            } else {
-                info!("unexpected type...");
-            }
+                DataType::UInt32 => {
+                    let mut col = UInt32Column::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
+                }
+                DataType::Int64 => {
+                    let mut col = Int64Column::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
+                }
+                DataType::UInt64 => {
+                    let mut col = UInt64Column::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
+                }
+                DataType::Double => {
+                    let mut col = DoubleColumn::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
+                }
+                DataType::String => {
+                    let mut col = StringColumn::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
+                }
+                DataType::Date => {
+                    let mut col = DateColumn::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
+                }
+                DataType::DateTime => {
+                    let mut col = DateTimeColumn::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
+                }
+                DataType::LCString => {
+                    let mut col = LCStringColumn::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
+                }
+                DataType::ID => {
+                    let mut col = IDColumn::new();
+                    col.deserialize(&mut reader).unwrap();
+                    self.columns.push(Box::new(col));
+                }
+                DataType::NULL => {
+                    let col = Int32Column::new();
+                    self.columns.push(Box::new(col));
+                }
+            };
         }
     }
 

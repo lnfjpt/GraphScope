@@ -170,7 +170,7 @@ fn traverse_edges<G: Send + Sync + IndexType, I: Send + Sync + IndexType>(
             let dst_label_name = graph.graph_schema.vertex_label_names()[dst_label].clone();
             for edge_label in 0..edge_label_num {
                 let edge_label_name = graph.graph_schema.edge_label_names()[edge_label].clone();
-                if let Some(header) = graph.graph_schema.get_edge_header(
+                if let Some(_) = graph.graph_schema.get_edge_header(
                     src_label as LabelId,
                     edge_label as LabelId,
                     dst_label as LabelId,

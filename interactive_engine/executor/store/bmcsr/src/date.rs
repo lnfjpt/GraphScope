@@ -16,7 +16,6 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use chrono::{Datelike, Duration, NaiveDate};
-use pegasus_common::codec::{Decode, Encode, ReadExt, WriteExt};
 
 use crate::date_time::DateTime;
 use crate::error::GDBResult;
@@ -76,20 +75,6 @@ impl Date {
 impl Display for Date {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:04}-{:02}-{:02}", self.year(), self.month(), self.day())
-    }
-}
-
-impl Encode for Date {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_i32(self.inner).unwrap();
-        Ok(())
-    }
-}
-
-impl Decode for Date {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let ret = reader.read_i32().unwrap();
-        Ok(Self { inner: ret })
     }
 }
 

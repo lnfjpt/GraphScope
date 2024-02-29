@@ -13,18 +13,16 @@
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
 
-use core::slice;
 use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
-use std::io::{Read, Write};
-use std::mem;
+use std::io::{BufReader, BufWriter, Read, Write};
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use dyn_type::object::RawType;
 use dyn_type::CastError;
-use pegasus_common::codec::{Decode, Encode, ReadExt, WriteExt};
 use serde::{Deserialize, Serialize};
 
 use crate::date::Date;
@@ -33,17 +31,52 @@ use crate::types::DefaultId;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum DataType {
-    Int32,
-    UInt32,
-    Int64,
-    UInt64,
-    Double,
-    String,
-    Date,
-    DateTime,
-    LCString,
-    ID,
-    NULL,
+    Int32 = 1,
+    UInt32 = 2,
+    Int64 = 3,
+    UInt64 = 4,
+    Double = 5,
+    String = 6,
+    Date = 7,
+    DateTime = 8,
+    LCString = 9,
+    ID = 10,
+    NULL = 0,
+}
+
+impl DataType {
+    pub fn from_i32(n: i32) -> Option<Self> {
+        match n {
+            0 => Some(Self::NULL),
+            1 => Some(Self::Int32),
+            2 => Some(Self::UInt32),
+            3 => Some(Self::Int64),
+            4 => Some(Self::UInt64),
+            5 => Some(Self::Double),
+            6 => Some(Self::String),
+            7 => Some(Self::Date),
+            8 => Some(Self::DateTime),
+            9 => Some(Self::LCString),
+            10 => Some(Self::ID),
+            _ => None,
+        }
+    }
+
+    pub fn to_i32(&self) -> i32 {
+        match self {
+            Self::NULL => 0,
+            Self::Int32 => 1,
+            Self::UInt32 => 2,
+            Self::Int64 => 3,
+            Self::UInt64 => 4,
+            Self::Double => 5,
+            Self::String => 6,
+            Self::Date => 7,
+            Self::DateTime => 8,
+            Self::LCString => 9,
+            Self::ID => 10,
+        }
+    }
 }
 
 impl<'a> From<&'a str> for DataType {
@@ -337,6 +370,9 @@ pub trait Column: Debug {
     fn push(&mut self, val: Item);
     fn len(&self) -> usize;
     fn as_any(&self) -> &dyn Any;
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()>;
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()>;
 }
 
 pub struct Int32Column {
@@ -346,31 +382,6 @@ pub struct Int32Column {
 impl Int32Column {
     pub fn new() -> Self {
         Self { data: Vec::new() }
-    }
-
-    pub fn serialize(&self, f: &mut File) {
-        let row_num = self.data.len();
-        f.write_u64(row_num as u64).unwrap();
-        unsafe {
-            let data_slice = slice::from_raw_parts(
-                self.data.as_ptr() as *const u8,
-                row_num * std::mem::size_of::<i32>(),
-            );
-            f.write_all(data_slice).unwrap();
-        }
-        f.flush().unwrap();
-    }
-
-    pub fn deserialize(&mut self, f: &mut File) {
-        let row_num = f.read_u64().unwrap() as usize;
-        self.data.resize(row_num, 0_i32);
-        unsafe {
-            let data_slice = slice::from_raw_parts_mut(
-                self.data.as_mut_ptr() as *mut u8,
-                row_num * std::mem::size_of::<i32>(),
-            );
-            f.read_exact(data_slice).unwrap();
-        }
     }
 
     pub fn is_same(&self, other: &Self) -> bool {
@@ -390,20 +401,6 @@ impl Int32Column {
 impl Debug for Int32Column {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Int32Column: {:?}", self.data)
-    }
-}
-
-impl Encode for Int32Column {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.data.write_to(writer)
-    }
-}
-
-impl Decode for Int32Column {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let vec = Vec::<i32>::read_from(reader)?;
-        info!("int32 column: {}", vec.capacity() * 4_usize);
-        Ok(Self { data: vec })
     }
 }
 
@@ -445,6 +442,25 @@ impl Column for Int32Column {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<i32>::with_capacity(row_num);
+        for _ in 0..row_num {
+            data.push(reader.read_i32::<LittleEndian>()?);
+        }
+        self.data = data;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_i32::<LittleEndian>(*v)?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct UInt32Column {
@@ -454,31 +470,6 @@ pub struct UInt32Column {
 impl UInt32Column {
     pub fn new() -> Self {
         Self { data: Vec::new() }
-    }
-
-    pub fn serialize(&self, f: &mut File) {
-        let row_num = self.data.len();
-        f.write_u64(row_num as u64).unwrap();
-        unsafe {
-            let data_slice = slice::from_raw_parts(
-                self.data.as_ptr() as *const u8,
-                row_num * std::mem::size_of::<u32>(),
-            );
-            f.write_all(data_slice).unwrap();
-        }
-        f.flush().unwrap();
-    }
-
-    pub fn deserialize(&mut self, f: &mut File) {
-        let row_num = f.read_u64().unwrap() as usize;
-        self.data.resize(row_num, 0_u32);
-        unsafe {
-            let data_slice = slice::from_raw_parts_mut(
-                self.data.as_mut_ptr() as *mut u8,
-                row_num * std::mem::size_of::<u32>(),
-            );
-            f.read_exact(data_slice).unwrap();
-        }
     }
 
     pub fn is_same(&self, other: &Self) -> bool {
@@ -498,20 +489,6 @@ impl UInt32Column {
 impl Debug for UInt32Column {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "UInt32Column: {:?}", self.data)
-    }
-}
-
-impl Encode for UInt32Column {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.data.write_to(writer)
-    }
-}
-
-impl Decode for UInt32Column {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let vec = Vec::<u32>::read_from(reader)?;
-        info!("uint32 column: {}", vec.capacity() * 4_usize);
-        Ok(Self { data: vec })
     }
 }
 
@@ -553,6 +530,25 @@ impl Column for UInt32Column {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<u32>::with_capacity(row_num);
+        for _ in 0..row_num {
+            data.push(reader.read_u32::<LittleEndian>()?);
+        }
+        self.data = data;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_u32::<LittleEndian>(*v)?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct Int64Column {
@@ -562,31 +558,6 @@ pub struct Int64Column {
 impl Int64Column {
     pub fn new() -> Self {
         Self { data: Vec::new() }
-    }
-
-    pub fn serialize(&self, f: &mut File) {
-        let row_num = self.data.len();
-        f.write_u64(row_num as u64).unwrap();
-        unsafe {
-            let data_slice = slice::from_raw_parts(
-                self.data.as_ptr() as *const u8,
-                row_num * std::mem::size_of::<i64>(),
-            );
-            f.write_all(data_slice).unwrap();
-        }
-        f.flush().unwrap();
-    }
-
-    pub fn deserialize(&mut self, f: &mut File) {
-        let row_num = f.read_u64().unwrap() as usize;
-        self.data.resize(row_num, 0_i64);
-        unsafe {
-            let data_slice = slice::from_raw_parts_mut(
-                self.data.as_mut_ptr() as *mut u8,
-                row_num * std::mem::size_of::<i64>(),
-            );
-            f.read_exact(data_slice).unwrap();
-        }
     }
 
     pub fn is_same(&self, other: &Self) -> bool {
@@ -606,20 +577,6 @@ impl Int64Column {
 impl Debug for Int64Column {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Int64Column: {:?}", self.data)
-    }
-}
-
-impl Encode for Int64Column {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.data.write_to(writer)
-    }
-}
-
-impl Decode for Int64Column {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let vec = Vec::<i64>::read_from(reader)?;
-        info!("int64 column: {}", vec.capacity() * 8_usize);
-        Ok(Self { data: vec })
     }
 }
 
@@ -661,6 +618,25 @@ impl Column for Int64Column {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<i64>::with_capacity(row_num);
+        for _ in 0..row_num {
+            data.push(reader.read_i64::<LittleEndian>()?);
+        }
+        self.data = data;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_i64::<LittleEndian>(*v)?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct UInt64Column {
@@ -670,31 +646,6 @@ pub struct UInt64Column {
 impl UInt64Column {
     pub fn new() -> Self {
         Self { data: Vec::new() }
-    }
-
-    pub fn serialize(&self, f: &mut File) {
-        let row_num = self.data.len();
-        f.write_u64(row_num as u64).unwrap();
-        unsafe {
-            let data_slice = slice::from_raw_parts(
-                self.data.as_ptr() as *const u8,
-                row_num * std::mem::size_of::<u64>(),
-            );
-            f.write_all(data_slice).unwrap();
-        }
-        f.flush().unwrap();
-    }
-
-    pub fn deserialize(&mut self, f: &mut File) {
-        let row_num = f.read_u64().unwrap() as usize;
-        self.data.resize(row_num, 0_u64);
-        unsafe {
-            let data_slice = slice::from_raw_parts_mut(
-                self.data.as_mut_ptr() as *mut u8,
-                row_num * std::mem::size_of::<u64>(),
-            );
-            f.read_exact(data_slice).unwrap();
-        }
     }
 
     pub fn is_same(&self, other: &Self) -> bool {
@@ -714,20 +665,6 @@ impl UInt64Column {
 impl Debug for UInt64Column {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "UInt64Column: {:?}", self.data)
-    }
-}
-
-impl Encode for UInt64Column {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.data.write_to(writer)
-    }
-}
-
-impl Decode for UInt64Column {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let vec = Vec::<u64>::read_from(reader)?;
-        info!("uint64 column: {}", vec.capacity() * 8_usize);
-        Ok(Self { data: vec })
     }
 }
 
@@ -769,6 +706,25 @@ impl Column for UInt64Column {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<u64>::with_capacity(row_num);
+        for _ in 0..row_num {
+            data.push(reader.read_u64::<LittleEndian>()?);
+        }
+        self.data = data;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_u64::<LittleEndian>(*v)?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct IDColumn {
@@ -784,28 +740,6 @@ impl IDColumn {
 impl Debug for IDColumn {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "IDColumn: {:?}", self.data)
-    }
-}
-
-impl Encode for IDColumn {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_u64(self.data.len() as u64)?;
-        for v in self.data.iter() {
-            writer.write_u64(*v as u64)?;
-        }
-        Ok(())
-    }
-}
-
-impl Decode for IDColumn {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let len = reader.read_u64()? as usize;
-        let mut vec = Vec::with_capacity(len);
-        for _ in 0..len {
-            vec.push(reader.read_u64()? as DefaultId);
-        }
-        info!("id column: {}", vec.capacity() * 8_usize);
-        Ok(Self { data: vec })
     }
 }
 
@@ -847,6 +781,25 @@ impl Column for IDColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<DefaultId>::with_capacity(row_num);
+        for _ in 0..row_num {
+            data.push(reader.read_u64::<LittleEndian>()? as DefaultId);
+        }
+        self.data = data;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_u64::<LittleEndian>(*v as u64)?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct DoubleColumn {
@@ -857,50 +810,11 @@ impl DoubleColumn {
     pub fn new() -> Self {
         Self { data: Vec::new() }
     }
-
-    pub fn serialize(&self, f: &mut File) {
-        let row_num = self.data.len();
-        f.write_u64(row_num as u64).unwrap();
-        unsafe {
-            let data_slice = slice::from_raw_parts(
-                self.data.as_ptr() as *const u8,
-                row_num * std::mem::size_of::<f64>(),
-            );
-            f.write_all(data_slice).unwrap();
-        }
-        f.flush().unwrap();
-    }
-
-    pub fn deserialize(&mut self, f: &mut File) {
-        let row_num = f.read_u64().unwrap() as usize;
-        self.data.resize(row_num, 0_f64);
-        unsafe {
-            let data_slice = slice::from_raw_parts_mut(
-                self.data.as_mut_ptr() as *mut u8,
-                row_num * std::mem::size_of::<f64>(),
-            );
-            f.read_exact(data_slice).unwrap();
-        }
-    }
 }
 
 impl Debug for DoubleColumn {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "DoubleColumn: {:?}", self.data)
-    }
-}
-
-impl Encode for DoubleColumn {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.data.write_to(writer)
-    }
-}
-
-impl Decode for DoubleColumn {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let vec = Vec::<f64>::read_from(reader)?;
-        info!("double column: {}", vec.capacity() * 8_usize);
-        Ok(Self { data: vec })
     }
 }
 
@@ -942,6 +856,25 @@ impl Column for DoubleColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<f64>::with_capacity(row_num);
+        for _ in 0..row_num {
+            data.push(reader.read_f64::<LittleEndian>()?);
+        }
+        self.data = data;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_f64::<LittleEndian>(*v)?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct StringColumn {
@@ -957,24 +890,6 @@ impl StringColumn {
 impl Debug for StringColumn {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "StringColumn: {:?}", self.data)
-    }
-}
-
-impl Encode for StringColumn {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.data.write_to(writer)
-    }
-}
-
-impl Decode for StringColumn {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let vec = Vec::<String>::read_from(reader)?;
-        let mut ret = vec.capacity() * mem::size_of::<String>();
-        for s in vec.iter() {
-            ret += s.len();
-        }
-        info!("string column: {}", ret);
-        Ok(Self { data: vec })
     }
 }
 
@@ -1016,6 +931,29 @@ impl Column for StringColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<String>::with_capacity(row_num);
+        for _ in 0..row_num {
+            let length = reader.read_i32::<LittleEndian>()?;
+            let mut string_bytes = vec![0u8; length as usize];
+            reader.read_exact(&mut string_bytes)?;
+            data.push(String::from_utf8(string_bytes).unwrap());
+        }
+        self.data = data;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_i32::<LittleEndian>(v.len() as i32)?;
+            writer.write_all(v.as_bytes())?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct LCStringColumn {
@@ -1027,53 +965,6 @@ pub struct LCStringColumn {
 impl LCStringColumn {
     pub fn new() -> Self {
         Self { data: Vec::new(), table: HashMap::new(), list: Vec::new() }
-    }
-
-    pub fn serialize(&self, f: &mut File) {
-        let mut table_bytes = Vec::new();
-        table_bytes
-            .write_u64(self.list.len() as u64)
-            .unwrap();
-        for v in self.list.iter() {
-            v.write_to(&mut table_bytes).unwrap();
-        }
-        f.write_u64(table_bytes.len() as u64).unwrap();
-        f.write(&table_bytes).unwrap();
-
-        f.write_u64(self.data.len() as u64).unwrap();
-        let data_size = self.data.len() * std::mem::size_of::<u16>();
-
-        unsafe {
-            let data_slice = slice::from_raw_parts(self.data.as_ptr() as *const u8, data_size);
-            f.write_all(data_slice).unwrap();
-        }
-
-        f.flush().unwrap();
-    }
-
-    pub fn deserialize(&mut self, f: &mut File) {
-        let table_bytes_len = f.read_u64().unwrap() as usize;
-        let mut table_bytes = vec![0_u8; table_bytes_len];
-        f.read_exact(&mut table_bytes).unwrap();
-        let mut table_bytes_slice = table_bytes.as_slice();
-        self.list.clear();
-        self.table.clear();
-        let list_len = table_bytes_slice.read_u64().unwrap() as usize;
-        for i in 0..list_len {
-            let str = String::read_from(&mut table_bytes_slice).unwrap();
-            self.list.push(str.clone());
-            self.table.insert(str, i as u16);
-        }
-
-        let row_num = f.read_u64().unwrap() as usize;
-        self.data.resize(row_num, 0_u16);
-        unsafe {
-            let data_slice = slice::from_raw_parts_mut(
-                self.data.as_mut_ptr() as *mut u8,
-                row_num * std::mem::size_of::<u16>(),
-            );
-            f.read_exact(data_slice).unwrap();
-        }
     }
 
     pub fn is_same(&self, other: &Self) -> bool {
@@ -1096,25 +987,6 @@ impl LCStringColumn {
 impl Debug for LCStringColumn {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "LCStringColumn: {:?},{:?},{:?}", self.data, self.table, self.list)
-    }
-}
-
-impl Encode for LCStringColumn {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.data.write_to(writer)?;
-        self.list.write_to(writer)
-    }
-}
-
-impl Decode for LCStringColumn {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let data = Vec::<u16>::read_from(reader)?;
-        let list = Vec::<String>::read_from(reader)?;
-        let mut table = HashMap::new();
-        for (index, key) in list.iter().enumerate() {
-            table.insert(key.to_owned(), index as u16);
-        }
-        Ok(Self { data, table, list })
     }
 }
 
@@ -1168,6 +1040,47 @@ impl Column for LCStringColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<u16>::with_capacity(row_num);
+        for _ in 0..row_num {
+            data.push(reader.read_u16::<LittleEndian>()?);
+        }
+
+        let list_size = reader.read_u16::<LittleEndian>()? as usize;
+        let mut list = Vec::<String>::with_capacity(list_size);
+        let mut table = HashMap::new();
+        for i in 0..list_size {
+            let length = reader.read_i32::<LittleEndian>()?;
+            let mut string_bytes = vec![0u8; length as usize];
+            reader.read_exact(&mut string_bytes)?;
+            let parsed_string = String::from_utf8(string_bytes).unwrap();
+            list.push(parsed_string.clone());
+            table.insert(parsed_string, i as u16);
+        }
+
+        self.data = data;
+        self.table = table;
+        self.list = list;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_u16::<LittleEndian>(*v)?;
+        }
+
+        writer.write_u16::<LittleEndian>(self.list.len() as u16)?;
+        for s in self.list.iter() {
+            let length = s.len() as i32;
+            writer.write_i32::<LittleEndian>(length)?;
+            writer.write_all(s.as_bytes())?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct DateColumn {
@@ -1177,31 +1090,6 @@ pub struct DateColumn {
 impl DateColumn {
     pub fn new() -> Self {
         Self { data: Vec::new() }
-    }
-
-    pub fn serialize(&self, f: &mut File) {
-        let row_num = self.data.len();
-        f.write_u64(row_num as u64).unwrap();
-        unsafe {
-            let data_slice = slice::from_raw_parts(
-                self.data.as_ptr() as *const u8,
-                row_num * std::mem::size_of::<Date>(),
-            );
-            f.write_all(data_slice).unwrap();
-        }
-        f.flush().unwrap();
-    }
-
-    pub fn deserialize(&mut self, f: &mut File) {
-        let row_num = f.read_u64().unwrap() as usize;
-        self.data.resize(row_num, Date::empty());
-        unsafe {
-            let data_slice = slice::from_raw_parts_mut(
-                self.data.as_mut_ptr() as *mut u8,
-                row_num * std::mem::size_of::<Date>(),
-            );
-            f.read_exact(data_slice).unwrap();
-        }
     }
 
     pub fn is_same(&self, other: &Self) -> bool {
@@ -1221,20 +1109,6 @@ impl DateColumn {
 impl Debug for DateColumn {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "DateColumn: {:?}", self.data)
-    }
-}
-
-impl Encode for DateColumn {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.data.write_to(writer)
-    }
-}
-
-impl Decode for DateColumn {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let vec = Vec::<Date>::read_from(reader)?;
-        info!("date column: {}", vec.capacity() * mem::size_of::<Date>());
-        Ok(Self { data: vec })
     }
 }
 
@@ -1276,6 +1150,25 @@ impl Column for DateColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<Date>::with_capacity(row_num);
+        for _ in 0..row_num {
+            data.push(Date::from_i32(reader.read_i32::<LittleEndian>()?));
+        }
+        self.data = data;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_i32::<LittleEndian>(v.to_i32())?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct DateTimeColumn {
@@ -1285,31 +1178,6 @@ pub struct DateTimeColumn {
 impl DateTimeColumn {
     pub fn new() -> Self {
         Self { data: Vec::new() }
-    }
-
-    pub fn serialize(&self, f: &mut File) {
-        let row_num = self.data.len();
-        f.write_u64(row_num as u64).unwrap();
-        unsafe {
-            let data_slice = slice::from_raw_parts(
-                self.data.as_ptr() as *const u8,
-                row_num * std::mem::size_of::<DateTime>(),
-            );
-            f.write_all(data_slice).unwrap();
-        }
-        f.flush().unwrap();
-    }
-
-    pub fn deserialize(&mut self, f: &mut File) {
-        let row_num = f.read_u64().unwrap() as usize;
-        self.data.resize(row_num, DateTime::empty());
-        unsafe {
-            let data_slice = slice::from_raw_parts_mut(
-                self.data.as_mut_ptr() as *mut u8,
-                row_num * std::mem::size_of::<DateTime>(),
-            );
-            f.read_exact(data_slice).unwrap();
-        }
     }
 
     pub fn is_same(&self, other: &Self) -> bool {
@@ -1329,20 +1197,6 @@ impl DateTimeColumn {
 impl Debug for DateTimeColumn {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "DateTimeColumn: {:?}", self.data)
-    }
-}
-
-impl Encode for DateTimeColumn {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.data.write_to(writer)
-    }
-}
-
-impl Decode for DateTimeColumn {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let vec = Vec::<DateTime>::read_from(reader)?;
-        info!("datetime column: {}", vec.capacity() * mem::size_of::<DateTime>());
-        Ok(Self { data: vec })
     }
 }
 
@@ -1385,5 +1239,24 @@ impl Column for DateTimeColumn {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn deserialize(&mut self, reader: &mut BufReader<File>) -> std::io::Result<()> {
+        let row_num = reader.read_u64::<LittleEndian>()? as usize;
+        let mut data = Vec::<DateTime>::with_capacity(row_num);
+        for _ in 0..row_num {
+            data.push(DateTime::new(reader.read_i64::<LittleEndian>()?));
+        }
+        self.data = data;
+        Ok(())
+    }
+
+    fn serialize(&self, writer: &mut BufWriter<File>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.data.len() as u64)?;
+        for v in self.data.iter() {
+            writer.write_i64::<LittleEndian>(v.to_i64())?;
+        }
+
+        Ok(())
     }
 }

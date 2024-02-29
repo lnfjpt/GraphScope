@@ -1,11 +1,10 @@
 use clap::{App, Arg};
-use std::ops::Index;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bmcsr::graph_db::GraphDB;
 use bmcsr::graph_modifier::{DeleteGenerator, GraphModifier};
 use bmcsr::traverse::traverse;
-use bmcsr::types::{DefaultId, LabelId, DIR_BINARY_DATA, NAME, VERSION};
+use bmcsr::types::{NAME, VERSION};
 
 fn main() {
     env_logger::init();
@@ -128,28 +127,4 @@ fn main() {
         std::fs::create_dir_all(&modified_output).unwrap();
         traverse(&graph, &modified_output);
     }
-    // let init_output = output_dir.to_string().clone() + "/init";
-    // std::fs::create_dir_all(&init_output).unwrap();
-    // traverse(&graph, &init_output);
-
-    // let insert_schema_file_path = PathBuf::from(&insert_schema_file);
-
-    // let mut graph_modifier = GraphModifier::new(&input_dir);
-    // graph_modifier.skip_header();
-    // graph_modifier.insert(&mut graph, &insert_schema_file_path).unwrap();
-
-    // let modified_output = output_dir.to_string().clone() + "/modified";
-    // std::fs::create_dir_all(&modified_output).unwrap();
-    // traverse(&graph, &modified_output);
-
-    // let mut delete_generator = DeleteGenerator::new(PathBuf::from(&input_dir));
-    // delete_generator.skip_header();
-    // let batch_id = "2012-11-29";
-    // delete_generator.generate(&mut graph, batch_id);
-
-    // graph_modifier.delete(&mut graph, &PathBuf::from(delete_schema_file)).unwrap();
-
-    // let modified2_output = output_dir.to_string().clone() + "/modified2";
-    // std::fs::create_dir_all(&modified2_output).unwrap();
-    // traverse(&graph, &modified2_output);
 }

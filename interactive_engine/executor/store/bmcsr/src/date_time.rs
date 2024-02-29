@@ -17,7 +17,6 @@ use std::fmt::{Debug, Display, Formatter};
 
 use chrono::DateTime as CDateTime;
 use chrono::{Datelike, Duration, Timelike, Utc};
-use pegasus_common::codec::{Decode, Encode, ReadExt, WriteExt};
 
 #[derive(Clone, Copy)]
 pub struct DateTime {
@@ -153,18 +152,4 @@ pub fn parse_datetime(val: &str) -> DateTime {
         panic!("Failed to parse datetime {}", val);
     };
     datetime
-}
-
-impl Encode for DateTime {
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_i64(self.inner).unwrap();
-        Ok(())
-    }
-}
-
-impl Decode for DateTime {
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        let inner = reader.read_i64().unwrap();
-        Ok(Self { inner })
-    }
 }

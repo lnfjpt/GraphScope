@@ -18,9 +18,6 @@ use std::fmt;
 use std::hash::Hash;
 use std::ops::AddAssign;
 
-use pegasus_common::codec::ReadExt;
-use pegasus_common::io::WriteExt;
-
 /// Trait for the unsigned integer type used for node and edge indices.
 ///
 /// Marked `unsafe` because: the trait must faithfully preserve
@@ -31,9 +28,6 @@ pub unsafe trait IndexType: Copy + Default + Hash + Ord + fmt::Debug + 'static +
     fn max() -> Self;
 
     fn add_assign(&mut self, other: Self);
-
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()>;
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self>;
 
     fn read<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self>;
     fn write<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()>;
@@ -56,14 +50,6 @@ unsafe impl IndexType for usize {
     #[inline(always)]
     fn add_assign(&mut self, other: Self) {
         *self += other;
-    }
-
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_u64(*self as u64)
-    }
-
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        Ok(reader.read_u64()? as Self)
     }
 
     fn read<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
@@ -93,14 +79,6 @@ unsafe impl IndexType for u32 {
     #[inline(always)]
     fn add_assign(&mut self, other: Self) {
         *self += other;
-    }
-
-    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_u32(*self as u32)
-    }
-
-    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
-        Ok(reader.read_u32()? as Self)
     }
 
     fn read<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {

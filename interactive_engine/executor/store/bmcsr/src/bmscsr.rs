@@ -171,7 +171,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
         self.vertex_capacity = reader.read_u64::<LittleEndian>().unwrap() as usize;
         let len = reader.read_u64::<LittleEndian>().unwrap() as usize;
         self.nbr_list = Vec::with_capacity(len);
-        for i in 0..len {
+        for _ in 0..len {
             self.nbr_list
                 .push(I::read(&mut reader).unwrap());
         }

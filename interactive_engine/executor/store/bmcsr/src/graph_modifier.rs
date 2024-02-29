@@ -1,4 +1,4 @@
-use crate::col_table::{ColTable, parse_properties};
+use crate::col_table::{parse_properties, ColTable};
 use crate::columns::{Column, StringColumn};
 use csv::ReaderBuilder;
 use rust_htslib::bgzf::Reader as GzReader;
@@ -16,7 +16,7 @@ use crate::ldbc_parser::{LDBCEdgeParser, LDBCVertexParser};
 use crate::schema::{CsrGraphSchema, InputSchema, Schema};
 use crate::types::{DefaultId, LabelId};
 
-pub struct DeleteGenerator<G: FromStr + Send + Sync + IndexType + std::fmt::Display = DefaultId,> {
+pub struct DeleteGenerator<G: FromStr + Send + Sync + IndexType + std::fmt::Display = DefaultId> {
     input_dir: PathBuf,
 
     delim: u8,
@@ -58,7 +58,12 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
         let suffixes = vec!["*.csv.gz".to_string(), "*.csv".to_string()];
         let files = get_files_list(&input_prefix, &suffixes);
         if files.is_err() {
-            warn!("Get vertex files {:?}/{:?} failed: {:?}", &input_prefix, &suffixes, files.err().unwrap());
+            warn!(
+                "Get vertex files {:?}/{:?} failed: {:?}",
+                &input_prefix,
+                &suffixes,
+                files.err().unwrap()
+            );
             return ret;
         }
         let files = files.unwrap();
@@ -67,7 +72,12 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
         }
         let parser = LDBCVertexParser::<G>::new(label, 1);
         for file in files {
-            if file.clone().to_str().unwrap().ends_with(".csv.gz") {
+            if file
+                .clone()
+                .to_str()
+                .unwrap()
+                .ends_with(".csv.gz")
+            {
                 let mut rdr = ReaderBuilder::new()
                     .delimiter(b'|')
                     .buffer_capacity(4096)
@@ -78,7 +88,14 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
                 for result in rdr.records() {
                     if let Ok(record) = result {
                         let vertex_meta = parser.parse_vertex_meta(&record);
-                        ret.push((record.get(0).unwrap().parse::<String>().unwrap(), vertex_meta.global_id));
+                        ret.push((
+                            record
+                                .get(0)
+                                .unwrap()
+                                .parse::<String>()
+                                .unwrap(),
+                            vertex_meta.global_id,
+                        ));
                     }
                 }
             } else if file.clone().to_str().unwrap().ends_with(".csv") {
@@ -92,7 +109,14 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
                 for result in rdr.records() {
                     if let Ok(record) = result {
                         let vertex_meta = parser.parse_vertex_meta(&record);
-                        ret.push((record.get(0).unwrap().parse::<String>().unwrap(), vertex_meta.global_id));
+                        ret.push((
+                            record
+                                .get(0)
+                                .unwrap()
+                                .parse::<String>()
+                                .unwrap(),
+                            vertex_meta.global_id,
+                        ));
                     }
                 }
             }
@@ -114,18 +138,39 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
     where
         I: Send + Sync + IndexType,
     {
-        let person_label = graph.graph_schema.get_vertex_label_id("PERSON").unwrap();
+        let person_label = graph
+            .graph_schema
+            .get_vertex_label_id("PERSON")
+            .unwrap();
 
-        let comment_label = graph.graph_schema.get_vertex_label_id("COMMENT").unwrap();
-        let post_label = graph.graph_schema.get_vertex_label_id("POST").unwrap();
-        let forum_label = graph.graph_schema.get_vertex_label_id("FORUM").unwrap();
+        let comment_label = graph
+            .graph_schema
+            .get_vertex_label_id("COMMENT")
+            .unwrap();
+        let post_label = graph
+            .graph_schema
+            .get_vertex_label_id("POST")
+            .unwrap();
+        let forum_label = graph
+            .graph_schema
+            .get_vertex_label_id("FORUM")
+            .unwrap();
 
-        let hasCreator_label = graph.graph_schema.get_edge_label_id("HASCREATOR").unwrap();
-        let hasModerator_label = graph.graph_schema.get_edge_label_id("HASMODERATOR").unwrap();
+        let hasCreator_label = graph
+            .graph_schema
+            .get_edge_label_id("HASCREATOR")
+            .unwrap();
+        let hasModerator_label = graph
+            .graph_schema
+            .get_edge_label_id("HASMODERATOR")
+            .unwrap();
 
-        let comment_hasCreator_person = graph.get_sub_graph(person_label, hasCreator_label, comment_label, Direction::Incoming);
-        let post_hasCreator_person = graph.get_sub_graph(person_label, hasCreator_label, post_label, Direction::Incoming);
-        let forum_hasModerator_person = graph.get_sub_graph(person_label, hasModerator_label, forum_label, Direction::Incoming);
+        let comment_hasCreator_person =
+            graph.get_sub_graph(person_label, hasCreator_label, comment_label, Direction::Incoming);
+        let post_hasCreator_person =
+            graph.get_sub_graph(person_label, hasCreator_label, post_label, Direction::Incoming);
+        let forum_hasModerator_person =
+            graph.get_sub_graph(person_label, hasModerator_label, forum_label, Direction::Incoming);
 
         let forum_title_column = graph.vertex_prop_table[forum_label as usize]
             .get_column_by_name("title")
@@ -139,21 +184,39 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
                     warn!("Vertex {} is not a person", LDBCVertexParser::<G>::get_original_id(*id));
                     continue;
                 }
-                for e in comment_hasCreator_person.get_adj_list(lid).unwrap() {
-                    let oid = graph.vertex_map.get_global_id(comment_label, *e).unwrap();
+                for e in comment_hasCreator_person
+                    .get_adj_list(lid)
+                    .unwrap()
+                {
+                    let oid = graph
+                        .vertex_map
+                        .get_global_id(comment_label, *e)
+                        .unwrap();
                     self.comments.push((dt.clone(), oid));
                 }
 
-                for e in post_hasCreator_person.get_adj_list(lid).unwrap() {
-                    let oid = graph.vertex_map.get_global_id(post_label, *e).unwrap();
+                for e in post_hasCreator_person
+                    .get_adj_list(lid)
+                    .unwrap()
+                {
+                    let oid = graph
+                        .vertex_map
+                        .get_global_id(post_label, *e)
+                        .unwrap();
                     self.posts.push((dt.clone(), oid));
                 }
 
-                for e in forum_hasModerator_person.get_adj_list(lid).unwrap() {
+                for e in forum_hasModerator_person
+                    .get_adj_list(lid)
+                    .unwrap()
+                {
                     let title = forum_title_column.get(e.index()).unwrap();
                     let title_string = title.to_string();
                     if title_string.starts_with("Album") || title_string.starts_with("Wall") {
-                        let oid = graph.vertex_map.get_global_id(forum_label, *e).unwrap();
+                        let oid = graph
+                            .vertex_map
+                            .get_global_id(forum_label, *e)
+                            .unwrap();
                         self.forums.push((dt.clone(), oid));
                     }
                 }
@@ -165,15 +228,25 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
     }
 
     fn iterate_forums<I>(&mut self, graph: &GraphDB<G, I>)
-        where
-            I: Send + Sync + IndexType,
+    where
+        I: Send + Sync + IndexType,
     {
-        let forum_label = graph.graph_schema.get_vertex_label_id("FORUM").unwrap();
-        let post_label = graph.graph_schema.get_vertex_label_id("POST").unwrap();
+        let forum_label = graph
+            .graph_schema
+            .get_vertex_label_id("FORUM")
+            .unwrap();
+        let post_label = graph
+            .graph_schema
+            .get_vertex_label_id("POST")
+            .unwrap();
 
-        let containerOf_label = graph.graph_schema.get_edge_label_id("CONTAINEROF").unwrap();
+        let containerOf_label = graph
+            .graph_schema
+            .get_edge_label_id("CONTAINEROF")
+            .unwrap();
 
-        let forum_containerOf_post = graph.get_sub_graph(forum_label, containerOf_label, post_label, Direction::Outgoing);
+        let forum_containerOf_post =
+            graph.get_sub_graph(forum_label, containerOf_label, post_label, Direction::Outgoing);
         for (dt, id) in self.forums.iter() {
             if let Some((got_label, lid)) = graph.vertex_map.get_internal_id(*id) {
                 if got_label != forum_label {
@@ -181,8 +254,14 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
                     continue;
                 }
 
-                for e in forum_containerOf_post.get_adj_list(lid).unwrap() {
-                    let oid = graph.vertex_map.get_global_id(post_label, *e).unwrap();
+                for e in forum_containerOf_post
+                    .get_adj_list(lid)
+                    .unwrap()
+                {
+                    let oid = graph
+                        .vertex_map
+                        .get_global_id(post_label, *e)
+                        .unwrap();
                     self.posts.push((dt.clone(), oid));
                 }
             } else {
@@ -193,15 +272,25 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
     }
 
     fn iterate_posts<I>(&mut self, graph: &GraphDB<G, I>)
-        where
-            I: Send + Sync + IndexType,
+    where
+        I: Send + Sync + IndexType,
     {
-        let post_label = graph.graph_schema.get_vertex_label_id("POST").unwrap();
-        let comment_label = graph.graph_schema.get_vertex_label_id("COMMENT").unwrap();
+        let post_label = graph
+            .graph_schema
+            .get_vertex_label_id("POST")
+            .unwrap();
+        let comment_label = graph
+            .graph_schema
+            .get_vertex_label_id("COMMENT")
+            .unwrap();
 
-        let replyOf_label = graph.graph_schema.get_edge_label_id("REPLYOF").unwrap();
+        let replyOf_label = graph
+            .graph_schema
+            .get_edge_label_id("REPLYOF")
+            .unwrap();
 
-        let comment_replyOf_post = graph.get_sub_graph(post_label, replyOf_label, comment_label, Direction::Incoming);
+        let comment_replyOf_post =
+            graph.get_sub_graph(post_label, replyOf_label, comment_label, Direction::Incoming);
         for (dt, id) in self.posts.iter() {
             if let Some((got_label, lid)) = graph.vertex_map.get_internal_id(*id) {
                 if got_label != post_label {
@@ -210,7 +299,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
                 }
 
                 for e in comment_replyOf_post.get_adj_list(lid).unwrap() {
-                    let oid = graph.vertex_map.get_global_id(comment_label, *e).unwrap();
+                    let oid = graph
+                        .vertex_map
+                        .get_global_id(comment_label, *e)
+                        .unwrap();
                     self.comments.push((dt.clone(), oid));
                 }
             } else {
@@ -220,16 +312,22 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
         }
     }
 
-
     fn iterate_comments<I>(&mut self, graph: &GraphDB<G, I>)
-        where
-            I: Send + Sync + IndexType,
+    where
+        I: Send + Sync + IndexType,
     {
-        let comment_label = graph.graph_schema.get_vertex_label_id("COMMENT").unwrap();
+        let comment_label = graph
+            .graph_schema
+            .get_vertex_label_id("COMMENT")
+            .unwrap();
 
-        let replyOf_label = graph.graph_schema.get_edge_label_id("REPLYOF").unwrap();
+        let replyOf_label = graph
+            .graph_schema
+            .get_edge_label_id("REPLYOF")
+            .unwrap();
 
-        let comment_replyOf_comment = graph.get_sub_graph(comment_label, replyOf_label, comment_label, Direction::Incoming);
+        let comment_replyOf_comment =
+            graph.get_sub_graph(comment_label, replyOf_label, comment_label, Direction::Incoming);
         let mut index = 0;
         while index < self.comments.len() {
             let (dt, id) = self.comments[index].clone();
@@ -240,8 +338,14 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
                     continue;
                 }
 
-                for e in comment_replyOf_comment.get_adj_list(lid).unwrap() {
-                    let oid = graph.vertex_map.get_global_id(comment_label, *e).unwrap();
+                for e in comment_replyOf_comment
+                    .get_adj_list(lid)
+                    .unwrap()
+                {
+                    let oid = graph
+                        .vertex_map
+                        .get_global_id(comment_label, *e)
+                        .unwrap();
                     self.comments.push((dt.clone(), oid));
                 }
                 index += 1;
@@ -253,30 +357,72 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
         }
     }
 
-
     pub fn generate<I>(&mut self, graph: &GraphDB<G, I>, batch_id: &str)
     where
         I: Send + Sync + IndexType,
     {
-        let output_dir = self.input_dir.join("extra_deletes").join("dynamic");
+        let output_dir = self
+            .input_dir
+            .join("extra_deletes")
+            .join("dynamic");
         std::fs::create_dir_all(&output_dir).unwrap();
 
         let prefix = self.input_dir.join("deletes").join("dynamic");
 
-        let person_label = graph.graph_schema.get_vertex_label_id("PERSON").unwrap();
-        self.persons = self.load_vertices(prefix.clone().join("Person").join("batch_id=2012-11-29"), person_label);
+        let person_label = graph
+            .graph_schema
+            .get_vertex_label_id("PERSON")
+            .unwrap();
+        self.persons = self.load_vertices(
+            prefix
+                .clone()
+                .join("Person")
+                .join("batch_id=2012-11-29"),
+            person_label,
+        );
         self.person_set = self.persons.iter().map(|(_, id)| *id).collect();
 
-        let comment_label = graph.graph_schema.get_vertex_label_id("COMMENT").unwrap();
-        self.comments = self.load_vertices(prefix.clone().join("Comment").join("batch_id=2012-11-29"), comment_label);
-        self.comment_set = self.comments.iter().map(|(_, id)| *id).collect();
+        let comment_label = graph
+            .graph_schema
+            .get_vertex_label_id("COMMENT")
+            .unwrap();
+        self.comments = self.load_vertices(
+            prefix
+                .clone()
+                .join("Comment")
+                .join("batch_id=2012-11-29"),
+            comment_label,
+        );
+        self.comment_set = self
+            .comments
+            .iter()
+            .map(|(_, id)| *id)
+            .collect();
 
-        let post_label = graph.graph_schema.get_vertex_label_id("POST").unwrap();
-        self.posts = self.load_vertices(prefix.clone().join("Post").join("batch_id=2012-11-29"), post_label);
+        let post_label = graph
+            .graph_schema
+            .get_vertex_label_id("POST")
+            .unwrap();
+        self.posts = self.load_vertices(
+            prefix
+                .clone()
+                .join("Post")
+                .join("batch_id=2012-11-29"),
+            post_label,
+        );
         self.post_set = self.posts.iter().map(|(_, id)| *id).collect();
 
-        let forum_label = graph.graph_schema.get_vertex_label_id("FORUM").unwrap();
-        self.forums = self.load_vertices(prefix.clone().join("Forum").join("batch_id=2012-11-29"), forum_label);
+        let forum_label = graph
+            .graph_schema
+            .get_vertex_label_id("FORUM")
+            .unwrap();
+        self.forums = self.load_vertices(
+            prefix
+                .clone()
+                .join("Forum")
+                .join("batch_id=2012-11-29"),
+            forum_label,
+        );
         self.forum_set = self.forums.iter().map(|(_, id)| *id).collect();
 
         self.iterate_persons(graph);
@@ -286,7 +432,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
 
         let batch_dir = format!("batch_id={}", batch_id);
 
-        let person_dir_path = output_dir.clone().join("Person").join(&batch_dir);
+        let person_dir_path = output_dir
+            .clone()
+            .join("Person")
+            .join(&batch_dir);
         std::fs::create_dir_all(&person_dir_path).unwrap();
         let mut person_file = File::create(person_dir_path.join("part-0.csv")).unwrap();
         writeln!(person_file, "deletionDate|id").unwrap();
@@ -297,7 +446,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
             }
         }
 
-        let forum_dir_path = output_dir.clone().join("Forum").join(&batch_dir);
+        let forum_dir_path = output_dir
+            .clone()
+            .join("Forum")
+            .join(&batch_dir);
         std::fs::create_dir_all(&forum_dir_path).unwrap();
         let mut forum_file = File::create(forum_dir_path.join("part-0.csv")).unwrap();
         writeln!(forum_file, "deletionDate|id").unwrap();
@@ -319,7 +471,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
             }
         }
 
-        let comment_dir_path = output_dir.clone().join("Comment").join(&batch_dir);
+        let comment_dir_path = output_dir
+            .clone()
+            .join("Comment")
+            .join(&batch_dir);
         std::fs::create_dir_all(&comment_dir_path).unwrap();
         let mut comment_file = File::create(comment_dir_path.join("part-0.csv")).unwrap();
         writeln!(comment_file, "deletionDate|id").unwrap();
@@ -341,12 +496,7 @@ pub struct GraphModifier {
 
 impl GraphModifier {
     pub fn new<D: AsRef<Path>>(input_dir: D) -> GraphModifier {
-        Self {
-            input_dir: input_dir.as_ref().to_path_buf(),
-
-            delim: b'|',
-            skip_header: false,
-        }
+        Self { input_dir: input_dir.as_ref().to_path_buf(), delim: b'|', skip_header: false }
     }
 
     pub fn with_delimiter(mut self, delim: u8) -> Self {
@@ -358,7 +508,9 @@ impl GraphModifier {
         self.skip_header = true;
     }
 
-    fn apply_deletes<G, I>(&mut self, graph: &mut GraphDB<G, I>, delete_schema_file: &PathBuf) -> GDBResult<()>
+    fn apply_deletes<G, I>(
+        &mut self, graph: &mut GraphDB<G, I>, delete_schema_file: &PathBuf,
+    ) -> GDBResult<()>
     where
         G: FromStr + Send + Sync + IndexType + Eq,
         I: Send + Sync + IndexType,
@@ -371,11 +523,19 @@ impl GraphModifier {
             let mut delete_set = HashSet::new();
             if let Some(vertex_file_strings) = input_schema.get_vertex_file(v_label_i as LabelId) {
                 if !vertex_file_strings.is_empty() {
-                    info!("Deleting vertex - {}", graph.graph_schema.vertex_label_names()[v_label_i as usize]);
+                    info!(
+                        "Deleting vertex - {}",
+                        graph.graph_schema.vertex_label_names()[v_label_i as usize]
+                    );
                     let vertex_files_prefix = self.input_dir.clone();
                     let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings);
                     if vertex_files.is_err() {
-                        warn!("Get vertex files {:?}/{:?} failed: {:?}", &vertex_files_prefix, &vertex_file_strings, vertex_files.err().unwrap());
+                        warn!(
+                            "Get vertex files {:?}/{:?} failed: {:?}",
+                            &vertex_files_prefix,
+                            &vertex_file_strings,
+                            vertex_files.err().unwrap()
+                        );
                         delete_sets.push(delete_set);
                         continue;
                     }
@@ -384,7 +544,9 @@ impl GraphModifier {
                         delete_sets.push(delete_set);
                         continue;
                     }
-                    let input_header = input_schema.get_vertex_header(v_label_i as LabelId).unwrap();
+                    let input_header = input_schema
+                        .get_vertex_header(v_label_i as LabelId)
+                        .unwrap();
                     let mut id_col = 0;
                     for (index, (n, _)) in input_header.iter().enumerate() {
                         if n == "id" {
@@ -410,7 +572,10 @@ impl GraphModifier {
                             for result in rdr.records() {
                                 if let Ok(record) = result {
                                     let vertex_meta = parser.parse_vertex_meta(&record);
-                                    let (got_label, lid) = graph.vertex_map.get_internal_id(vertex_meta.global_id).unwrap();
+                                    let (got_label, lid) = graph
+                                        .vertex_map
+                                        .get_internal_id(vertex_meta.global_id)
+                                        .unwrap();
                                     if got_label == v_label_i as LabelId {
                                         delete_set.insert(lid);
                                     }
@@ -432,7 +597,10 @@ impl GraphModifier {
                             for result in rdr.records() {
                                 if let Ok(record) = result {
                                     let vertex_meta = parser.parse_vertex_meta(&record);
-                                    let (got_label, lid) = graph.vertex_map.get_internal_id(vertex_meta.global_id).unwrap();
+                                    let (got_label, lid) = graph
+                                        .vertex_map
+                                        .get_internal_id(vertex_meta.global_id)
+                                        .unwrap();
                                     if got_label == v_label_i as LabelId {
                                         delete_set.insert(lid);
                                     }
@@ -451,11 +619,15 @@ impl GraphModifier {
                 for dst_label_i in 0..vertex_label_num {
                     let dst_delete_set = &delete_sets[dst_label_i];
                     let mut delete_edge_set = HashSet::new();
-                    if graph.graph_schema.get_edge_header(
-                        src_label_i as LabelId,
-                        e_label_i as LabelId,
-                        dst_label_i as LabelId,
-                    ).is_none() {
+                    if graph
+                        .graph_schema
+                        .get_edge_header(
+                            src_label_i as LabelId,
+                            e_label_i as LabelId,
+                            dst_label_i as LabelId,
+                        )
+                        .is_none()
+                    {
                         continue;
                     }
                     if let Some(edge_file_strings) = input_schema.get_edge_file(
@@ -466,12 +638,19 @@ impl GraphModifier {
                         if edge_file_strings.is_empty() {
                             continue;
                         }
-                        info!("Deleting edge - {} - {} - {}", graph.graph_schema.vertex_label_names()[src_label_i as usize], graph.graph_schema.edge_label_names()[e_label_i as usize], graph.graph_schema.vertex_label_names()[dst_label_i as usize]);
-                        let input_header = input_schema.get_edge_header(
-                            src_label_i as LabelId,
-                            e_label_i as LabelId,
-                            dst_label_i as LabelId,
-                        ).unwrap();
+                        info!(
+                            "Deleting edge - {} - {} - {}",
+                            graph.graph_schema.vertex_label_names()[src_label_i as usize],
+                            graph.graph_schema.edge_label_names()[e_label_i as usize],
+                            graph.graph_schema.vertex_label_names()[dst_label_i as usize]
+                        );
+                        let input_header = input_schema
+                            .get_edge_header(
+                                src_label_i as LabelId,
+                                e_label_i as LabelId,
+                                dst_label_i as LabelId,
+                            )
+                            .unwrap();
 
                         let mut src_col_id = 0;
                         let mut dst_col_id = 1;
@@ -495,7 +674,12 @@ impl GraphModifier {
                         let edge_files_prefix = self.input_dir.clone();
                         let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings);
                         if edge_files.is_err() {
-                            warn!("Get edge files {:?}/{:?} failed: {:?}", &edge_files_prefix, &edge_file_strings, edge_files.err().unwrap());
+                            warn!(
+                                "Get edge files {:?}/{:?} failed: {:?}",
+                                &edge_files_prefix,
+                                &edge_file_strings,
+                                edge_files.err().unwrap()
+                            );
                             continue;
                         }
                         let edge_files = edge_files.unwrap();
@@ -520,13 +704,33 @@ impl GraphModifier {
                                 for result in rdr.records() {
                                     if let Ok(record) = result {
                                         let edge_meta = parser.parse_edge_meta(&record);
-                                        let (got_src_label, src_lid) = graph.vertex_map.get_internal_id(edge_meta.src_global_id).unwrap();
-                                        let (got_dst_label, dst_lid) = graph.vertex_map.get_internal_id(edge_meta.dst_global_id).unwrap();
-                                        if got_src_label != src_label_i as LabelId || got_dst_label != dst_label_i as LabelId {
-                                            warn!("Edge - {} - {} does not exist", LDBCVertexParser::<G>::get_original_id(edge_meta.src_global_id).index(), LDBCVertexParser::<G>::get_original_id(edge_meta.dst_global_id).index());
+                                        let (got_src_label, src_lid) = graph
+                                            .vertex_map
+                                            .get_internal_id(edge_meta.src_global_id)
+                                            .unwrap();
+                                        let (got_dst_label, dst_lid) = graph
+                                            .vertex_map
+                                            .get_internal_id(edge_meta.dst_global_id)
+                                            .unwrap();
+                                        if got_src_label != src_label_i as LabelId
+                                            || got_dst_label != dst_label_i as LabelId
+                                        {
+                                            warn!(
+                                                "Edge - {} - {} does not exist",
+                                                LDBCVertexParser::<G>::get_original_id(
+                                                    edge_meta.src_global_id
+                                                )
+                                                .index(),
+                                                LDBCVertexParser::<G>::get_original_id(
+                                                    edge_meta.dst_global_id
+                                                )
+                                                .index()
+                                            );
                                             continue;
                                         }
-                                        if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
+                                        if src_delete_set.contains(&src_lid)
+                                            || dst_delete_set.contains(&dst_lid)
+                                        {
                                             // warn!("Edge - {} - {} will be removed by vertices", LDBCVertexParser::<G>::get_original_id(edge_meta.src_global_id).index(), LDBCVertexParser::<G>::get_original_id(edge_meta.dst_global_id).index());
                                             continue;
                                         }
@@ -549,12 +753,22 @@ impl GraphModifier {
                                 for result in rdr.records() {
                                     if let Ok(record) = result {
                                         let edge_meta = parser.parse_edge_meta(&record);
-                                        let (got_src_label, src_lid) = graph.vertex_map.get_internal_id(edge_meta.src_global_id).unwrap();
-                                        let (got_dst_label, dst_lid) = graph.vertex_map.get_internal_id(edge_meta.dst_global_id).unwrap();
-                                        if got_src_label != src_label_i as LabelId || got_dst_label == dst_label_i as LabelId {
+                                        let (got_src_label, src_lid) = graph
+                                            .vertex_map
+                                            .get_internal_id(edge_meta.src_global_id)
+                                            .unwrap();
+                                        let (got_dst_label, dst_lid) = graph
+                                            .vertex_map
+                                            .get_internal_id(edge_meta.dst_global_id)
+                                            .unwrap();
+                                        if got_src_label != src_label_i as LabelId
+                                            || got_dst_label == dst_label_i as LabelId
+                                        {
                                             continue;
                                         }
-                                        if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
+                                        if src_delete_set.contains(&src_lid)
+                                            || dst_delete_set.contains(&dst_lid)
+                                        {
                                             continue;
                                         }
                                         delete_edge_set.insert((src_lid, dst_lid));
@@ -564,10 +778,18 @@ impl GraphModifier {
                         }
                     }
 
-                    if src_delete_set.is_empty() && dst_delete_set.is_empty() && delete_edge_set.is_empty() {
+                    if src_delete_set.is_empty() && dst_delete_set.is_empty() && delete_edge_set.is_empty()
+                    {
                         continue;
                     }
-                    graph.delete_edges(src_label_i as LabelId, e_label_i as LabelId, dst_label_i as LabelId, src_delete_set, dst_delete_set, &delete_edge_set);
+                    graph.delete_edges(
+                        src_label_i as LabelId,
+                        e_label_i as LabelId,
+                        dst_label_i as LabelId,
+                        src_delete_set,
+                        dst_delete_set,
+                        &delete_edge_set,
+                    );
                 }
             }
         }
@@ -615,7 +837,12 @@ impl GraphModifier {
 
                 let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings);
                 if vertex_files.is_err() {
-                    warn!("Get vertex files {:?}/{:?} failed: {:?}", &vertex_files_prefix, &vertex_file_strings, vertex_files.err().unwrap());
+                    warn!(
+                        "Get vertex files {:?}/{:?} failed: {:?}",
+                        &vertex_files_prefix,
+                        &vertex_file_strings,
+                        vertex_files.err().unwrap()
+                    );
                     continue;
                 }
                 let vertex_files = vertex_files.unwrap();
@@ -685,9 +912,10 @@ impl GraphModifier {
         Ok(())
     }
 
-    fn load_insert_edges_with_no_prop<G>(&self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
-                                         input_schema: &InputSchema, graph_schema: &CsrGraphSchema,
-                                         files: &Vec<PathBuf>) -> GDBResult<(Vec<(G, G)>, Option<ColTable>)>
+    fn load_insert_edges_with_no_prop<G>(
+        &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, input_schema: &InputSchema,
+        graph_schema: &CsrGraphSchema, files: &Vec<PathBuf>,
+    ) -> GDBResult<(Vec<(G, G)>, Option<ColTable>)>
     where
         G: FromStr + Send + Sync + IndexType + Eq,
     {
@@ -696,7 +924,9 @@ impl GraphModifier {
         let input_header = input_schema
             .get_edge_header(src_label, edge_label, dst_label)
             .unwrap();
-        let graph_header = graph_schema.get_edge_header(src_label, edge_label, dst_label).unwrap();
+        let graph_header = graph_schema
+            .get_edge_header(src_label, edge_label, dst_label)
+            .unwrap();
         let mut keep_set = HashSet::new();
         for pair in graph_header {
             keep_set.insert(pair.0.clone());
@@ -719,7 +949,12 @@ impl GraphModifier {
         parser.with_endpoint_col_id(src_col_id, dst_col_id);
 
         for file in files.iter() {
-            if file.clone().to_str().unwrap().ends_with(".csv.gz") {
+            if file
+                .clone()
+                .to_str()
+                .unwrap()
+                .ends_with(".csv.gz")
+            {
                 let mut rdr = ReaderBuilder::new()
                     .delimiter(self.delim)
                     .buffer_capacity(4096)
@@ -753,16 +988,21 @@ impl GraphModifier {
         Ok((edges, None))
     }
 
-    fn load_insert_edges_with_prop<G>(&self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
-                                      input_schema: &InputSchema, graph_schema: &CsrGraphSchema,
-                                      files: &Vec<PathBuf>) -> GDBResult<(Vec<(G, G)>, Option<ColTable>)>
+    fn load_insert_edges_with_prop<G>(
+        &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, input_schema: &InputSchema,
+        graph_schema: &CsrGraphSchema, files: &Vec<PathBuf>,
+    ) -> GDBResult<(Vec<(G, G)>, Option<ColTable>)>
     where
         G: FromStr + Send + Sync + IndexType + Eq,
     {
         let mut edges = vec![];
 
-        let input_header = input_schema.get_edge_header(src_label, edge_label, dst_label).unwrap();
-        let graph_header = graph_schema.get_edge_header(src_label, edge_label, dst_label).unwrap();
+        let input_header = input_schema
+            .get_edge_header(src_label, edge_label, dst_label)
+            .unwrap();
+        let graph_header = graph_schema
+            .get_edge_header(src_label, edge_label, dst_label)
+            .unwrap();
         let mut table_header = vec![];
         let mut keep_set = HashSet::new();
         for pair in graph_header {
@@ -790,7 +1030,12 @@ impl GraphModifier {
         parser.with_endpoint_col_id(src_col_id, dst_col_id);
 
         for file in files.iter() {
-            if file.clone().to_str().unwrap().ends_with(".csv.gz") {
+            if file
+                .clone()
+                .to_str()
+                .unwrap()
+                .ends_with(".csv.gz")
+            {
                 let mut rdr = ReaderBuilder::new()
                     .delimiter(self.delim)
                     .buffer_capacity(4096)
@@ -801,7 +1046,8 @@ impl GraphModifier {
                 for result in rdr.records() {
                     if let Ok(record) = result {
                         let edge_meta = parser.parse_edge_meta(&record);
-                        let properties = parse_properties(&record, input_header, selected.as_slice()).unwrap();
+                        let properties =
+                            parse_properties(&record, input_header, selected.as_slice()).unwrap();
                         edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
                         prop_table.push(&properties);
                     }
@@ -817,7 +1063,8 @@ impl GraphModifier {
                 for result in rdr.records() {
                     if let Ok(record) = result {
                         let edge_meta = parser.parse_edge_meta(&record);
-                        let properties = parse_properties(&record, input_header, selected.as_slice()).unwrap();
+                        let properties =
+                            parse_properties(&record, input_header, selected.as_slice()).unwrap();
                         edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
                         prop_table.push(&properties);
                     }
@@ -860,7 +1107,12 @@ impl GraphModifier {
                         let edge_files_prefix = self.input_dir.clone();
                         let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings);
                         if edge_files.is_err() {
-                            warn!("Get edge files {:?}/{:?} failed: {:?}", &edge_files_prefix, &edge_file_strings, edge_files.err().unwrap());
+                            warn!(
+                                "Get edge files {:?}/{:?} failed: {:?}",
+                                &edge_files_prefix,
+                                &edge_file_strings,
+                                edge_files.err().unwrap()
+                            );
                             continue;
                         }
                         let edge_files = edge_files.unwrap();
@@ -868,18 +1120,46 @@ impl GraphModifier {
                             continue;
                         }
                         let (edges, table) = if graph_header.len() > 0 {
-                            info!("Loading edges with properties: {}, {}, {}", graph.graph_schema.vertex_label_names()[src_label_i as usize],
-                                  graph.graph_schema.edge_label_names()[e_label_i as usize], graph.graph_schema.vertex_label_names()[dst_label_i as usize]);
-                            self.load_insert_edges_with_prop(src_label_i as LabelId, e_label_i as LabelId, dst_label_i as LabelId,
-                                                             input_schema, &graph.graph_schema, &edge_files).unwrap()
+                            info!(
+                                "Loading edges with properties: {}, {}, {}",
+                                graph.graph_schema.vertex_label_names()[src_label_i as usize],
+                                graph.graph_schema.edge_label_names()[e_label_i as usize],
+                                graph.graph_schema.vertex_label_names()[dst_label_i as usize]
+                            );
+                            self.load_insert_edges_with_prop(
+                                src_label_i as LabelId,
+                                e_label_i as LabelId,
+                                dst_label_i as LabelId,
+                                input_schema,
+                                &graph.graph_schema,
+                                &edge_files,
+                            )
+                            .unwrap()
                         } else {
-                            info!("Loading edges with no property: {}, {}, {}", graph.graph_schema.vertex_label_names()[src_label_i as usize],
-                                  graph.graph_schema.edge_label_names()[e_label_i as usize], graph.graph_schema.vertex_label_names()[dst_label_i as usize]);
-                            self.load_insert_edges_with_no_prop(src_label_i as LabelId, e_label_i as LabelId, dst_label_i as LabelId,
-                                                                input_schema, &graph.graph_schema, &edge_files).unwrap()
+                            info!(
+                                "Loading edges with no property: {}, {}, {}",
+                                graph.graph_schema.vertex_label_names()[src_label_i as usize],
+                                graph.graph_schema.edge_label_names()[e_label_i as usize],
+                                graph.graph_schema.vertex_label_names()[dst_label_i as usize]
+                            );
+                            self.load_insert_edges_with_no_prop(
+                                src_label_i as LabelId,
+                                e_label_i as LabelId,
+                                dst_label_i as LabelId,
+                                input_schema,
+                                &graph.graph_schema,
+                                &edge_files,
+                            )
+                            .unwrap()
                         };
 
-                        graph.insert_edges(src_label_i as LabelId, e_label_i as LabelId, dst_label_i as LabelId, edges, table);
+                        graph.insert_edges(
+                            src_label_i as LabelId,
+                            e_label_i as LabelId,
+                            dst_label_i as LabelId,
+                            edges,
+                            table,
+                        );
                     }
                 }
             }
@@ -896,7 +1176,6 @@ impl GraphModifier {
         let input_schema = InputSchema::from_json_file(insert_schema_file, &graph.graph_schema).unwrap();
         self.apply_vertices_inserts(graph, &input_schema)?;
         self.apply_edges_inserts(graph, &input_schema)?;
-        // graph.apply_modifications();
         Ok(())
     }
 
