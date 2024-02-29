@@ -1,10 +1,11 @@
 use std::any::Any;
 use std::collections::HashSet;
 use std::fs::File;
+use std::io::{BufReader, BufWriter, Write};
 
 use crate::csr::{CsrBuildError, CsrTrait, NbrIter, NbrOffsetIter};
 use crate::graph::IndexType;
-use pegasus_common::codec::{ReadExt, WriteExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 pub struct BatchMutableCsr<I> {
     pub neighbors: Vec<I>,
@@ -40,8 +41,7 @@ impl<I: IndexType> BatchMutableCsrBuilder<I> {
         }
         self.edge_num = 0;
 
-        self.neighbors
-            .resize(edge_num, I::new(0));
+        self.neighbors.resize(edge_num, I::new(0));
         self.offsets.resize(vertex_num, 0);
         self.insert_offsets.resize(vertex_num, 0);
 
@@ -73,14 +73,8 @@ impl<I: IndexType> BatchMutableCsrBuilder<I> {
 
 impl<I: IndexType> BatchMutableCsr<I> {
     pub fn new() -> Self {
-        BatchMutableCsr {
-            neighbors: Vec::new(),
-            offsets: Vec::new(),
-            degree: Vec::new(),
-            edge_num: 0,
-        }
+        BatchMutableCsr { neighbors: Vec::new(), offsets: Vec::new(), degree: Vec::new(), edge_num: 0 }
     }
-
 }
 
 unsafe impl<I: IndexType> Send for BatchMutableCsr<I> {}
@@ -105,47 +99,62 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
     }
 
     fn serialize(&self, path: &String) {
-        let mut file = File::create(path).unwrap();
-        file.write_u64(self.edge_num as u64).unwrap();
+        let file = File::create(path).unwrap();
+        let mut writer = BufWriter::new(file);
+        writer
+            .write_u64::<LittleEndian>(self.edge_num as u64)
+            .unwrap();
 
-        file.write_u64(self.neighbors.len() as u64)
+        writer
+            .write_u64::<LittleEndian>(self.neighbors.len() as u64)
             .unwrap();
         for i in 0..self.neighbors.len() {
-            file.write_u64(self.neighbors[i].index() as u64)
-                .unwrap();
+            self.neighbors[i].write(&mut writer).unwrap();
         }
-        file.write_u64(self.offsets.len() as u64)
+        writer
+            .write_u64::<LittleEndian>(self.offsets.len() as u64)
             .unwrap();
         for i in 0..self.offsets.len() {
-            file.write_u64(self.offsets[i] as u64).unwrap();
+            writer
+                .write_u64::<LittleEndian>(self.offsets[i] as u64)
+                .unwrap();
         }
-        file.write_u64(self.degree.len() as u64)
+        writer
+            .write_u64::<LittleEndian>(self.degree.len() as u64)
             .unwrap();
         for i in 0..self.degree.len() {
-            file.write_i32(self.degree[i]).unwrap();
+            writer
+                .write_i32::<LittleEndian>(self.degree[i])
+                .unwrap();
         }
+        writer.flush().unwrap();
     }
 
     fn deserialize(&mut self, path: &String) {
-        let mut file = File::open(path).unwrap();
-        self.edge_num = file.read_u64().unwrap() as usize;
+        let file = File::open(path).unwrap();
+        let mut reader = BufReader::new(file);
 
-        let neighbor_size = file.read_u64().unwrap() as usize;
+        self.edge_num = reader.read_u64::<LittleEndian>().unwrap() as usize;
+
+        let neighbor_size = reader.read_u64::<LittleEndian>().unwrap() as usize;
         self.neighbors = Vec::with_capacity(neighbor_size);
-        for i in 0..neighbor_size {
-            self.neighbors.push(I::new(file.read_u64().unwrap() as usize));
+        for _ in 0..neighbor_size {
+            self.neighbors
+                .push(I::read(&mut reader).unwrap());
         }
 
-        let offset_size = file.read_u64().unwrap() as usize;
+        let offset_size = reader.read_u64::<LittleEndian>().unwrap() as usize;
         self.offsets = Vec::with_capacity(offset_size);
-        for i in 0..offset_size {
-            self.offsets.push(file.read_u64().unwrap() as usize);
+        for _ in 0..offset_size {
+            self.offsets
+                .push(reader.read_u64::<LittleEndian>().unwrap() as usize);
         }
 
-        let degree_size = file.read_u64().unwrap() as usize;
+        let degree_size = reader.read_u64::<LittleEndian>().unwrap() as usize;
         self.degree = Vec::with_capacity(degree_size);
-        for i in 0..degree_size {
-            self.degree.push(file.read_i32().unwrap());
+        for _ in 0..degree_size {
+            self.degree
+                .push(reader.read_i32::<LittleEndian>().unwrap());
         }
     }
 

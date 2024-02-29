@@ -1,10 +1,11 @@
 use std::any::Any;
 use std::collections::HashSet;
 use std::fs::File;
+use std::io::{BufReader, BufWriter, Write};
 
 use crate::csr::{CsrBuildError, CsrTrait, NbrIter, NbrOffsetIter};
 use crate::graph::IndexType;
-use pegasus_common::codec::{ReadExt, WriteExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 pub struct BatchMutableSingleCsr<I> {
     nbr_list: Vec<I>,
@@ -81,7 +82,7 @@ impl<I: IndexType> BatchMutableSingleCsr<I> {
             }
             self.vertex_num = vertex_num;
         } else {
-            warn!("resize vertex capacity from {} to {}", self.vertex_capacity, vertex_num);
+            // warn!("resize vertex capacity from {} to {}", self.vertex_capacity, vertex_num);
             self.nbr_list
                 .resize(vertex_num, <I as IndexType>::max());
             self.vertex_num = vertex_num;
@@ -141,29 +142,38 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
     }
 
     fn serialize(&self, path: &String) {
-        let mut file = File::create(path).unwrap();
-        file.write_u64(self.vertex_num as u64).unwrap();
-        file.write_u64(self.edge_num as u64).unwrap();
-        file.write_u64(self.vertex_capacity as u64)
+        let file = File::create(path).unwrap();
+        let mut writer = BufWriter::new(file);
+        writer
+            .write_u64::<LittleEndian>(self.vertex_num as u64)
             .unwrap();
-        file.write_u64(self.nbr_list.len() as u64)
+        writer
+            .write_u64::<LittleEndian>(self.edge_num as u64)
+            .unwrap();
+        writer
+            .write_u64::<LittleEndian>(self.vertex_capacity as u64)
+            .unwrap();
+        writer
+            .write_u64::<LittleEndian>(self.nbr_list.len() as u64)
             .unwrap();
         for i in 0..self.nbr_list.len() {
-            file.write_u64(self.nbr_list[i].index() as u64)
-                .unwrap();
+            self.nbr_list[i].write(&mut writer).unwrap();
         }
+        writer.flush().unwrap();
     }
 
     fn deserialize(&mut self, path: &String) {
-        let mut file = File::open(path).unwrap();
-        self.vertex_num = file.read_u64().unwrap() as usize;
-        self.edge_num = file.read_u64().unwrap() as usize;
-        self.vertex_capacity = file.read_u64().unwrap() as usize;
-        let len = file.read_u64().unwrap() as usize;
-        self.nbr_list
-            .resize(len, <I as IndexType>::max());
+        let file = File::open(path).unwrap();
+        let mut reader = BufReader::new(file);
+
+        self.vertex_num = reader.read_u64::<LittleEndian>().unwrap() as usize;
+        self.edge_num = reader.read_u64::<LittleEndian>().unwrap() as usize;
+        self.vertex_capacity = reader.read_u64::<LittleEndian>().unwrap() as usize;
+        let len = reader.read_u64::<LittleEndian>().unwrap() as usize;
+        self.nbr_list = Vec::with_capacity(len);
         for i in 0..len {
-            self.nbr_list[i] = I::new(file.read_u64().unwrap() as usize);
+            self.nbr_list
+                .push(I::read(&mut reader).unwrap());
         }
     }
 

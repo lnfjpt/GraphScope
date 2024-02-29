@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::ptr::write;
 use std::str::FromStr;
 
 use crate::bmcsr::BatchMutableCsr;
@@ -13,9 +12,11 @@ use crate::graph::{Direction, IndexType};
 use crate::graph_db::GraphDB;
 use crate::ldbc_parser::LDBCVertexParser;
 use crate::schema::Schema;
-use crate::types::{DefaultId, LabelId};
+use crate::types::LabelId;
 
-fn traverse_vertices(graph: &GraphDB, output_dir: &str) {
+fn traverse_vertices<G: Send + Sync + IndexType, I: Send + Sync + IndexType>(
+    graph: &GraphDB<G, I>, output_dir: &str,
+) {
     let vertex_label_names = graph.graph_schema.vertex_label_names();
     let output_dir_path = PathBuf::from_str(output_dir).unwrap();
     for n in vertex_label_names.iter() {
@@ -30,8 +31,8 @@ fn traverse_vertices(graph: &GraphDB, output_dir: &str) {
 
             let v_labels = vec![v_label];
             for v in graph.get_all_vertices(Some(&v_labels)) {
-                let id = LDBCVertexParser::<DefaultId>::get_original_id(v.get_id());
-                write!(file, "{}", id.to_string()).unwrap();
+                let id = LDBCVertexParser::<G>::get_original_id(v.get_id());
+                write!(file, "{}", id.index()).unwrap();
                 for c in header {
                     if c.1 != DataType::ID {
                         write!(
@@ -158,7 +159,9 @@ fn output_single_csr<G, I>(
     }
 }
 
-fn traverse_edges(graph: &GraphDB, output_dir: &str) {
+fn traverse_edges<G: Send + Sync + IndexType, I: Send + Sync + IndexType>(
+    graph: &GraphDB<G, I>, output_dir: &str,
+) {
     let vertex_label_num = graph.vertex_label_num;
     let edge_label_num = graph.edge_label_num;
     for src_label in 0..vertex_label_num {
@@ -191,7 +194,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                     ) {
                         let csr = graph.oe[oe_index]
                             .as_any()
-                            .downcast_ref::<BatchMutableSingleCsr<usize>>()
+                            .downcast_ref::<BatchMutableSingleCsr<I>>()
                             .unwrap();
                         output_single_csr(
                             graph,
@@ -205,7 +208,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                     } else {
                         let csr = graph.oe[oe_index]
                             .as_any()
-                            .downcast_ref::<BatchMutableCsr<usize>>()
+                            .downcast_ref::<BatchMutableCsr<I>>()
                             .unwrap();
                         info!("output oe csr: {}", oe_file_path.to_str().unwrap());
                         output_csr(
@@ -238,7 +241,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                     ) {
                         let csr = graph.ie[ie_index]
                             .as_any()
-                            .downcast_ref::<BatchMutableSingleCsr<usize>>()
+                            .downcast_ref::<BatchMutableSingleCsr<I>>()
                             .unwrap();
                         output_single_csr(
                             graph,
@@ -252,7 +255,7 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
                     } else {
                         let csr = graph.ie[ie_index]
                             .as_any()
-                            .downcast_ref::<BatchMutableCsr<usize>>()
+                            .downcast_ref::<BatchMutableCsr<I>>()
                             .unwrap();
                         info!("output ie csr: {}", ie_file_path.to_str().unwrap());
                         output_csr(
@@ -271,7 +274,9 @@ fn traverse_edges(graph: &GraphDB, output_dir: &str) {
     }
 }
 
-pub fn traverse(graph: &GraphDB, output_dir: &str) {
+pub fn traverse<G: Send + Sync + IndexType, I: Send + Sync + IndexType>(
+    graph: &GraphDB<G, I>, output_dir: &str,
+) {
     traverse_vertices(graph, output_dir);
     traverse_edges(graph, output_dir);
 }

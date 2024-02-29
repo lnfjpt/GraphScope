@@ -13,12 +13,11 @@
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
 
-use core::slice;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufReader, BufWriter, Write};
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use fnv::FnvHashMap;
-use pegasus_common::io::{ReadExt, WriteExt};
 
 use crate::graph::IndexType;
 use crate::ldbc_parser::LDBCVertexParser;
@@ -136,14 +135,19 @@ where
     }
 
     pub fn serialize(&self, path: &String) {
-        let mut f = File::create(path).unwrap();
-        f.write_u8(self.label_num).unwrap();
+        let f = File::create(path).unwrap();
+        let mut writer = BufWriter::new(f);
+        writer.write_u8(self.label_num).unwrap();
 
         for n in self.labeled_num.iter() {
-            f.write_u64(*n as u64).unwrap();
+            writer
+                .write_u64::<LittleEndian>(*n as u64)
+                .unwrap();
         }
         for n in self.labeled_corner_num.iter() {
-            f.write_u64(*n as u64).unwrap();
+            writer
+                .write_u64::<LittleEndian>(*n as u64)
+                .unwrap();
         }
 
         for i in 0..self.label_num {
@@ -153,58 +157,46 @@ where
                 self.labeled_corner_num[i as usize]
             );
 
-            unsafe {
-                let native_ids_slice = slice::from_raw_parts(
-                    self.index_to_global_id[i as usize].as_ptr() as *const u8,
-                    self.index_to_global_id[i as usize].len() * std::mem::size_of::<G>(),
-                );
-                f.write_all(native_ids_slice).unwrap();
-                let corner_ids_slice = slice::from_raw_parts(
-                    self.index_to_corner_global_id[i as usize].as_ptr() as *const u8,
-                    self.index_to_corner_global_id[i as usize].len() * std::mem::size_of::<G>(),
-                );
-                f.write_all(corner_ids_slice).unwrap();
+            for v in self.index_to_global_id[i as usize].iter() {
+                v.write(&mut writer).unwrap();
+            }
+            for v in self.index_to_corner_global_id[i as usize].iter() {
+                v.write(&mut writer).unwrap();
             }
         }
 
-        f.flush().unwrap();
+        writer.flush().unwrap();
     }
 
     pub fn deserialize(&mut self, path: &String) {
-        let mut f = File::open(path).unwrap();
-        self.label_num = f.read_u8().unwrap();
+        let f = File::open(path).unwrap();
+        let mut reader = BufReader::new(f);
+        self.label_num = reader.read_u8().unwrap();
 
         self.labeled_num.clear();
         self.labeled_corner_num.clear();
         for _ in 0..self.label_num {
             self.labeled_num
-                .push(f.read_u64().unwrap() as usize);
+                .push(reader.read_u64::<LittleEndian>().unwrap() as usize);
         }
         for _ in 0..self.label_num {
             self.labeled_corner_num
-                .push(f.read_u64().unwrap() as usize);
+                .push(reader.read_u64::<LittleEndian>().unwrap() as usize);
         }
 
         self.index_to_global_id.clear();
         self.index_to_corner_global_id.clear();
         for i in 0..self.label_num {
-            let mut native_ids = Vec::<G>::new();
-            native_ids.resize(self.labeled_num[i as usize], G::new(0_usize));
-            let mut corner_ids = Vec::<G>::new();
-            corner_ids.resize(self.labeled_corner_num[i as usize], G::new(0_usize));
+            let iv_num = self.labeled_num[i as usize];
+            let mut native_ids = Vec::<G>::with_capacity(iv_num);
+            for _ in 0..iv_num {
+                native_ids.push(G::read(&mut reader).unwrap());
+            }
 
-            unsafe {
-                let native_ids_slice = slice::from_raw_parts_mut(
-                    native_ids.as_mut_ptr() as *mut u8,
-                    self.labeled_num[i as usize] * std::mem::size_of::<G>(),
-                );
-                f.read_exact(native_ids_slice).unwrap();
-
-                let corner_ids_slice = slice::from_raw_parts_mut(
-                    corner_ids.as_mut_ptr() as *mut u8,
-                    self.labeled_corner_num[i as usize] * std::mem::size_of::<G>(),
-                );
-                f.read_exact(corner_ids_slice).unwrap();
+            let ov_num = self.labeled_corner_num[i as usize];
+            let mut corner_ids = Vec::<G>::with_capacity(ov_num);
+            for _ in 0..ov_num {
+                corner_ids.push(G::read(&mut reader).unwrap());
             }
 
             self.index_to_global_id.push(native_ids);

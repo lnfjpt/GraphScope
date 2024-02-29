@@ -56,7 +56,15 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
         let mut ret = vec![];
 
         let suffixes = vec!["*.csv.gz".to_string(), "*.csv".to_string()];
-        let files = get_files_list(&input_prefix, &suffixes).unwrap();
+        let files = get_files_list(&input_prefix, &suffixes);
+        if files.is_err() {
+            warn!("Get vertex files {:?}/{:?} failed: {:?}", &input_prefix, &suffixes, files.err().unwrap());
+            return ret;
+        }
+        let files = files.unwrap();
+        if files.is_empty() {
+            return ret;
+        }
         let parser = LDBCVertexParser::<G>::new(label, 1);
         for file in files {
             if file.clone().to_str().unwrap().ends_with(".csv.gz") {
@@ -367,7 +375,7 @@ impl GraphModifier {
                     let vertex_files_prefix = self.input_dir.clone();
                     let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings);
                     if vertex_files.is_err() {
-                        warn!("Get vertex files failed: {:?}", vertex_files.err().unwrap());
+                        warn!("Get vertex files {:?}/{:?} failed: {:?}", &vertex_files_prefix, &vertex_file_strings, vertex_files.err().unwrap());
                         delete_sets.push(delete_set);
                         continue;
                     }
@@ -487,7 +495,7 @@ impl GraphModifier {
                         let edge_files_prefix = self.input_dir.clone();
                         let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings);
                         if edge_files.is_err() {
-                            warn!("Get edge files failed: {:?}", edge_files.err().unwrap());
+                            warn!("Get edge files {:?}/{:?} failed: {:?}", &edge_files_prefix, &edge_file_strings, edge_files.err().unwrap());
                             continue;
                         }
                         let edge_files = edge_files.unwrap();
@@ -515,17 +523,11 @@ impl GraphModifier {
                                         let (got_src_label, src_lid) = graph.vertex_map.get_internal_id(edge_meta.src_global_id).unwrap();
                                         let (got_dst_label, dst_lid) = graph.vertex_map.get_internal_id(edge_meta.dst_global_id).unwrap();
                                         if got_src_label != src_label_i as LabelId || got_dst_label != dst_label_i as LabelId {
-                                            if got_src_label != src_label_i as LabelId {
-                                                warn!("Got src vertex label - {}, expected - {}", graph.graph_schema.vertex_label_names()[got_src_label as usize], graph.graph_schema.vertex_label_names()[src_label_i as usize]);
-                                            }
-                                            if got_dst_label != dst_label_i as LabelId {
-                                                warn!("Got dst vertex label - {}, expected - {}", graph.graph_schema.vertex_label_names()[got_dst_label as usize], graph.graph_schema.vertex_label_names()[dst_label_i as usize]);
-                                            }
                                             warn!("Edge - {} - {} does not exist", LDBCVertexParser::<G>::get_original_id(edge_meta.src_global_id).index(), LDBCVertexParser::<G>::get_original_id(edge_meta.dst_global_id).index());
                                             continue;
                                         }
                                         if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
-                                            warn!("Edge - {} - {} will be removed by vertices", LDBCVertexParser::<G>::get_original_id(edge_meta.src_global_id).index(), LDBCVertexParser::<G>::get_original_id(edge_meta.dst_global_id).index());
+                                            // warn!("Edge - {} - {} will be removed by vertices", LDBCVertexParser::<G>::get_original_id(edge_meta.src_global_id).index(), LDBCVertexParser::<G>::get_original_id(edge_meta.dst_global_id).index());
                                             continue;
                                         }
                                         delete_edge_set.insert((src_lid, dst_lid));
@@ -611,7 +613,15 @@ impl GraphModifier {
                 let parser = LDBCVertexParser::<G>::new(v_label_i as LabelId, id_col_id);
                 let vertex_files_prefix = self.input_dir.clone();
 
-                let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings).unwrap();
+                let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings);
+                if vertex_files.is_err() {
+                    warn!("Get vertex files {:?}/{:?} failed: {:?}", &vertex_files_prefix, &vertex_file_strings, vertex_files.err().unwrap());
+                    continue;
+                }
+                let vertex_files = vertex_files.unwrap();
+                if vertex_files.is_empty() {
+                    continue;
+                }
                 for vertex_file in vertex_files.iter() {
                     if vertex_file
                         .clone()
@@ -848,8 +858,15 @@ impl GraphModifier {
                             )
                             .unwrap();
                         let edge_files_prefix = self.input_dir.clone();
-                        let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings).unwrap();
-                        info!("header = {:?}", graph_header);
+                        let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings);
+                        if edge_files.is_err() {
+                            warn!("Get edge files {:?}/{:?} failed: {:?}", &edge_files_prefix, &edge_file_strings, edge_files.err().unwrap());
+                            continue;
+                        }
+                        let edge_files = edge_files.unwrap();
+                        if edge_files.is_empty() {
+                            continue;
+                        }
                         let (edges, table) = if graph_header.len() > 0 {
                             info!("Loading edges with properties: {}, {}, {}", graph.graph_schema.vertex_label_names()[src_label_i as usize],
                                   graph.graph_schema.edge_label_names()[e_label_i as usize], graph.graph_schema.vertex_label_names()[dst_label_i as usize]);

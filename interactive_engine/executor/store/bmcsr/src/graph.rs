@@ -13,6 +13,7 @@
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::fmt;
 use std::hash::Hash;
 use std::ops::AddAssign;
@@ -33,6 +34,9 @@ pub unsafe trait IndexType: Copy + Default + Hash + Ord + fmt::Debug + 'static +
 
     fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()>;
     fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self>;
+
+    fn read<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self>;
+    fn write<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()>;
 }
 
 unsafe impl IndexType for usize {
@@ -60,6 +64,52 @@ unsafe impl IndexType for usize {
 
     fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
         Ok(reader.read_u64()? as Self)
+    }
+
+    fn read<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let ret = reader.read_u64::<LittleEndian>()? as usize;
+        Ok(ret)
+    }
+
+    fn write<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(*self as u64)
+    }
+}
+
+unsafe impl IndexType for u32 {
+    #[inline(always)]
+    fn new(x: usize) -> Self {
+        x as u32
+    }
+    #[inline(always)]
+    fn index(&self) -> usize {
+        *self as usize
+    }
+    #[inline(always)]
+    fn max() -> Self {
+        ::std::u32::MAX
+    }
+
+    #[inline(always)]
+    fn add_assign(&mut self, other: Self) {
+        *self += other;
+    }
+
+    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_u32(*self as u32)
+    }
+
+    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
+        Ok(reader.read_u32()? as Self)
+    }
+
+    fn read<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let ret = reader.read_u32::<LittleEndian>()?;
+        Ok(ret)
+    }
+
+    fn write<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_u32::<LittleEndian>(*self)
     }
 }
 
