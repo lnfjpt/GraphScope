@@ -47,6 +47,8 @@ pub struct Worker<D: Data, T: Debug + Send + 'static> {
     resources: ResourceMap,
     keyed_resources: KeyedResources,
     is_finished: bool,
+    steps: i32,
+    last_excute_time: u128,
     _ph: std::marker::PhantomData<D>,
 }
 
@@ -67,6 +69,8 @@ impl<D: Data, T: Debug + Send + 'static> Worker<D, T> {
             resources: ResourceMap::default(),
             keyed_resources: KeyedResources::default(),
             is_finished: false,
+            steps: 0,
+            last_excute_time: 0,
             _ph: std::marker::PhantomData,
         }
     }
@@ -236,6 +240,8 @@ impl<D: Data, T: Debug + Send + 'static> Task for Worker<D, T> {
             self.sink.set_cancel_hook(true);
             return TaskState::Finished;
         }
+        self.steps += 1;
+        self.last_excute_time = self.start.elapsed().as_millis();
 
         let _ctx = WorkerContext::new(&mut self.resources, &mut self.keyed_resources);
 
@@ -280,10 +286,12 @@ impl<D: Data, T: Debug + Send + 'static> Task for Worker<D, T> {
                     {
                         if TaskState::Finished == state {
                             info_worker!(
-                                "job({}) '{}' finished, used {:?};",
+                                "job({}) '{}' finished, used {:?}; execute {} times, last execute time: {}",
                                 self.id.job_id,
                                 self.conf.job_name,
-                                self.start.elapsed()
+                                self.start.elapsed(),
+                                self.steps,
+                                self.last_excute_time
                             );
                         }
                     }
