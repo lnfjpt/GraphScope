@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::collections::HashSet;
+use std::f32::consts::E;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 
@@ -34,7 +35,7 @@ impl<I: IndexType> BatchMutableCsrBuilder<I> {
         }
     }
 
-    pub fn init(&mut self, degree: &Vec<i64>, _: f64) {
+    pub fn init(&mut self, degree: &Vec<i32>, _: f64) {
         let vertex_num = degree.len();
         let mut edge_num = 0_usize;
         for i in 0..vertex_num {
@@ -43,22 +44,33 @@ impl<I: IndexType> BatchMutableCsrBuilder<I> {
         self.edge_num = 0;
 
         self.neighbors.resize(edge_num, I::new(0));
-        self.offsets.resize(vertex_num, 0);
+        self.offsets = Vec::with_capacity(vertex_num);
         self.insert_offsets.resize(vertex_num, 0);
 
         let mut offset = 0_usize;
         for i in 0..vertex_num {
-            self.insert_offsets[i] = 0;
-            self.offsets[i] = offset;
+            self.offsets.push(offset);
             offset += degree[i] as usize;
         }
     }
 
     pub fn put_edge(&mut self, src: I, dst: I) -> Result<usize, CsrBuildError> {
-        let offset = self.offsets[src.index()] + self.insert_offsets[src.index()] as usize;
+        let src = src.index();
+        let offset = self.offsets[src] + self.insert_offsets[src] as usize;
         self.neighbors[offset] = dst;
-        self.insert_offsets[src.index()] += 1;
+        self.insert_offsets[src] += 1;
         self.edge_num += 1;
+        Ok(offset)
+    }
+
+    pub fn put_edges(&mut self, src: I, edges: &[I]) -> Result<usize, CsrBuildError> {
+        let src = src.index();
+        let offset = self.offsets[src] + self.insert_offsets[src] as usize;
+        let num = edges.len();
+        let target_slice = &mut self.neighbors[offset..offset + num];
+        target_slice.copy_from_slice(edges);
+        self.insert_offsets[src] += num as i32;
+        self.edge_num += num;
         Ok(offset)
     }
 
@@ -75,6 +87,88 @@ impl<I: IndexType> BatchMutableCsrBuilder<I> {
 impl<I: IndexType> BatchMutableCsr<I> {
     pub fn new() -> Self {
         BatchMutableCsr { neighbors: Vec::new(), offsets: Vec::new(), degree: Vec::new(), edge_num: 0 }
+    }
+
+    pub fn get_edges_slice(&self, src: I) -> &[I] {
+        let src = src.index();
+        let offset = self.offsets[src];
+        &self.neighbors[offset..offset + self.degree[src] as usize]
+    }
+
+    pub fn insert_edges(&mut self, vertex_num: I, edges: &mut Vec<(I, I)>) {
+        edges.sort_by(|a, b| a.0.index().cmp(&b.0.index()));
+        let vertex_num = vertex_num.index();
+        let mut new_neighbors = Vec::<I>::with_capacity(self.edge_num + edges.len());
+        let mut new_degree = Vec::<i32>::with_capacity(vertex_num);
+        let mut new_offsets = Vec::<usize>::with_capacity(vertex_num + 1);
+
+        let old_vertex_num = self.vertex_num().index();
+        let mut new_edges_index = 0_usize;
+        new_offsets.push(0);
+        for v in 0..old_vertex_num {
+            let offset = self.offsets[v];
+            new_neighbors.extend_from_slice(&self.neighbors[offset..offset + self.degree[v] as usize]);
+
+            while new_edges_index < edges.len() && edges[new_edges_index].0.index() == v {
+                new_neighbors.push(edges[new_edges_index].1);
+                new_edges_index += 1;
+            }
+
+            new_offsets.push(new_neighbors.len());
+            new_degree.push((new_offsets[v + 1] - new_offsets[v]) as i32);
+        }
+        for v in old_vertex_num..vertex_num {
+            while new_edges_index < edges.len() && edges[new_edges_index].0.index() == v {
+                new_neighbors.push(edges[new_edges_index].1);
+                new_edges_index += 1;
+            }
+
+            new_offsets.push(new_neighbors.len());
+            new_degree.push((new_offsets[v] - new_offsets[v - 1]) as i32);
+        }
+
+        self.neighbors = new_neighbors;
+        self.offsets = new_offsets;
+        self.degree = new_degree;
+        self.edge_num += edges.len();
+    }
+
+    pub fn insert_reversed_edges(&mut self, vertex_num: I, edges: &mut Vec<(I, I)>) {
+        edges.sort_by(|a, b| a.1.index().cmp(&b.1.index()));
+        let vertex_num = vertex_num.index();
+        let mut new_neighbors = Vec::<I>::with_capacity(self.edge_num + edges.len());
+        let mut new_degree = Vec::<i32>::with_capacity(vertex_num);
+        let mut new_offsets = Vec::<usize>::with_capacity(vertex_num + 1);
+
+        let old_vertex_num = self.vertex_num().index();
+        let mut new_edges_index = 0_usize;
+        new_offsets.push(0);
+        for v in 0..old_vertex_num {
+            let offset = self.offsets[v];
+            new_neighbors.extend_from_slice(&self.neighbors[offset..offset + self.degree[v] as usize]);
+
+            while new_edges_index < edges.len() && edges[new_edges_index].1.index() == v {
+                new_neighbors.push(edges[new_edges_index].0);
+                new_edges_index += 1;
+            }
+
+            new_offsets.push(new_neighbors.len());
+            new_degree.push((new_offsets[v + 1] - new_offsets[v]) as i32);
+        }
+        for v in old_vertex_num..vertex_num {
+            while new_edges_index < edges.len() && edges[new_edges_index].1.index() == v {
+                new_neighbors.push(edges[new_edges_index].0);
+                new_edges_index += 1;
+            }
+
+            new_offsets.push(new_neighbors.len());
+            new_degree.push((new_offsets[v] - new_offsets[v - 1]) as i32);
+        }
+
+        self.neighbors = new_neighbors;
+        self.offsets = new_offsets;
+        self.degree = new_degree;
+        self.edge_num += edges.len();
     }
 }
 

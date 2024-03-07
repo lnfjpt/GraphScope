@@ -36,7 +36,7 @@ impl<I: IndexType> BatchMutableSingleCsrBuilder<I> {
         }
     }
 
-    pub fn init(&mut self, degree: &Vec<i64>, reserve_rate: f64) {
+    pub fn init(&mut self, degree: &Vec<i32>, reserve_rate: f64) {
         let vertex_num = degree.len();
         let mut edge_num = 0_usize;
         for i in 0..vertex_num {

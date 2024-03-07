@@ -139,6 +139,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for batch_id in batches {
         let batch_id = batch_id.to_string();
+        println!("Start batch - {}", &batch_id);
+        let modify_start = Instant::now();
         let insert_file_name = format!("insert-{}.json", batch_id);
         let insert_schema_file_path = batch_configs.join(insert_file_name);
         let delete_file_name = format!("delete-{}.json", batch_id);
@@ -146,22 +148,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut graph_modifier = GraphModifier::new(&graph_raw);
         graph_modifier.skip_header();
+        let insert_start = Instant::now();
         let insert_schema =
             InputSchema::from_json_file(insert_schema_file_path, &graph.graph_schema).unwrap();
         graph_modifier
             .insert(&mut graph, &insert_schema)
             .unwrap();
+        let insert_duration = insert_start.elapsed().as_millis();
 
+        let delete_generate_start = Instant::now();
         let mut delete_generator = DeleteGenerator::new(&graph_raw);
         delete_generator.skip_header();
         delete_generator.generate(&mut graph, batch_id.as_str());
+        let delete_generate_duration = delete_generate_start.elapsed().as_millis();
 
         info!("delete schema file: {:?}", delete_schema_file_path);
+        let delete_start = Instant::now();
         let delete_schema =
             InputSchema::from_json_file(delete_schema_file_path, &graph.graph_schema).unwrap();
         graph_modifier
             .delete(&mut graph, &delete_schema)
             .unwrap();
+        let delete_duration = delete_start.elapsed().as_millis();
+        let modify_duration = modify_start.elapsed().as_millis();
+        println!(
+            "Update: {} ms, ({} + {} + {})",
+            modify_duration, insert_duration, delete_generate_duration, delete_duration
+        );
 
         let traverse_out = output_dir
             .clone()
@@ -170,9 +183,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         traverse(&graph, traverse_out.to_str().unwrap());
 
         if !config.queries_config.is_empty() {
-            println!("before run precomputes...");
+            let start = Instant::now();
             query_register.run_precomputes(&graph, &mut graph_index, worker_num);
-            println!("after run precomputes...");
+            println!("Precomputes: {} ms", start.elapsed().as_millis());
         }
 
         if config.parameters.is_dir() {
@@ -231,7 +244,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            println!("Finished run queries, time: {} ms", start.elapsed().as_millis());
+            println!("Run queries: {} ms", start.elapsed().as_millis());
         } else if config.parameters.is_file() {
             println!("{:?} is expected to be a directory", config.parameters);
         }

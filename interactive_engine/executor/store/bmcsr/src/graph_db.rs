@@ -1,8 +1,10 @@
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::bmcsr::{BatchMutableCsr, BatchMutableCsrBuilder};
 use crate::bmscsr::BatchMutableSingleCsr;
@@ -452,13 +454,6 @@ where
         &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, dir: Direction,
     ) -> SubGraph<'_, G, I> {
         let index = self.edge_label_to_index(src_label, dst_label, edge_label, dir);
-        info!(
-            "get_sub_graph: {} - {} - {}, {:?}",
-            self.graph_schema.vertex_label_names()[src_label as usize],
-            self.graph_schema.edge_label_names()[edge_label as usize],
-            self.graph_schema.vertex_label_names()[dst_label as usize],
-            dir
-        );
         match dir {
             Direction::Outgoing => SubGraph::new(
                 &self.oe[index]
@@ -490,13 +485,6 @@ where
     pub fn get_single_sub_graph(
         &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, dir: Direction,
     ) -> SingleSubGraph<'_, G, I> {
-        info!(
-            "get_single_sub_graph: {} - {} - {}, {:?}",
-            self.graph_schema.vertex_label_names()[src_label as usize],
-            self.graph_schema.edge_label_names()[edge_label as usize],
-            self.graph_schema.vertex_label_names()[dst_label as usize],
-            dir
-        );
         let index = self.edge_label_to_index(src_label, dst_label, edge_label, dir);
         match dir {
             Direction::Outgoing => SingleSubGraph::new(
@@ -525,6 +513,17 @@ where
             ),
         }
     }
+    pub fn insert_edges_to_oe_csr_beta(
+        &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, edges: &mut Vec<(I, I)>,
+    ) {
+        let csr_index = self.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
+        let oe = self.oe[csr_index]
+            .as_mut_any()
+            .downcast_mut::<BatchMutableCsr<I>>()
+            .unwrap();
+        let new_vertex_num = self.vertex_map.vertex_num(src_label);
+        oe.insert_edges(I::new(new_vertex_num), edges)
+    }
 
     pub fn insert_edges_to_oe_csr(
         &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, edges: &Vec<(I, I)>,
@@ -533,20 +532,34 @@ where
         let csr_index = self.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
         let mut builder = BatchMutableCsrBuilder::new();
         let new_vertex_num = self.vertex_map.vertex_num(src_label);
-        let mut new_degree = vec![0 as i64; new_vertex_num];
+        let mut new_degree = vec![0 as i32; new_vertex_num];
         for (src, _) in edges {
             new_degree[src.index()] += 1;
         }
+        // let mut new_degree = vec![];
         {
             let oe = self.oe[csr_index]
                 .as_any()
                 .downcast_ref::<BatchMutableCsr<I>>()
                 .unwrap();
+            // new_degree = oe.degree.clone();
             let old_vertex_num = oe.vertex_num();
             for v in 0..old_vertex_num.index() {
-                new_degree[v] += oe.degree(I::new(v)) as i64;
+                new_degree[v] += oe.degree(I::new(v)) as i32;
             }
+            /*
+            new_degree
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(index, out)| {
+                    *out += oe.degree(I::new(index)) as i64;
+                });
+             */
         }
+        // new_degree.resize(new_vertex_num, 0);
+        // for (src, _) in edges {
+        //     new_degree[src.index()] += 1;
+        // }
         builder.init(&new_degree, 1.0);
         if let Some(input_table) = table {
             let mut new_table = ColTable::new({
@@ -592,9 +605,11 @@ where
                     .unwrap();
                 let old_vertex_num = oe.vertex_num().index();
                 for v in 0..old_vertex_num {
-                    for nbr in oe.get_edges(I::new(v)).unwrap() {
-                        builder.put_edge(I::new(v), *nbr).unwrap();
-                    }
+                    let v = I::new(v);
+                    builder.put_edges(v, oe.get_edges_slice(v));
+                    // for nbr in oe.get_edges(I::new(v)).unwrap() {
+                    //     builder.put_edge(I::new(v), *nbr).unwrap();
+                    // }
                 }
                 for (src, dst) in edges {
                     builder.put_edge(*src, *dst).unwrap();
@@ -602,6 +617,17 @@ where
             }
         }
         self.oe[csr_index] = Box::new(builder.finish().unwrap());
+    }
+    pub fn insert_edges_to_ie_csr_beta(
+        &mut self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, edges: &mut Vec<(I, I)>,
+    ) {
+        let csr_index = self.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
+        let ie = self.ie[csr_index]
+            .as_mut_any()
+            .downcast_mut::<BatchMutableCsr<I>>()
+            .unwrap();
+        let new_vertex_num = self.vertex_map.vertex_num(dst_label);
+        ie.insert_reversed_edges(I::new(new_vertex_num), edges)
     }
 
     pub fn insert_edges_to_ie_csr(
@@ -611,20 +637,35 @@ where
         let csr_index = self.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
         let mut builder = BatchMutableCsrBuilder::new();
         let new_vertex_num = self.vertex_map.vertex_num(dst_label);
-        let mut new_degree = vec![0 as i64; new_vertex_num];
+        let mut new_degree = vec![0 as i32; new_vertex_num];
         for (_, dst) in edges {
             new_degree[dst.index()] += 1;
         }
+        // let mut new_degree = vec![];
         {
             let ie = self.ie[csr_index]
                 .as_any()
                 .downcast_ref::<BatchMutableCsr<I>>()
                 .unwrap();
+            // new_degree = ie.degree.clone();
             let old_vertex_num = ie.vertex_num();
             for v in 0..old_vertex_num.index() {
-                new_degree[v] += ie.degree(I::new(v)) as i64;
+                new_degree[v] += ie.degree(I::new(v)) as i32;
             }
+            /*
+            new_degree
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(index, out)| {
+                    *out += ie.degree(I::new(index)) as i64;
+                });
+             */
         }
+
+        // new_degree.resize(new_vertex_num, 0);
+        // for (_, dst) in edges {
+        //     new_degree[dst.index()] += 1;
+        // }
         builder.init(&new_degree, 1.0);
         if let Some(input_table) = table {
             let mut new_table = ColTable::new({
@@ -670,9 +711,11 @@ where
                     .unwrap();
                 let old_vertex_num = ie.vertex_num().index();
                 for v in 0..old_vertex_num {
-                    for nbr in ie.get_edges(I::new(v)).unwrap() {
-                        builder.put_edge(I::new(v), *nbr).unwrap();
-                    }
+                    let v = I::new(v);
+                    builder.put_edges(v, ie.get_edges_slice(v));
+                    // for nbr in ie.get_edges(I::new(v)).unwrap() {
+                    // builder.put_edge(I::new(v), *nbr).unwrap();
+                    // }
                 }
                 for (src, dst) in edges {
                     builder.put_edge(*dst, *src).unwrap();
@@ -740,6 +783,8 @@ where
         &mut self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, edges: Vec<(G, G)>,
         table: Option<ColTable>,
     ) {
+        let t0 = Instant::now();
+        /*
         let mut parsed_edges = vec![];
         for (src, dst) in edges {
             let (got_src_label, src_lid) = self.vertex_map.get_internal_id(src).unwrap();
@@ -751,6 +796,16 @@ where
             }
             parsed_edges.push((src_lid, dst_lid));
         }
+        */
+        let mut parsed_edges: Vec<(I, I)> = edges
+            .par_iter()
+            .map(|(src, dst)| {
+                let (got_src_label, src_lid) = self.vertex_map.get_internal_id(*src).unwrap();
+                let (got_dst_label, dst_lid) = self.vertex_map.get_internal_id(*dst).unwrap();
+                (src_lid, dst_lid)
+            })
+            .collect();
+        println!("parse: {}", t0.elapsed().as_millis() as f64 / 1000.0);
         let oe_single = self
             .graph_schema
             .is_single_oe(src_label, edge_label, dst_label);
@@ -759,15 +814,31 @@ where
             .is_single_ie(src_label, edge_label, dst_label);
 
         if oe_single {
+            let t1 = Instant::now();
             self.insert_edges_to_oe_single_csr(src_label, dst_label, edge_label, &parsed_edges, &table);
+            println!("oe single: {}", t1.elapsed().as_millis() as f64 / 1000.0);
         } else {
-            self.insert_edges_to_oe_csr(src_label, dst_label, edge_label, &parsed_edges, &table);
+            let t1 = Instant::now();
+            if table.is_none() {
+                self.insert_edges_to_oe_csr_beta(src_label, dst_label, edge_label, &mut parsed_edges);
+            } else {
+                self.insert_edges_to_oe_csr(src_label, dst_label, edge_label, &parsed_edges, &table);
+            }
+            println!("oe: {}", t1.elapsed().as_millis() as f64 / 1000.0);
         }
 
         if ie_single {
+            let t1 = Instant::now();
             self.insert_edges_to_ie_single_csr(src_label, dst_label, edge_label, &parsed_edges, &table);
+            println!("ie single: {}", t1.elapsed().as_millis() as f64 / 1000.0);
         } else {
-            self.insert_edges_to_ie_csr(src_label, dst_label, edge_label, &parsed_edges, &table);
+            let t1 = Instant::now();
+            if table.is_none() {
+                self.insert_edges_to_ie_csr_beta(src_label, dst_label, edge_label, &mut parsed_edges);
+            } else {
+                self.insert_edges_to_ie_csr(src_label, dst_label, edge_label, &parsed_edges, &table);
+            }
+            println!("ie: {}", t1.elapsed().as_millis() as f64 / 1000.0);
         }
     }
 
