@@ -189,6 +189,7 @@ where
     }
 
     pub fn deserialize(&mut self, path: &String) {
+        info!("Start deserializing vertex map");
         let f = File::open(path).unwrap();
         let mut reader = BufReader::new(f);
         self.label_num = reader.read_u8().unwrap();
@@ -207,6 +208,7 @@ where
         self.index_to_global_id.clear();
         self.index_to_corner_global_id.clear();
         for i in 0..self.label_num {
+            info!("start loading vertex id for label - {}", i as usize);
             let iv_num = self.labeled_num[i as usize];
             let mut native_ids = Vec::<G>::with_capacity(iv_num);
             for _ in 0..iv_num {
@@ -225,6 +227,7 @@ where
 
         self.global_id_to_index.clear();
         for i in 0..self.label_num {
+            info!("start construct vertex map for label - {}", i as usize);
             let mut index = 0_usize;
             for v in self.index_to_global_id[i as usize].iter() {
                 self.global_id_to_index
@@ -232,6 +235,7 @@ where
                 index += 1;
             }
         }
+        info!("Finish deserializing vertex map");
     }
 
     pub fn desc(&self) {

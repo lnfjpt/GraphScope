@@ -1,12 +1,15 @@
+use crate::bmscsr::BatchMutableSingleCsr;
 use crate::col_table::{parse_properties, ColTable};
 use crate::columns::{Column, StringColumn};
 use csv::ReaderBuilder;
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use rust_htslib::bgzf::Reader as GzReader;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Instant;
 
 use crate::error::GDBResult;
 use crate::graph::{Direction, IndexType};
@@ -518,6 +521,7 @@ impl GraphModifier {
         let vertex_label_num = graph.vertex_label_num;
         let edge_label_num = graph.edge_label_num;
         let mut delete_sets = vec![];
+        let t0 = Instant::now();
         for v_label_i in 0..vertex_label_num {
             let mut delete_set = HashSet::new();
             if let Some(vertex_file_strings) = delete_schema.get_vertex_file(v_label_i as LabelId) {
@@ -603,6 +607,7 @@ impl GraphModifier {
             }
             delete_sets.push(delete_set);
         }
+        println!("Load vertex delete: {} s", t0.elapsed().as_millis() as f64 / 1000.0);
 
         for e_label_i in 0..edge_label_num {
             for src_label_i in 0..vertex_label_num {
@@ -629,6 +634,7 @@ impl GraphModifier {
                         if edge_file_strings.is_empty() {
                             continue;
                         }
+                        let t1 = Instant::now();
                         info!(
                             "Deleting edge - {} - {} - {}",
                             graph.graph_schema.vertex_label_names()[src_label_i as usize],
@@ -767,12 +773,20 @@ impl GraphModifier {
                                 }
                             }
                         }
+                        println!(
+                            "Load edge delete - {} - {} - {}: {} s",
+                            graph.graph_schema.vertex_label_names()[src_label_i as usize],
+                            graph.graph_schema.edge_label_names()[e_label_i as usize],
+                            graph.graph_schema.vertex_label_names()[dst_label_i as usize],
+                            t1.elapsed().as_millis() as f64 / 1000.0,
+                        );
                     }
 
                     if src_delete_set.is_empty() && dst_delete_set.is_empty() && delete_edge_set.is_empty()
                     {
                         continue;
                     }
+                    let t2 = Instant::now();
                     graph.delete_edges(
                         src_label_i as LabelId,
                         e_label_i as LabelId,
@@ -781,10 +795,19 @@ impl GraphModifier {
                         dst_delete_set,
                         &delete_edge_set,
                     );
+
+                    println!(
+                        "Apply edge delete - {} - {} - {}: {} s",
+                        graph.graph_schema.vertex_label_names()[src_label_i as usize],
+                        graph.graph_schema.edge_label_names()[e_label_i as usize],
+                        graph.graph_schema.vertex_label_names()[dst_label_i as usize],
+                        t2.elapsed().as_millis() as f64 / 1000.0,
+                    );
                 }
             }
         }
 
+        let t3 = Instant::now();
         for v_label_i in 0..vertex_label_num {
             let delete_set = &delete_sets[v_label_i as usize];
             if delete_set.is_empty() {
@@ -796,6 +819,7 @@ impl GraphModifier {
                     .remove_vertex(v_label_i as LabelId, v);
             }
         }
+        println!("Delete vertices from vertex map: {} s", t3.elapsed().as_millis() as f64 / 1000.0);
 
         Ok(())
     }
@@ -814,6 +838,7 @@ impl GraphModifier {
                     continue;
                 }
 
+                let timer = Instant::now();
                 let input_header = input_schema
                     .get_vertex_header(v_label_i as LabelId)
                     .unwrap();
@@ -909,6 +934,12 @@ impl GraphModifier {
                         }
                     }
                 }
+
+                println!(
+                    "Insert vertex - {}: {} s",
+                    graph.graph_schema.vertex_label_names()[v_label_i],
+                    timer.elapsed().as_millis() as f64 / 1000.0
+                );
             }
         }
 
@@ -1088,6 +1119,7 @@ impl GraphModifier {
         let vertex_label_num = graph.vertex_label_num;
         let edge_label_num = graph.edge_label_num;
 
+        let mut tasks = vec![];
         for e_label_i in 0..edge_label_num {
             for src_label_i in 0..vertex_label_num {
                 for dst_label_i in 0..vertex_label_num {
@@ -1099,6 +1131,57 @@ impl GraphModifier {
                         if edge_file_strings.is_empty() {
                             continue;
                         }
+                        let edge_files_prefix = self.input_dir.clone();
+                        let edge_files = get_files_list(&edge_files_prefix, &edge_file_strings);
+                        if edge_files.is_err() {
+                            warn!(
+                                "Get edge files {:?}/{:?} failed: {:?}",
+                                &edge_files_prefix,
+                                &edge_file_strings,
+                                edge_files.err().unwrap()
+                            );
+                            continue;
+                        }
+                        let edge_files = edge_files.unwrap();
+                        if edge_files.is_empty() {
+                            continue;
+                        }
+
+                        let index = graph.edge_label_to_index(
+                            src_label_i as LabelId,
+                            dst_label_i as LabelId,
+                            e_label_i as LabelId,
+                            Direction::Outgoing,
+                        );
+                        tasks.push((
+                            src_label_i,
+                            e_label_i,
+                            dst_label_i,
+                            edge_files,
+                            std::mem::replace(&mut graph.ie[index], Box::new(BatchMutableSingleCsr::new())),
+                            graph.ie_edge_prop_table.remove(&index),
+                            std::mem::replace(&mut graph.oe[index], Box::new(BatchMutableSingleCsr::new())),
+                            graph.oe_edge_prop_table.remove(&index),
+                        ));
+                    }
+                }
+            }
+
+            tasks.par_iter_mut().for_each(|task| {});
+        }
+
+        for e_label_i in 0..edge_label_num {
+            for src_label_i in 0..vertex_label_num {
+                for dst_label_i in 0..vertex_label_num {
+                    if let Some(edge_file_strings) = input_schema.get_edge_file(
+                        src_label_i as LabelId,
+                        e_label_i as LabelId,
+                        dst_label_i as LabelId,
+                    ) {
+                        if edge_file_strings.is_empty() {
+                            continue;
+                        }
+                        let t0 = Instant::now();
                         let graph_header = graph
                             .graph_schema
                             .get_edge_header(
@@ -1155,13 +1238,23 @@ impl GraphModifier {
                             )
                             .unwrap()
                         };
+                        let t0_duration = t0.elapsed().as_millis() as f64 / 1000.0;
 
+                        let t1 = Instant::now();
                         graph.insert_edges(
                             src_label_i as LabelId,
                             e_label_i as LabelId,
                             dst_label_i as LabelId,
                             edges,
                             table,
+                        );
+                        println!(
+                            "Insert edge {} - {} - {}, load: {} s, insert: {} s",
+                            graph.graph_schema.vertex_label_names()[src_label_i],
+                            graph.graph_schema.edge_label_names()[e_label_i],
+                            graph.graph_schema.vertex_label_names()[dst_label_i],
+                            t0_duration,
+                            t1.elapsed().as_millis() as f64 / 1000.0,
                         );
                     }
                 }
