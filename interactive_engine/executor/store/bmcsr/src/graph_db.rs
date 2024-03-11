@@ -533,7 +533,7 @@ where
         let csr_index = self.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
         let mut builder = BatchMutableCsrBuilder::new();
         let new_vertex_num = self.vertex_map.vertex_num(src_label);
-        let mut new_degree = vec![0 as i64; new_vertex_num];
+        let mut new_degree = vec![0 as i32; new_vertex_num];
         for (src, _) in edges {
             new_degree[src.index()] += 1;
         }
@@ -544,7 +544,7 @@ where
                 .unwrap();
             let old_vertex_num = oe.vertex_num();
             for v in 0..old_vertex_num.index() {
-                new_degree[v] += oe.degree(I::new(v)) as i64;
+                new_degree[v] += oe.degree(I::new(v)) as i32;
             }
         }
         builder.init(&new_degree, 1.0);
@@ -611,7 +611,7 @@ where
         let csr_index = self.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
         let mut builder = BatchMutableCsrBuilder::new();
         let new_vertex_num = self.vertex_map.vertex_num(dst_label);
-        let mut new_degree = vec![0 as i64; new_vertex_num];
+        let mut new_degree = vec![0 as i32; new_vertex_num];
         for (_, dst) in edges {
             new_degree[dst.index()] += 1;
         }
@@ -622,7 +622,7 @@ where
                 .unwrap();
             let old_vertex_num = ie.vertex_num();
             for v in 0..old_vertex_num.index() {
-                new_degree[v] += ie.degree(I::new(v)) as i64;
+                new_degree[v] += ie.degree(I::new(v)) as i32;
             }
         }
         builder.init(&new_degree, 1.0);
