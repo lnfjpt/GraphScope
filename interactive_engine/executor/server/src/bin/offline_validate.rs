@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         delete_generate_duration,
         delete_duration
     );
-    return Ok(());
+    // return Ok(());
 
     let precompute_ts = Instant::now();
     if !config.queries_config.is_empty() {
