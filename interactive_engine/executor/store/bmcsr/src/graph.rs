@@ -16,6 +16,7 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::fmt;
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::ops::AddAssign;
 
 /// Trait for the unsigned integer type used for node and edge indices.

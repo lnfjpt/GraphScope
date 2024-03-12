@@ -1,14 +1,10 @@
 use std::collections::HashMap;
-use std::fmt::format;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use chrono::{DateTime, TimeZone, Utc};
-use pegasus::{result, JobConf};
-use serde::Deserialize;
-use serde_json::json;
+use pegasus::JobConf;
 use structopt::StructOpt;
 
 use bmcsr::graph_db::GraphDB;
@@ -33,6 +29,8 @@ pub struct Config {
     batch_update_configs: PathBuf,
     #[structopt(short = "w", long = "worker_num", default_value = "8")]
     worker_num: u32,
+    #[structopt(short = "p", long = "parallel", default_value = "0")]
+    parallel: u32,
 }
 
 fn parse_input(path: &PathBuf) -> Vec<(String, String)> {
@@ -89,6 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut graph_modifier = GraphModifier::new(&graph_raw);
     graph_modifier.skip_header();
+    println!("parallel strategy: {}", config.parallel);
+    graph_modifier.parallel(config.parallel);
 
     let insert_ts = Instant::now();
     let insert_schema = InputSchema::from_json_file(insert_schema_file_path, &graph.graph_schema).unwrap();

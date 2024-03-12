@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Instant;
 
 use crate::bmcsr::{BatchMutableCsr, BatchMutableCsrBuilder};
 use crate::bmscsr::BatchMutableSingleCsr;
@@ -497,6 +498,7 @@ pub struct GraphModifier {
 
     delim: u8,
     skip_header: bool,
+    parallel: u32,
 }
 
 struct CsrRep<I> {
@@ -512,7 +514,7 @@ struct CsrRep<I> {
 
 impl GraphModifier {
     pub fn new<D: AsRef<Path>>(input_dir: D) -> GraphModifier {
-        Self { input_dir: input_dir.as_ref().to_path_buf(), delim: b'|', skip_header: false }
+        Self { input_dir: input_dir.as_ref().to_path_buf(), delim: b'|', skip_header: false, parallel: 0 }
     }
 
     pub fn with_delimiter(mut self, delim: u8) -> Self {
@@ -522,6 +524,10 @@ impl GraphModifier {
 
     pub fn skip_header(&mut self) {
         self.skip_header = true;
+    }
+
+    pub fn parallel(&mut self, parallel: u32) {
+        self.parallel = parallel;
     }
 
     fn take_csrs<G, I>(&self, graph: &mut GraphDB<G, I>) -> Vec<CsrRep<I>>
@@ -790,6 +796,198 @@ impl GraphModifier {
         }
     }
 
+    fn parallel_delete_rep<G, I>(
+        &self, input: &mut CsrRep<I>, graph: &GraphDB<G, I>, input_schema: &InputSchema,
+        delete_sets: &Vec<HashSet<I>>, p: u32,
+    ) where
+        G: FromStr + Send + Sync + IndexType + Eq,
+        I: Send + Sync + IndexType,
+    {
+        let src_label = input.src_label;
+        let edge_label = input.edge_label;
+        let dst_label = input.dst_label;
+
+        let graph_header = graph
+            .graph_schema
+            .get_edge_header(src_label, edge_label, dst_label);
+        if graph_header.is_none() {
+            return ();
+        }
+
+        let src_delete_set = &delete_sets[src_label as usize];
+        let dst_delete_set = &delete_sets[dst_label as usize];
+        let mut delete_edge_set = Vec::new();
+
+        if let Some(edge_file_strings) = input_schema.get_edge_file(src_label, edge_label, dst_label) {
+            if let Some(input_header) = input_schema.get_edge_header(src_label, edge_label, dst_label) {
+                let mut src_col_id = 0;
+                let mut dst_col_id = 1;
+
+                for (index, (n, _)) in input_header.iter().enumerate() {
+                    if n == "start_id" {
+                        src_col_id = index;
+                    }
+                    if n == "end_id" {
+                        dst_col_id = index;
+                    }
+                }
+
+                let mut parser = LDBCEdgeParser::<G>::new(src_label, dst_label, edge_label);
+                parser.with_endpoint_col_id(src_col_id, dst_col_id);
+
+                let edge_files = get_files_list(&self.input_dir.clone(), edge_file_strings);
+                if edge_files.is_err() {
+                    return ();
+                }
+
+                let edge_files = edge_files.unwrap();
+                for edge_file in edge_files.iter() {
+                    if edge_file
+                        .clone()
+                        .to_str()
+                        .unwrap()
+                        .ends_with(".csv.gz")
+                    {
+                        let mut rdr = ReaderBuilder::new()
+                            .delimiter(self.delim)
+                            .buffer_capacity(4096)
+                            .comment(Some(b'#'))
+                            .flexible(true)
+                            .has_headers(self.skip_header)
+                            .from_reader(BufReader::new(GzReader::from_path(&edge_file).unwrap()));
+                        for result in rdr.records() {
+                            if let Ok(record) = result {
+                                let edge_meta = parser.parse_edge_meta(&record);
+                                let (got_src_label, src_lid) = graph
+                                    .vertex_map
+                                    .get_internal_id(edge_meta.src_global_id)
+                                    .unwrap();
+                                let (got_dst_label, dst_lid) = graph
+                                    .vertex_map
+                                    .get_internal_id(edge_meta.dst_global_id)
+                                    .unwrap();
+                                if got_src_label != src_label || got_dst_label != dst_label {
+                                    warn!(
+                                        "Edge - {} - {} does not exist",
+                                        LDBCVertexParser::<G>::get_original_id(edge_meta.src_global_id)
+                                            .index(),
+                                        LDBCVertexParser::<G>::get_original_id(edge_meta.dst_global_id)
+                                            .index()
+                                    );
+                                    continue;
+                                }
+                                if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
+                                    // warn!("Edge - {} - {} will be removed by vertices", LDBCVertexParser::<G>::get_original_id(edge_meta.src_global_id).index(), LDBCVertexParser::<G>::get_original_id(edge_meta.dst_global_id).index());
+                                    continue;
+                                }
+                                delete_edge_set.push((src_lid, dst_lid));
+                            }
+                        }
+                    } else if edge_file
+                        .clone()
+                        .to_str()
+                        .unwrap()
+                        .ends_with(".csv")
+                    {
+                        let mut rdr = ReaderBuilder::new()
+                            .delimiter(self.delim)
+                            .buffer_capacity(4096)
+                            .comment(Some(b'#'))
+                            .flexible(true)
+                            .has_headers(self.skip_header)
+                            .from_reader(BufReader::new(File::open(&edge_file).unwrap()));
+                        for result in rdr.records() {
+                            if let Ok(record) = result {
+                                let edge_meta = parser.parse_edge_meta(&record);
+                                let (got_src_label, src_lid) = graph
+                                    .vertex_map
+                                    .get_internal_id(edge_meta.src_global_id)
+                                    .unwrap();
+                                let (got_dst_label, dst_lid) = graph
+                                    .vertex_map
+                                    .get_internal_id(edge_meta.dst_global_id)
+                                    .unwrap();
+                                if got_src_label != src_label || got_dst_label == dst_label {
+                                    continue;
+                                }
+                                if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
+                                    continue;
+                                }
+                                delete_edge_set.push((src_lid, dst_lid));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if src_delete_set.is_empty() && dst_delete_set.is_empty() && delete_edge_set.is_empty() {
+            return ();
+        }
+        // println!(
+        //     "Deleting edge - {} - {} - {}",
+        //     graph.graph_schema.vertex_label_names()[src_label as usize],
+        //     graph.graph_schema.edge_label_names()[edge_label as usize],
+        //     graph.graph_schema.vertex_label_names()[dst_label as usize]
+        // );
+
+        let mut oe_to_delete = Vec::new();
+        let mut ie_to_delete = Vec::new();
+
+        for v in src_delete_set.iter() {
+            if let Some(oe_list) = input.oe_csr.get_edges(*v) {
+                for e in oe_list {
+                    if !dst_delete_set.contains(e) {
+                        oe_to_delete.push((*v, *e));
+                    }
+                }
+            }
+        }
+        for v in dst_delete_set.iter() {
+            if let Some(ie_list) = input.ie_csr.get_edges(*v) {
+                for e in ie_list {
+                    if !src_delete_set.contains(e) {
+                        ie_to_delete.push((*e, *v));
+                    }
+                }
+            }
+        }
+
+        input.oe_csr.delete_vertices(src_delete_set);
+        if let Some(table) = input.oe_prop.as_mut() {
+            input
+                .oe_csr
+                .parallel_delete_edges_with_props(&delete_edge_set, false, table, p);
+            input
+                .oe_csr
+                .parallel_delete_edges_with_props(&ie_to_delete, false, table, p);
+        } else {
+            input
+                .oe_csr
+                .parallel_delete_edges(&delete_edge_set, false, 4);
+            input
+                .oe_csr
+                .parallel_delete_edges(&ie_to_delete, false, 4);
+        }
+
+        input.ie_csr.delete_vertices(dst_delete_set);
+        if let Some(table) = input.ie_prop.as_mut() {
+            input
+                .ie_csr
+                .parallel_delete_edges_with_props(&delete_edge_set, true, table, p);
+            input
+                .ie_csr
+                .parallel_delete_edges_with_props(&oe_to_delete, true, table, p);
+        } else {
+            input
+                .ie_csr
+                .parallel_delete_edges(&delete_edge_set, true, p);
+            input
+                .ie_csr
+                .parallel_delete_edges(&oe_to_delete, true, p);
+        }
+    }
+
     fn apply_deletes<G, I>(
         &mut self, graph: &mut GraphDB<G, I>, delete_schema: &InputSchema,
     ) -> GDBResult<()>
@@ -886,11 +1084,17 @@ impl GraphModifier {
             delete_sets.push(delete_set);
         }
 
-        if true {
+        if self.parallel == 1 {
             let mut input_reps = self.take_csrs(graph);
             input_reps
                 .par_iter_mut()
                 .for_each(|rep| self.delete_rep(rep, &graph, &delete_schema, &delete_sets));
+            self.set_csrs(graph, input_reps);
+        } else if self.parallel > 1 {
+            let mut input_reps = self.take_csrs(graph);
+            input_reps.iter_mut().for_each(|rep| {
+                self.parallel_delete_rep(rep, &graph, &delete_schema, &delete_sets, self.parallel)
+            });
             self.set_csrs(graph, input_reps);
         } else {
             for e_label_i in 0..edge_label_num {
@@ -1376,6 +1580,7 @@ impl GraphModifier {
         G: FromStr + Send + Sync + IndexType + Eq,
         I: Send + Sync + IndexType,
     {
+        let t = Instant::now();
         let src_label = input.src_label;
         let edge_label = input.edge_label;
         let dst_label = input.dst_label;
@@ -1625,6 +1830,344 @@ impl GraphModifier {
             }
         };
 
+        println!(
+            "insert edge: {} - {} - {}: {}",
+            graph.graph_schema.vertex_label_names()[src_label as usize],
+            graph.graph_schema.edge_label_names()[edge_label as usize],
+            graph.graph_schema.vertex_label_names()[dst_label as usize],
+            t.elapsed().as_secs_f32(),
+        );
+        CsrRep {
+            src_label: src_label,
+            edge_label: edge_label,
+            dst_label: dst_label,
+            ie_csr: new_ie_csr,
+            ie_prop: new_ie_table,
+            oe_csr: new_oe_csr,
+            oe_prop: new_oe_table,
+        }
+    }
+
+    fn parallel_insert_rep<G, I>(
+        &self, mut input: CsrRep<I>, graph: &GraphDB<G, I>, input_schema: &InputSchema, p: u32,
+    ) -> CsrRep<I>
+    where
+        G: FromStr + Send + Sync + IndexType + Eq,
+        I: Send + Sync + IndexType,
+    {
+        let t = Instant::now();
+        let src_label = input.src_label;
+        let edge_label = input.edge_label;
+        let dst_label = input.dst_label;
+
+        let graph_header = graph
+            .graph_schema
+            .get_edge_header(src_label, edge_label, dst_label);
+        if graph_header.is_none() {
+            return input;
+        }
+        let graph_header = graph_header.unwrap();
+
+        let edge_file_strings = input_schema.get_edge_file(src_label, edge_label, dst_label);
+        if edge_file_strings.is_none() {
+            return input;
+        }
+        let edge_file_strings = edge_file_strings.unwrap();
+        if edge_file_strings.is_empty() {
+            return input;
+        }
+
+        let edge_files = get_files_list(&self.input_dir.clone(), edge_file_strings);
+        if edge_files.is_err() {
+            return input;
+        }
+        let edge_files = edge_files.unwrap();
+        if edge_files.is_empty() {
+            return input;
+        }
+
+        let load_t = Instant::now();
+        let (edges, table) = if graph_header.len() > 0 {
+            self.load_insert_edges_with_prop::<G>(
+                src_label,
+                edge_label,
+                dst_label,
+                input_schema,
+                &graph.graph_schema,
+                &edge_files,
+            )
+            .unwrap()
+        } else {
+            self.load_insert_edges_with_no_prop::<G>(
+                src_label,
+                edge_label,
+                dst_label,
+                input_schema,
+                &graph.graph_schema,
+                &edge_files,
+            )
+            .unwrap()
+        };
+        let load_t = load_t.elapsed().as_secs_f32();
+
+        let parse_t = Instant::now();
+        // let mut parsed_edges = vec![];
+        // for (src, dst) in edges {
+        //     let (got_src_label, src_lid) = graph.vertex_map.get_internal_id(src).unwrap();
+        //     let (got_dst_label, dst_lid) = graph.vertex_map.get_internal_id(dst).unwrap();
+        //     if got_src_label != src_label || got_dst_label != dst_label {
+        //         warn!("insert edges with wrong label");
+        //         parsed_edges.push((<I as IndexType>::max(), <I as IndexType>::max()));
+        //         continue;
+        //     }
+        //     parsed_edges.push((src_lid, dst_lid));
+        // }
+        let parsed_edges: Vec<(I, I)> = edges
+            .par_iter()
+            .map(|(src, dst)| {
+                let (got_src_label, src_lid) = graph.vertex_map.get_internal_id(*src).unwrap();
+                let (got_dst_label, dst_lid) = graph.vertex_map.get_internal_id(*dst).unwrap();
+                if got_src_label != src_label || got_dst_label != dst_label {
+                    warn!("insert edges with wrong label");
+                    (<I as IndexType>::max(), <I as IndexType>::max())
+                } else {
+                    (src_lid, dst_lid)
+                }
+            })
+            .collect();
+
+        let parse_t = parse_t.elapsed().as_secs_f32();
+
+        let insert_t = Instant::now();
+        let oe_single = graph
+            .graph_schema
+            .is_single_oe(src_label, edge_label, dst_label);
+        let ie_single = graph
+            .graph_schema
+            .is_single_ie(src_label, edge_label, dst_label);
+
+        let (new_oe_csr, new_oe_table) = if oe_single {
+            let casted_oe = input
+                .oe_csr
+                .as_mut_any()
+                .downcast_mut::<BatchMutableSingleCsr<I>>()
+                .unwrap();
+            if input.oe_prop.is_none() {
+                // casted_oe.resize_vertex(graph.vertex_map.vertex_num(src_label));
+                // for (src, dst) in parsed_edges.iter() {
+                //     casted_oe.insert_edge(*src, *dst);
+                // }
+                casted_oe.insert_edges(graph.vertex_map.vertex_num(src_label), &parsed_edges, false, p);
+                (input.oe_csr, None)
+            } else {
+                println!("oe single no parallel");
+                casted_oe.resize_vertex(graph.vertex_map.vertex_num(src_label));
+                let new_table = table.as_ref().unwrap();
+                let mut oe_prop = input.oe_prop.unwrap();
+                for (index, (src, dst)) in parsed_edges.iter().enumerate() {
+                    casted_oe.insert_edge(*src, *dst);
+                    let row = new_table.get_row(index).unwrap();
+                    oe_prop.insert(src.index(), &row);
+                }
+                (input.oe_csr, Some(oe_prop))
+            }
+        } else {
+            let new_vertex_num = graph.vertex_map.vertex_num(src_label);
+            if table.is_none() {
+                // if false {
+                let casted_oe = input
+                    .oe_csr
+                    .as_mut_any()
+                    .downcast_mut::<BatchMutableCsr<I>>()
+                    .unwrap();
+                let new_oe: Box<dyn CsrTrait<I>> =
+                    Box::new(casted_oe.insert_edges(new_vertex_num, &parsed_edges, false, p));
+                (new_oe, None)
+            } else {
+                println!("oe no parallel");
+                let mut new_degree = vec![0 as i32; new_vertex_num];
+                let old_vertex_num = input.oe_csr.vertex_num();
+                for v in 0..old_vertex_num.index() {
+                    new_degree[v] += input.oe_csr.degree(I::new(v)) as i32;
+                }
+
+                let casted_oe = input
+                    .oe_csr
+                    .as_mut_any()
+                    .downcast_mut::<BatchMutableCsr<I>>()
+                    .unwrap();
+
+                let mut builder = BatchMutableCsrBuilder::<I>::new();
+                for (src, _) in parsed_edges.iter() {
+                    new_degree[src.index()] += 1;
+                }
+
+                builder.init(&new_degree, 1.0);
+
+                if let Some(input_table) = table.as_ref() {
+                    let mut new_table = ColTable::new({
+                        let cols = graph
+                            .graph_schema
+                            .get_edge_header(src_label, edge_label, dst_label)
+                            .unwrap();
+                        let mut header = vec![];
+                        for pair in cols {
+                            header.push((pair.1.clone(), pair.0.clone()));
+                        }
+                        header
+                    });
+
+                    let old_table = input.oe_prop.unwrap();
+                    for v in 0..old_vertex_num.index() {
+                        for (nbr, offset) in casted_oe
+                            .get_edges_with_offset(I::new(v))
+                            .unwrap()
+                        {
+                            let new_offset = builder.put_edge(I::new(v), nbr).unwrap();
+                            let row = old_table.get_row(offset).unwrap();
+                            new_table.insert(new_offset, &row);
+                        }
+                    }
+                    for (index, (src, dst)) in parsed_edges.iter().enumerate() {
+                        let new_offset = builder.put_edge(*src, *dst).unwrap();
+                        let row = input_table.get_row(index).unwrap();
+                        new_table.insert(new_offset, &row);
+                    }
+                    let new_oe: Box<dyn CsrTrait<I>> = Box::new(builder.finish().unwrap());
+                    (new_oe, Some(new_table))
+                } else {
+                    for v in 0..old_vertex_num.index() {
+                        for nbr in casted_oe.get_edges(I::new(v)).unwrap() {
+                            builder.put_edge(I::new(v), *nbr).unwrap();
+                        }
+                    }
+                    for (src, dst) in parsed_edges.iter() {
+                        builder.put_edge(*src, *dst).unwrap();
+                    }
+
+                    let new_oe: Box<dyn CsrTrait<I>> = Box::new(builder.finish().unwrap());
+                    (new_oe, None)
+                }
+            }
+        };
+
+        let (new_ie_csr, new_ie_table) = if ie_single {
+            let casted_ie = input
+                .ie_csr
+                .as_mut_any()
+                .downcast_mut::<BatchMutableSingleCsr<I>>()
+                .unwrap();
+            if input.ie_prop.is_none() {
+                // casted_ie.resize_vertex(graph.vertex_map.vertex_num(dst_label));
+                // for (src, dst) in parsed_edges.iter() {
+                //     casted_ie.insert_edge(*dst, *src);
+                // }
+                casted_ie.insert_edges(graph.vertex_map.vertex_num(dst_label), &parsed_edges, true, p);
+                (input.ie_csr, None)
+            } else {
+                println!("ie single no parallel");
+                casted_ie.resize_vertex(graph.vertex_map.vertex_num(dst_label));
+                let new_table = table.as_ref().unwrap();
+                let mut ie_prop = input.ie_prop.unwrap();
+                for (index, (src, dst)) in parsed_edges.iter().enumerate() {
+                    casted_ie.insert_edge(*dst, *src);
+                    let row = new_table.get_row(index).unwrap();
+                    ie_prop.insert(dst.index(), &row);
+                }
+                (input.ie_csr, Some(ie_prop))
+            }
+        } else {
+            let new_vertex_num = graph.vertex_map.vertex_num(dst_label);
+            if table.is_none() {
+                // if false {
+                let casted_ie = input
+                    .ie_csr
+                    .as_mut_any()
+                    .downcast_mut::<BatchMutableCsr<I>>()
+                    .unwrap();
+                let new_ie: Box<dyn CsrTrait<I>> =
+                    Box::new(casted_ie.insert_edges(new_vertex_num, &parsed_edges, true, p));
+                (new_ie, None)
+            } else {
+                println!("ie no parallel");
+                let mut new_degree = vec![0 as i32; new_vertex_num];
+                let old_vertex_num = input.ie_csr.vertex_num();
+                for v in 0..old_vertex_num.index() {
+                    new_degree[v] += input.ie_csr.degree(I::new(v)) as i32;
+                }
+
+                let casted_ie = input
+                    .ie_csr
+                    .as_mut_any()
+                    .downcast_mut::<BatchMutableCsr<I>>()
+                    .unwrap();
+
+                let mut builder = BatchMutableCsrBuilder::<I>::new();
+                for (_, dst) in parsed_edges.iter() {
+                    new_degree[dst.index()] += 1;
+                }
+
+                builder.init(&new_degree, 1.0);
+
+                if let Some(input_table) = table.as_ref() {
+                    let mut new_table = ColTable::new({
+                        let cols = graph
+                            .graph_schema
+                            .get_edge_header(src_label, edge_label, dst_label)
+                            .unwrap();
+                        let mut header = vec![];
+                        for pair in cols {
+                            header.push((pair.1.clone(), pair.0.clone()));
+                        }
+                        header
+                    });
+
+                    let old_table = input.ie_prop.unwrap();
+                    for v in 0..old_vertex_num.index() {
+                        for (nbr, offset) in casted_ie
+                            .get_edges_with_offset(I::new(v))
+                            .unwrap()
+                        {
+                            let new_offset = builder.put_edge(I::new(v), nbr).unwrap();
+                            let row = old_table.get_row(offset).unwrap();
+                            new_table.insert(new_offset, &row);
+                        }
+                    }
+                    for (index, (src, dst)) in parsed_edges.iter().enumerate() {
+                        let new_offset = builder.put_edge(*dst, *src).unwrap();
+                        let row = input_table.get_row(index).unwrap();
+                        new_table.insert(new_offset, &row);
+                    }
+                    let new_ie: Box<dyn CsrTrait<I>> = Box::new(builder.finish().unwrap());
+                    (new_ie, Some(new_table))
+                } else {
+                    for v in 0..old_vertex_num.index() {
+                        for nbr in casted_ie.get_edges(I::new(v)).unwrap() {
+                            builder.put_edge(I::new(v), *nbr).unwrap();
+                        }
+                    }
+                    for (src, dst) in parsed_edges.iter() {
+                        builder.put_edge(*dst, *src).unwrap();
+                    }
+
+                    let new_ie: Box<dyn CsrTrait<I>> = Box::new(builder.finish().unwrap());
+                    (new_ie, None)
+                }
+            }
+        };
+        let insert_t = insert_t.elapsed().as_secs_f32();
+        println!(
+            "insert edge (parallel{}): {} - {} - {}: {}",
+            p,
+            graph.graph_schema.vertex_label_names()[src_label as usize],
+            graph.graph_schema.edge_label_names()[edge_label as usize],
+            graph.graph_schema.vertex_label_names()[dst_label as usize],
+            t.elapsed().as_secs_f32(),
+        );
+        println!("\tload: {}", load_t);
+        println!("\tparse: {}", parse_t);
+        println!("\tinsert: {}", insert_t);
+
         CsrRep {
             src_label: src_label,
             edge_label: edge_label,
@@ -1643,12 +2186,18 @@ impl GraphModifier {
         I: Send + Sync + IndexType,
         G: FromStr + Send + Sync + IndexType + Eq,
     {
-        if true {
+        if self.parallel == 1 {
             let input_reps = self.take_csrs(graph);
             let output_reps = input_reps
                 .into_par_iter()
-                // .drain(..)
                 .map(|input| self.insert_rep(input, graph, input_schema))
+                .collect();
+            self.set_csrs(graph, output_reps);
+        } else if self.parallel > 1 {
+            let input_reps = self.take_csrs(graph);
+            let output_reps = input_reps
+                .into_iter()
+                .map(|input| self.parallel_insert_rep(input, graph, input_schema, self.parallel))
                 .collect();
             self.set_csrs(graph, output_reps);
         } else {
@@ -1666,6 +2215,7 @@ impl GraphModifier {
                             if edge_file_strings.is_empty() {
                                 continue;
                             }
+                            let t = Instant::now();
                             let graph_header = graph
                                 .graph_schema
                                 .get_edge_header(
@@ -1729,6 +2279,13 @@ impl GraphModifier {
                                 dst_label_i as LabelId,
                                 edges,
                                 table,
+                            );
+                            println!(
+                                "insert edge: {} - {} - {}: {}",
+                                graph.graph_schema.vertex_label_names()[src_label_i],
+                                graph.graph_schema.edge_label_names()[e_label_i],
+                                graph.graph_schema.vertex_label_names()[dst_label_i],
+                                t.elapsed().as_secs_f32(),
                             );
                         }
                     }

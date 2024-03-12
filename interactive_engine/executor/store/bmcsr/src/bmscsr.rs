@@ -2,6 +2,10 @@ use std::any::Any;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
+use std::marker::PhantomData;
+use std::time::Instant;
+
+use rayon::prelude::*;
 
 use crate::col_table::ColTable;
 use crate::csr::{CsrBuildError, CsrTrait, NbrIter, NbrOffsetIter};
@@ -67,6 +71,30 @@ impl<I: IndexType> BatchMutableSingleCsrBuilder<I> {
     }
 }
 
+struct SafePtr<I>(*const I, PhantomData<I>);
+unsafe impl<I> Send for SafePtr<I> {}
+unsafe impl<I> Sync for SafePtr<I> {}
+
+impl<I> Clone for SafePtr<I> {
+    fn clone(&self) -> Self {
+        SafePtr(self.0.clone(), PhantomData)
+    }
+}
+
+impl<I> Copy for SafePtr<I> {}
+
+struct SafeMutPtr<I>(*mut I, PhantomData<I>);
+unsafe impl<I> Send for SafeMutPtr<I> {}
+unsafe impl<I> Sync for SafeMutPtr<I> {}
+
+impl<I> Clone for SafeMutPtr<I> {
+    fn clone(&self) -> Self {
+        SafeMutPtr(self.0.clone(), PhantomData)
+    }
+}
+
+impl<I> Copy for SafeMutPtr<I> {}
+
 impl<I: IndexType> BatchMutableSingleCsr<I> {
     pub fn new() -> Self {
         BatchMutableSingleCsr { nbr_list: Vec::new(), vertex_num: 0, edge_num: 0, vertex_capacity: 0 }
@@ -123,6 +151,46 @@ impl<I: IndexType> BatchMutableSingleCsr<I> {
 
     pub fn insert_edge(&mut self, src: I, dst: I) {
         self.nbr_list[src.index()] = dst;
+    }
+
+    pub fn insert_edges(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, reverse: bool, p: u32) {
+        let t = Instant::now();
+        self.resize_vertex(vertex_num);
+
+        let num_threads = p as usize;
+        let chunk_size = (edges.len() + num_threads - 1) / num_threads;
+
+        let nbr_ptr = self.nbr_list.as_mut_ptr();
+        let safe_nbr_ptr = SafeMutPtr(nbr_ptr, PhantomData);
+
+        let edges_ptr = edges.as_ptr();
+        let safe_edges_ptr = SafePtr(edges_ptr, PhantomData);
+
+        let edge_num = edges.len();
+
+        rayon::scope(|s| {
+            for i in 0..num_threads {
+                let start_idx = i * chunk_size;
+                let end_idx = (start_idx + chunk_size).min(edge_num);
+                s.spawn(move |_| unsafe {
+                    let n_ptr = safe_nbr_ptr.clone();
+                    let e_ptr = safe_edges_ptr.clone();
+                    if reverse {
+                        for idx in start_idx..end_idx {
+                            let (dst, src) = *e_ptr.0.add(idx);
+                            *n_ptr.0.add(src.index()) = dst;
+                        }
+                    } else {
+                        for idx in start_idx..end_idx {
+                            let (src, dst) = *e_ptr.0.add(idx);
+                            *n_ptr.0.add(src.index()) = dst;
+                        }
+                    }
+                });
+            }
+        });
+
+        println!("scsr: {}", t.elapsed().as_secs_f64());
     }
 }
 
@@ -224,7 +292,46 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
         }
     }
 
+    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32) {
+        let nbr_ptr = self.nbr_list.as_mut_ptr();
+        let safe_nbr_ptr = SafeMutPtr(nbr_ptr, PhantomData);
+
+        let edges_num = edges.len();
+        let edges_ptr = edges.as_ptr();
+        let safe_edges_ptr = SafePtr(edges_ptr, PhantomData);
+
+        let num_threads = p as usize;
+        let chunk_size = (edges_num + num_threads - 1) / num_threads;
+        rayon::scope(|s| {
+            for i in 0..num_threads {
+                let start_idx = i * chunk_size;
+                let end_idx = edges_num.min(start_idx + chunk_size);
+                s.spawn(move |_| unsafe {
+                    let edges_ptr = safe_edges_ptr.clone();
+                    let nbrs = safe_nbr_ptr.clone();
+                    if reverse {
+                        for k in start_idx..end_idx {
+                            let v = (*edges_ptr.0.add(k)).1;
+                            *nbrs.0.add(v.index()) = <I as IndexType>::max();
+                        }
+                    } else {
+                        for k in start_idx..end_idx {
+                            let v = (*edges_ptr.0.add(k)).0;
+                            *nbrs.0.add(v.index()) = <I as IndexType>::max();
+                        }
+                    }
+                });
+            }
+        });
+    }
+
     fn delete_edges_with_props(&mut self, edges: &HashSet<(I, I)>, reverse: bool, _: &mut ColTable) {
         self.delete_edges(edges, reverse);
+    }
+
+    fn parallel_delete_edges_with_props(
+        &mut self, edges: &Vec<(I, I)>, reverse: bool, _: &mut ColTable, p: u32,
+    ) {
+        self.parallel_delete_edges(edges, reverse, p);
     }
 }
