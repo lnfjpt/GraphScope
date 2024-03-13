@@ -63,9 +63,7 @@ pub trait CsrTrait<I: IndexType>: Send + Sync {
     fn as_mut_any(&mut self) -> &mut dyn Any;
 
     fn delete_vertices(&mut self, vertices: &HashSet<I>);
-    fn delete_edges(&mut self, edges: &HashSet<(I, I)>, reverse: bool);
     fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32);
-    fn delete_edges_with_props(&mut self, edges: &HashSet<(I, I)>, reverse: bool, table: &mut ColTable);
     fn parallel_delete_edges_with_props(
         &mut self, edges: &Vec<(I, I)>, reverse: bool, table: &mut ColTable, p: u32,
     );

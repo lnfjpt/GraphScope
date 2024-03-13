@@ -280,18 +280,6 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
         }
     }
 
-    fn delete_edges(&mut self, edges: &HashSet<(I, I)>, reverse: bool) {
-        if reverse {
-            for (dst, src) in edges {
-                self.remove_edge(*src, *dst);
-            }
-        } else {
-            for (src, dst) in edges {
-                self.remove_edge(*src, *dst);
-            }
-        }
-    }
-
     fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32) {
         let nbr_ptr = self.nbr_list.as_mut_ptr();
         let safe_nbr_ptr = SafeMutPtr(nbr_ptr, PhantomData);
@@ -323,10 +311,6 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
                 });
             }
         });
-    }
-
-    fn delete_edges_with_props(&mut self, edges: &HashSet<(I, I)>, reverse: bool, _: &mut ColTable) {
-        self.delete_edges(edges, reverse);
     }
 
     fn parallel_delete_edges_with_props(
