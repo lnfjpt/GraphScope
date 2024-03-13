@@ -1708,7 +1708,7 @@ impl GraphModifier {
                     header
                 });
 
-                let old_table = input.oe_prop.unwrap();
+                let old_table = input.oe_prop.as_ref().unwrap();
                 for v in 0..old_vertex_num.index() {
                     for (nbr, offset) in casted_oe
                         .get_edges_with_offset(I::new(v))
@@ -1849,9 +1849,8 @@ impl GraphModifier {
     }
 
     fn parallel_insert_rep<G, I>(
-        &self, mut input: CsrRep<I>, graph: &GraphDB<G, I>, input_schema: &InputSchema, p: u32,
-    ) -> CsrRep<I>
-    where
+        &self, input: &mut CsrRep<I>, graph: &GraphDB<G, I>, input_schema: &InputSchema, p: u32,
+    ) where
         G: FromStr + Send + Sync + IndexType + Eq,
         I: Send + Sync + IndexType,
     {
@@ -1864,26 +1863,30 @@ impl GraphModifier {
             .graph_schema
             .get_edge_header(src_label, edge_label, dst_label);
         if graph_header.is_none() {
-            return input;
+            return;
         }
         let graph_header = graph_header.unwrap();
 
         let edge_file_strings = input_schema.get_edge_file(src_label, edge_label, dst_label);
         if edge_file_strings.is_none() {
-            return input;
+            println!("EARLY RETURN A: {}", t.elapsed().as_secs_f32());
+            return;
         }
         let edge_file_strings = edge_file_strings.unwrap();
         if edge_file_strings.is_empty() {
-            return input;
+            println!("EARLY RETURN B: {}", t.elapsed().as_secs_f32());
+            return;
         }
 
         let edge_files = get_files_list(&self.input_dir.clone(), edge_file_strings);
         if edge_files.is_err() {
-            return input;
+            println!("EARLY RETURN C: {}", t.elapsed().as_secs_f32());
+            return;
         }
         let edge_files = edge_files.unwrap();
         if edge_files.is_empty() {
-            return input;
+            println!("EARLY RETURN D: {}", t.elapsed().as_secs_f32());
+            return;
         }
 
         let load_t = Instant::now();
@@ -1946,43 +1949,34 @@ impl GraphModifier {
             .graph_schema
             .is_single_ie(src_label, edge_label, dst_label);
 
-        let (new_oe_csr, new_oe_table) = if oe_single {
+        if oe_single {
             let casted_oe = input
                 .oe_csr
                 .as_mut_any()
                 .downcast_mut::<BatchMutableSingleCsr<I>>()
                 .unwrap();
             if input.oe_prop.is_none() {
-                // casted_oe.resize_vertex(graph.vertex_map.vertex_num(src_label));
-                // for (src, dst) in parsed_edges.iter() {
-                //     casted_oe.insert_edge(*src, *dst);
-                // }
                 casted_oe.insert_edges(graph.vertex_map.vertex_num(src_label), &parsed_edges, false, p);
-                (input.oe_csr, None)
             } else {
                 println!("oe single no parallel");
                 casted_oe.resize_vertex(graph.vertex_map.vertex_num(src_label));
                 let new_table = table.as_ref().unwrap();
-                let mut oe_prop = input.oe_prop.unwrap();
+                let oe_prop = input.oe_prop.as_mut().unwrap();
                 for (index, (src, dst)) in parsed_edges.iter().enumerate() {
                     casted_oe.insert_edge(*src, *dst);
                     let row = new_table.get_row(index).unwrap();
                     oe_prop.insert(src.index(), &row);
                 }
-                (input.oe_csr, Some(oe_prop))
             }
         } else {
             let new_vertex_num = graph.vertex_map.vertex_num(src_label);
             if table.is_none() {
-                // if false {
                 let casted_oe = input
                     .oe_csr
                     .as_mut_any()
                     .downcast_mut::<BatchMutableCsr<I>>()
                     .unwrap();
-                let new_oe: Box<dyn CsrTrait<I>> =
-                    Box::new(casted_oe.insert_edges(new_vertex_num, &parsed_edges, false, p));
-                (new_oe, None)
+                casted_oe.insert_edges(new_vertex_num, &parsed_edges, false, p);
             } else {
                 println!("oe no parallel");
                 let mut new_degree = vec![0 as i32; new_vertex_num];
@@ -2017,7 +2011,7 @@ impl GraphModifier {
                         header
                     });
 
-                    let old_table = input.oe_prop.unwrap();
+                    let old_table = input.oe_prop.as_ref().unwrap();
                     for v in 0..old_vertex_num.index() {
                         for (nbr, offset) in casted_oe
                             .get_edges_with_offset(I::new(v))
@@ -2033,8 +2027,8 @@ impl GraphModifier {
                         let row = input_table.get_row(index).unwrap();
                         new_table.insert(new_offset, &row);
                     }
-                    let new_oe: Box<dyn CsrTrait<I>> = Box::new(builder.finish().unwrap());
-                    (new_oe, Some(new_table))
+                    input.oe_csr = Box::new(builder.finish().unwrap());
+                    input.oe_prop = Some(new_table);
                 } else {
                     for v in 0..old_vertex_num.index() {
                         for nbr in casted_oe.get_edges(I::new(v)).unwrap() {
@@ -2045,49 +2039,39 @@ impl GraphModifier {
                         builder.put_edge(*src, *dst).unwrap();
                     }
 
-                    let new_oe: Box<dyn CsrTrait<I>> = Box::new(builder.finish().unwrap());
-                    (new_oe, None)
+                    input.oe_csr = Box::new(builder.finish().unwrap());
                 }
             }
         };
 
-        let (new_ie_csr, new_ie_table) = if ie_single {
+        if ie_single {
             let casted_ie = input
                 .ie_csr
                 .as_mut_any()
                 .downcast_mut::<BatchMutableSingleCsr<I>>()
                 .unwrap();
             if input.ie_prop.is_none() {
-                // casted_ie.resize_vertex(graph.vertex_map.vertex_num(dst_label));
-                // for (src, dst) in parsed_edges.iter() {
-                //     casted_ie.insert_edge(*dst, *src);
-                // }
                 casted_ie.insert_edges(graph.vertex_map.vertex_num(dst_label), &parsed_edges, true, p);
-                (input.ie_csr, None)
             } else {
                 println!("ie single no parallel");
                 casted_ie.resize_vertex(graph.vertex_map.vertex_num(dst_label));
                 let new_table = table.as_ref().unwrap();
-                let mut ie_prop = input.ie_prop.unwrap();
+                let ie_prop = input.ie_prop.as_mut().unwrap();
                 for (index, (src, dst)) in parsed_edges.iter().enumerate() {
                     casted_ie.insert_edge(*dst, *src);
                     let row = new_table.get_row(index).unwrap();
                     ie_prop.insert(dst.index(), &row);
                 }
-                (input.ie_csr, Some(ie_prop))
             }
         } else {
             let new_vertex_num = graph.vertex_map.vertex_num(dst_label);
             if table.is_none() {
-                // if false {
                 let casted_ie = input
                     .ie_csr
                     .as_mut_any()
                     .downcast_mut::<BatchMutableCsr<I>>()
                     .unwrap();
-                let new_ie: Box<dyn CsrTrait<I>> =
-                    Box::new(casted_ie.insert_edges(new_vertex_num, &parsed_edges, true, p));
-                (new_ie, None)
+                casted_ie.insert_edges(new_vertex_num, &parsed_edges, true, p);
             } else {
                 println!("ie no parallel");
                 let mut new_degree = vec![0 as i32; new_vertex_num];
@@ -2122,7 +2106,7 @@ impl GraphModifier {
                         header
                     });
 
-                    let old_table = input.ie_prop.unwrap();
+                    let old_table = input.ie_prop.as_ref().unwrap();
                     for v in 0..old_vertex_num.index() {
                         for (nbr, offset) in casted_ie
                             .get_edges_with_offset(I::new(v))
@@ -2138,8 +2122,8 @@ impl GraphModifier {
                         let row = input_table.get_row(index).unwrap();
                         new_table.insert(new_offset, &row);
                     }
-                    let new_ie: Box<dyn CsrTrait<I>> = Box::new(builder.finish().unwrap());
-                    (new_ie, Some(new_table))
+                    input.ie_csr = Box::new(builder.finish().unwrap());
+                    input.ie_prop = Some(new_table);
                 } else {
                     for v in 0..old_vertex_num.index() {
                         for nbr in casted_ie.get_edges(I::new(v)).unwrap() {
@@ -2150,8 +2134,7 @@ impl GraphModifier {
                         builder.put_edge(*dst, *src).unwrap();
                     }
 
-                    let new_ie: Box<dyn CsrTrait<I>> = Box::new(builder.finish().unwrap());
-                    (new_ie, None)
+                    input.ie_csr = Box::new(builder.finish().unwrap());
                 }
             }
         };
@@ -2167,16 +2150,6 @@ impl GraphModifier {
         println!("\tload: {}", load_t);
         println!("\tparse: {}", parse_t);
         println!("\tinsert: {}", insert_t);
-
-        CsrRep {
-            src_label: src_label,
-            edge_label: edge_label,
-            dst_label: dst_label,
-            ie_csr: new_ie_csr,
-            ie_prop: new_ie_table,
-            oe_csr: new_oe_csr,
-            oe_prop: new_oe_table,
-        }
     }
 
     fn apply_edges_inserts<G, I>(
@@ -2194,12 +2167,19 @@ impl GraphModifier {
                 .collect();
             self.set_csrs(graph, output_reps);
         } else if self.parallel > 1 {
-            let input_reps = self.take_csrs(graph);
-            let output_reps = input_reps
-                .into_iter()
-                .map(|input| self.parallel_insert_rep(input, graph, input_schema, self.parallel))
-                .collect();
-            self.set_csrs(graph, output_reps);
+            let mut input_reps = self.take_csrs(graph);
+            let t = Instant::now();
+            // let output_reps = input_reps
+            //     .into_iter()
+            //     .map(|input| self.parallel_insert_rep(input, graph, input_schema, self.parallel))
+            //     .collect();
+            for ir in input_reps.iter_mut() {
+                let tx = Instant::now();
+                self.parallel_insert_rep(ir, graph, input_schema, self.parallel);
+                println!("tx = {}", tx.elapsed().as_secs_f32());
+            }
+            println!("PARALLEL INSERT REP: {}", t.elapsed().as_secs_f32());
+            self.set_csrs(graph, input_reps);
         } else {
             let vertex_label_num = graph.vertex_label_num;
             let edge_label_num = graph.edge_label_num;
@@ -2301,8 +2281,14 @@ impl GraphModifier {
         I: Send + Sync + IndexType,
         G: FromStr + Send + Sync + IndexType + Eq,
     {
+        let t0 = Instant::now();
         self.apply_vertices_inserts(graph, &insert_schema)?;
+        let t0 = t0.elapsed().as_secs_f32();
+        println!("INSERT VERTEX: {}", t0);
+        let t1 = Instant::now();
         self.apply_edges_inserts(graph, &insert_schema)?;
+        let t1 = t1.elapsed().as_secs_f32();
+        println!("INSERT EDGE: {}", t1);
         Ok(())
     }
 

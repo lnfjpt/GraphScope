@@ -106,7 +106,7 @@ impl<I: IndexType> BatchMutableCsr<I> {
         BatchMutableCsr { neighbors: Vec::new(), offsets: Vec::new(), degree: Vec::new(), edge_num: 0 }
     }
 
-    pub fn insert_edges(&self, vertex_num: usize, edges: &Vec<(I, I)>, reverse: bool, p: u32) -> Self {
+    pub fn insert_edges(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, reverse: bool, p: u32) {
         let t0 = Instant::now();
         let mut new_degree = vec![0; vertex_num];
 
@@ -136,6 +136,8 @@ impl<I: IndexType> BatchMutableCsr<I> {
         let new_degree_ptr = new_degree.as_mut_ptr();
         let safe_degree_ptr = SafeMutPtr(new_degree_ptr, PhantomData);
 
+        let safe_old_degree_ptr = SafePtr(self.degree.as_ptr(), PhantomData);
+
         rayon::scope(|s| {
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
@@ -144,6 +146,7 @@ impl<I: IndexType> BatchMutableCsr<I> {
                     let offset_ptr = safe_new_offset_ptr.clone();
                     let toffset_ptr = safe_thread_offset_ptr.clone();
                     let d_ptr = safe_degree_ptr.clone();
+                    let old_d_ptr = safe_old_degree_ptr.clone();
                     let mut local_offset = 0_usize;
                     if end_idx > old_vertex_num {
                         if start_idx >= old_vertex_num {
@@ -155,8 +158,8 @@ impl<I: IndexType> BatchMutableCsr<I> {
                         } else {
                             for v in start_idx..old_vertex_num {
                                 *(offset_ptr.0.add(v)) = local_offset;
-                                local_offset += (*d_ptr.0.add(v) + self.degree[v]) as usize;
-                                *d_ptr.0.add(v) = self.degree[v];
+                                local_offset += (*d_ptr.0.add(v) + *old_d_ptr.0.add(v)) as usize;
+                                *d_ptr.0.add(v) = *old_d_ptr.0.add(v);
                             }
                             for v in old_vertex_num..end_idx {
                                 *(offset_ptr.0.add(v)) = local_offset;
@@ -167,8 +170,8 @@ impl<I: IndexType> BatchMutableCsr<I> {
                     } else {
                         for v in start_idx..end_idx {
                             *(offset_ptr.0.add(v)) = local_offset;
-                            local_offset += (*d_ptr.0.add(v) + self.degree[v]) as usize;
-                            *d_ptr.0.add(v) = self.degree[v];
+                            local_offset += (*d_ptr.0.add(v) + *old_d_ptr.0.add(v)) as usize;
+                            *d_ptr.0.add(v) = *old_d_ptr.0.add(v);
                         }
                     }
                     *toffset_ptr.0.add(i) = local_offset;
@@ -192,9 +195,11 @@ impl<I: IndexType> BatchMutableCsr<I> {
 
         let safe_neighbor_ptr = SafeMutPtr(new_neighbor_ptr, PhantomData);
         let safe_old_neighbor_ptr = SafePtr(old_neighbor_ptr, PhantomData);
+        let safe_old_offset_ptr = SafePtr(self.offsets.as_ptr(), PhantomData);
         let tc = tc.elapsed().as_secs_f32();
 
         let t1 = Instant::now();
+        let td = Instant::now();
         rayon::scope(|s| {
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
@@ -204,6 +209,8 @@ impl<I: IndexType> BatchMutableCsr<I> {
                     let on_ptr = safe_old_neighbor_ptr.clone();
                     let n_ptr = safe_neighbor_ptr.clone();
                     let offset_ptr = safe_new_offset_ptr.clone();
+                    let old_offset_ptr = safe_old_offset_ptr.clone();
+                    let old_degree_ptr = safe_old_degree_ptr.clone();
                     if end_idx > old_vertex_num {
                         if start_idx >= old_vertex_num {
                             for v in start_idx..end_idx {
@@ -214,9 +221,9 @@ impl<I: IndexType> BatchMutableCsr<I> {
                                 let offset = (*offset_ptr.0.add(v)) + local_offset;
                                 *offset_ptr.0.add(v) = offset;
 
-                                let from = on_ptr.0.add(self.offsets[v]);
+                                let from = on_ptr.0.add(*old_offset_ptr.0.add(v));
                                 let to = n_ptr.0.add(offset);
-                                let deg = self.degree[v];
+                                let deg = *old_degree_ptr.0.add(v);
                                 ptr::copy(from, to, deg as usize);
                             }
                             for v in old_vertex_num..end_idx {
@@ -228,9 +235,9 @@ impl<I: IndexType> BatchMutableCsr<I> {
                             let offset = (*offset_ptr.0.add(v)) + local_offset;
                             *offset_ptr.0.add(v) = offset;
 
-                            let from = on_ptr.0.add(self.offsets[v]);
+                            let from = on_ptr.0.add(*old_offset_ptr.0.add(v));
                             let to = n_ptr.0.add(offset);
-                            let deg = self.degree[v];
+                            let deg = *old_degree_ptr.0.add(v);
                             ptr::copy(from, to, deg as usize);
                         }
                     }
@@ -238,8 +245,9 @@ impl<I: IndexType> BatchMutableCsr<I> {
             }
         });
         let t1 = t1.elapsed().as_secs_f64();
+        let td = td.elapsed().as_secs_f32();
 
-        let td = Instant::now();
+        let te = Instant::now();
         if reverse {
             for (src, dst) in edges.iter() {
                 let offset = new_offsets[dst.index()] + new_degree[dst.index()] as usize;
@@ -253,13 +261,21 @@ impl<I: IndexType> BatchMutableCsr<I> {
                 new_neighbors[offset] = *dst;
             }
         }
-        let td = td.elapsed().as_secs_f32();
+        let te = te.elapsed().as_secs_f32();
 
         let t0 = t0.elapsed().as_secs_f64();
         println!("csr parallel percent: {} / {} = {}", t1, t0, t1 / t0);
-        println!("a = {}, b = {}, c = {}, d = {}", ta, tb, tc, td);
+        println!("\ta: {}", ta);
+        println!("\tb: {}", tb);
+        println!("\tc: {}", tc);
+        println!("\td: {}", td);
+        println!("\te: {}", te);
 
-        Self { neighbors: new_neighbors, offsets: new_offsets, degree: new_degree, edge_num: cur_offset }
+        self.neighbors = new_neighbors;
+        self.offsets = new_offsets;
+        self.degree = new_degree;
+        self.edge_num = cur_offset;
+        // Self { neighbors: new_neighbors, offsets: new_offsets, degree: new_degree, edge_num: cur_offset }
     }
 }
 
