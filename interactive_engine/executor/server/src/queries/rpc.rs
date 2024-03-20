@@ -380,7 +380,6 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                 }
             }
         }
-        println!("parameters size is {}", parameters.len());
         let reply = pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
         Ok(Response::new(reply))
     }
