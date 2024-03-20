@@ -66,6 +66,16 @@ message TraverseResponse {
   bool is_success = 1;
 }
 
+message CallRequest {
+  string query = 1;
+}
+
+message CallResponse {
+  bool is_success  = 1;
+  repeated string results = 2;
+  string reason = 3;
+}
+
 service BIJobService {
   rpc Submit(BIJobRequest) returns(stream BIJobResponse) {}
 
@@ -78,5 +88,6 @@ service BIJobService {
   rpc SubmitDeleteGeneration(DeleteGenerationRequest) returns(DeleteGenerationResponse) {}
 
   rpc SubmitTraverse(TraverseRequest) returns(TraverseResponse) {}
-  
+
+  rpc SubmitCall(CallRequest) returns(CallResponse) {}
 }
