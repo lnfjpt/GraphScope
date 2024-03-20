@@ -171,6 +171,12 @@ impl QueryRegister {
         self.precompute_vertex_map.get(precompute_name)
     }
 
+    pub fn get_precompute_edge(
+        &self, precompute_name: &String,
+    ) -> Option<&(PrecomputeSetting, Container<PrecomputeEdgeApi>)> {
+        self.precompute_edge_map.get(precompute_name)
+    }
+
     pub fn precompute_names(&self) -> Vec<String> {
         self.precompute_vertex_map
             .keys()

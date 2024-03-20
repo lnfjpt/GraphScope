@@ -116,7 +116,7 @@ impl<S: pb::bi_job_service_server::BiJobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error>>
-where {
+        where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -359,6 +359,29 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
         traverse(&graph, &output_dir);
 
         let reply = pb::TraverseResponse { is_success: true };
+        Ok(Response::new(reply))
+    }
+
+    async fn submit_call(
+        &self, req: Request<pb::CallRequest>,
+    ) -> Result<Response<pb::CallResponse>, Status> {
+        let pb::CallRequest { query } = req.into_inner();
+        let function_name = "".to_string();
+        match function_name.as_str() {
+            "gs.flex.custom.asProcedure" => {}
+            "gs.flex.CSRStore.new_batch_update_session" => {}
+            _ => {
+                if let Some((precompute_setting, precompute)) = self.query_register.get_precompute_vertex(&function_name) {
+                    info!("111");
+                } else if let Some((precompute_setting, precompute)) = self.query_register.get_precompute_vertex(&function_name) {
+                    info!("222");
+                } else if let Some(query) = self.query_register.get_query(&function_name){
+
+                }
+            }
+        }
+        println!("parameters size is {}", parameters.len());
+        let reply = pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
         Ok(Response::new(reply))
     }
 }
