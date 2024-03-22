@@ -31,6 +31,7 @@ itertools = "0.10.2"
 bmcsr = { path = "../store/bmcsr" }
 num = "0.4.1"
 graph_index = { path = "../store/graph_index" }
+regex = "1.7.1"
 
 [build-dependencies]
 tonic-build = { version = "0.8" }
