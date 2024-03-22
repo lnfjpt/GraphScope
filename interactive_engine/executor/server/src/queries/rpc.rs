@@ -11,6 +11,7 @@ use std::time::Duration;
 use futures::Stream;
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
+use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -366,17 +367,70 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
         &self, req: Request<pb::CallRequest>,
     ) -> Result<Response<pb::CallResponse>, Status> {
         let pb::CallRequest { query } = req.into_inner();
-        let function_name = "".to_string();
+        let function_name_re = Regex::new(r"^CALL (.*)\(([\s\S]*?)\)$").unwrap();
+        let (function_name, parameters) = if function_name_re.is_match(&query) {
+            let capture = function_name_re.captures(&query).expect("Capture function_name error");
+            (capture[1].to_string(), capture[2].to_string())
+        } else {
+            let reply = pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+            return Ok(Response::new(reply));
+        };
         match function_name.as_str() {
-            "gs.flex.custom.asProcedure" => {}
-            "gs.flex.CSRStore.new_batch_update_session" => {}
+            "gs.flex.custom.asProcedure" => {
+                let parameters_re = Regex::new(
+                    r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\]\
+                           (?:,\s*)?)*\])\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*,\s*'([^']*)'\s*$"
+                ).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re.captures(&parameters).expect("Match asProcedure parameters error");
+                    let query_name = cap[0].to_string();
+                    let query = cap[1].to_string();
+                    let mode = cap[2].to_string();
+                    let outputs = cap[3].to_string();
+                    let inputs = cap[4].to_string();
+                    let description = cap[5].to_string();
+                } else {
+                    let reply = pb::CallResponse { is_success: false, results: vec![], reason: format!("Fail to parse parameters for procedure: gs.flex.custom.asProcedure") };
+                }
+            }
+            "gs.flex.custom.defPrecompute" => {
+                let parameters_re = Regex::new(
+                    r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\]\
+                           (?:,\s*)?)*\])\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*,\s*'([^']*)'\s*$"
+                ).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re.captures(&parameters).expect("Match asProcedure parameters error");
+                    let query_name = cap[0].to_string();
+                    let query = cap[1].to_string();
+                    let mode = cap[2].to_string();
+                    let outputs = cap[3].to_string();
+                    let inputs = cap[4].to_string();
+                    let description = cap[5].to_string();
+                } else {
+                    let reply = pb::CallResponse { is_success: false, results: vec![], reason:  format!("Fail to parse parameters for procedure: gs.flex.custom.defPrecompute") };
+                }
+            }
             _ => {
-                if let Some((precompute_setting, precompute)) = self.query_register.get_precompute_vertex(&function_name) {
-                    info!("111");
-                } else if let Some((precompute_setting, precompute)) = self.query_register.get_precompute_vertex(&function_name) {
-                    info!("222");
-                } else if let Some(query) = self.query_register.get_query(&function_name){
-
+                let query_name_re = Regex::new(r"custom.(\S*)").unwrap();
+                if query_name_re.is_match(&function_name) {
+                    let cap = query_name_re.captures(&function_name).expect("Fail to match query name");
+                    let query_name = cap[1].to_string();
+                    if let Some((precompute_setting, precompute)) = self.query_register.get_precompute_vertex(&query_name) {
+                        info!("111");
+                    } else if let Some((precompute_setting, precompute)) = self.query_register.get_precompute_vertex(&query_name) {
+                        info!("222");
+                    } else if let Some(query) = self.query_register.get_query(&query_name) {
+                        let mut parameters_map = HashMap::<String, String>::new();
+                        let parameter_re = Regex::new(r#""([^"]*)"(?:,|$)"#).unwrap();
+                        for caps in parameter_re.captures_iter(&parameters) {
+                            if let Some(matched) = caps.get(1) {
+                                println!("Matched parameter: {}", matched.as_str());
+                            }
+                        }
+                    }
+                } else {
+                    let reply = pb::CallResponse { is_success: false, results: vec![], reason: format!("Unknown procedure name: {}", function_name) };
+                    return Ok(Response::new(reply));
                 }
             }
         }
