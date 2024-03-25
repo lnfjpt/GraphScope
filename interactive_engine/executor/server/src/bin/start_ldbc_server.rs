@@ -1,16 +1,14 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use serde::Deserialize;
-use structopt::StructOpt;
-
 use bmcsr::graph_db::GraphDB;
 use graph_index::GraphIndex;
 use pegasus::{Configuration, ServerConf};
-
 use rpc_server::queries;
 use rpc_server::queries::register::QueryRegister;
 use rpc_server::queries::rpc::RPCServerConfig;
+use serde::Deserialize;
+use structopt::StructOpt;
 
 #[cfg(feature = "use_mimalloc")]
 use mimalloc::MiMalloc;

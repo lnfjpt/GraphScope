@@ -4,14 +4,13 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use pegasus::JobConf;
-use structopt::StructOpt;
-
 use bmcsr::graph_db::GraphDB;
 use bmcsr::graph_modifier::{DeleteGenerator, GraphModifier};
 use bmcsr::schema::InputSchema;
 use graph_index::GraphIndex;
+use pegasus::JobConf;
 use rpc_server::queries::register::QueryRegister;
+use structopt::StructOpt;
 
 #[derive(Debug, Clone, StructOpt, Default)]
 pub struct Config {

@@ -1,4 +1,4 @@
 pub mod graph;
 
-pub mod rpc;
 pub mod register;
+pub mod rpc;

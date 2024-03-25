@@ -1,16 +1,30 @@
 use std::collections::HashMap;
 use std::error::Error;
+use std::io::Write;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
+use std::{env, fs};
 
+use bmcsr::graph_db::GraphDB;
+use bmcsr::graph_modifier::{DeleteGenerator, GraphModifier};
+use bmcsr::schema::InputSchema;
+use bmcsr::traverse::traverse;
+use dlopen::wrapper::{Container, WrapperApi};
 use futures::Stream;
+use graph_index::GraphIndex;
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
+use pegasus::api::function::FnResult;
+use pegasus::api::FromStream;
+use pegasus::result::{FromStreamExt, ResultSink};
+use pegasus::{Configuration, JobConf, ServerConf};
+use pegasus_network::config::ServerAddr;
 use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
@@ -18,19 +32,8 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
-use bmcsr::graph_db::GraphDB;
-use bmcsr::graph_modifier::{DeleteGenerator, GraphModifier};
-use bmcsr::schema::InputSchema;
-use bmcsr::traverse::traverse;
-use graph_index::GraphIndex;
-use pegasus::api::function::FnResult;
-use pegasus::api::FromStream;
-use pegasus::result::{FromStreamExt, ResultSink};
-use pegasus::{Configuration, JobConf, ServerConf};
-use pegasus_network::config::ServerAddr;
-
 use crate::generated::protocol as pb;
-use crate::queries::register::QueryRegister;
+use crate::queries::register::{QueryApi, QueryRegister};
 
 pub struct StandaloneServiceListener;
 
@@ -234,6 +237,8 @@ pub async fn start_rpc_sever(
     Ok(())
 }
 
+static CODEGEN_TMP_DIR: &'static str = "CODEGEN_TMP_DIR";
+
 #[allow(dead_code)]
 pub struct JobServiceImpl {
     query_register: QueryRegister,
@@ -381,8 +386,8 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
         match function_name.as_str() {
             "gs.flex.custom.asProcedure" => {
                 let parameters_re = Regex::new(
-                    r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\]\
-                           (?:,\s*)?)*\])\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*,\s*'([^']*)'\s*$"
+                    r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*\[((?:\['[^']*'(?:,\s*'[^']*')*\]\
+                           (?:,\s*)?)*)\]\s*,\s*\[((?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*)\]\s*,\s*'([^']*)'\s*$"
                 ).unwrap();
                 if parameters_re.is_match(&parameters) {
                     let cap = parameters_re
@@ -394,6 +399,129 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                     let outputs = cap[3].to_string();
                     let inputs = cap[4].to_string();
                     let description = cap[5].to_string();
+                    let mut inputs_info = vec![];
+                    let mut outputs_info = vec![];
+                    let input_re = Regex::new(r"\['([^']*)',\s*'([^']*)'\]").unwrap();
+                    for cap in input_re.captures_iter(&inputs) {
+                        inputs_info.push((cap[1].to_string(), cap[2].to_string()));
+                    }
+                    let output_re = Regex::new(r"\['([^']*)',\s*'([^']*)'\]").unwrap();
+                    for cap in output_re.captures_iter(&outputs) {
+                        outputs_info.push((cap[1].to_string(), cap[2].to_string()));
+                    }
+                    let exe_path = env::current_exe()?;
+                    let exe_dir = exe_path
+                        .parent()
+                        .unwrap_or_else(|| {
+                            panic!("无法获取可执行文件的目录");
+                        })
+                        .to_path_buf();
+                    let gie_dir = exe_path
+                        .parent()
+                        .and_then(|p| p.parent())
+                        .and_then(|p| p.parent())
+                        .and_then(|p| p.parent())
+                        .and_then(|p| p.parent())
+                        .and_then(|p| p.parent())
+                        .unwrap_or_else(|| panic!("Failed to find path to gie-codegen"));
+                    let temp_dir = env::var(CODEGEN_TMP_DIR).unwrap_or_else(|_| format!("/tmp"));
+                    let cypher_path = format!("{}/{}.cypher", temp_dir, query_name);
+                    let mut cypher_file = match std::fs::File::create(&Path::new(cypher_path.as_str())) {
+                        Err(reason) => panic!("Failed to create file {}: {}", cypher_path, reason),
+                        Ok(file) => file,
+                    };
+                    cypher_file
+                        .write_all(query.as_bytes())
+                        .expect("Failed to write query to file");
+                    let plan_path = format!("{}/{}.plan", temp_dir, query_name);
+                    let config_path = format!("{}/{}.yaml", temp_dir, query_name);
+                    let gie_dir_str = gie_dir.to_str().unwrap();
+
+                    // Run compiler
+                    let compiler_status = Command::new("java")
+                        .arg("-cp")
+                        .arg(format!("{}/GraphScope/interactive_engine/compiler/target/compiler-0.0.1-SNAPSHOT-shade.jar", gie_dir_str))
+                        .arg("-Djna.library.path=".to_owned() + gie_dir_str + "/GraphScope/interactive_engine/executor/ir/target/release/")
+                        .arg("com.alibaba.graphscope.common.ir.tools.GraphPlanner")
+                        .arg(format!("{}/GraphScope/interactive_engine/compiler/conf/ir.compiler.properties", gie_dir_str))
+                        .arg(cypher_path)
+                        .arg(plan_path)
+                        .arg(config_path)
+                        .arg(format!("name:{}", query_name)).status();
+                    match compiler_status {
+                        Ok(status) => {
+                            println!("Finished generate plan for query {}", query_name);
+                        }
+                        Err(e) => {
+                            // 处理运行命令的错误
+                            eprintln!("Error executing command: {}", e);
+                        }
+                    }
+
+                    // Run codegen
+                    let codegen_status =
+                        Command::new(format!("{}/build/gen_pegasus_from_plan", gie_dir_str))
+                            .arg("-i")
+                            .arg(format!("{}/{}.plan", temp_dir, query_name))
+                            .arg("-n")
+                            .arg(query_name.as_str())
+                            .arg("-t")
+                            .arg("plan")
+                            .arg("-s")
+                            .arg(format!(
+                                "{}/GraphScope/interactive_engine/executor/store/bmcsr/schema.json",
+                                temp_dir
+                            ))
+                            .arg("-r")
+                            .arg("single_machine")
+                            .status();
+                    match codegen_status {
+                        Ok(status) => {
+                            println!("Finished codegen for query {}", query_name);
+                        }
+                        Err(e) => {
+                            // 处理运行命令的错误
+                            eprintln!("Error executing command: {}", e);
+                        }
+                    }
+
+                    // Build so
+                    let query_project = format!("{}/benchmark/{}/src", gie_dir_str, query_name);
+                    let query_project_path = Path::new(query_project.as_str());
+                    if !query_project_path.exists() {
+                        fs::create_dir_all(&query_project_path).expect("Failed to create project dir");
+                    }
+                    let codegen_path = format!("{}/{}.rs", temp_dir, query_name);
+                    let lib_path = format!("{}/src/lib.rs", query_project);
+                    fs::copy(codegen_path, lib_path).expect("Failed to copy rust code");
+
+                    let cargo_template_path = format!("{}/benchmark/Cargo.toml.template", gie_dir_str);
+                    let mut cargo_toml_contents = fs::read_to_string(cargo_template_path)?;
+                    cargo_toml_contents = cargo_toml_contents.replace("${query_path}", query_name.as_str());
+                    let cargo_toml_path = format!("{}/benchmark/{}/Cargo.toml", gie_dir_str, query_name);
+                    fs::write(cargo_toml_path, cargo_toml_contents).expect("Failed to write cargo file");
+
+                    let build_status = Command::new("cargo")
+                        .arg("build")
+                        .arg("--release")
+                        .current_dir(format!("{}/benchmark/{}", gie_dir_str, query_name))
+                        .status();
+                    match build_status {
+                        Ok(status) => {
+                            println!("Finished build dylib for query {}", query_name);
+                        }
+                        Err(e) => {
+                            // 处理运行命令的错误
+                            eprintln!("Error executing command: {}", e);
+                        }
+                    }
+                    let dylib_path = format!(
+                        "{}/benchmark/{}/target/release/lib{}.dylib",
+                        gie_dir_str, query_name, query_name
+                    );
+                    let libc: Container<QueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
+                    self.query_register
+                        .register(query_name, libc, inputs_info, outputs_info, description);
                 } else {
                     let reply = pb::CallResponse {
                         is_success: false,
@@ -429,162 +557,6 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                     };
                 }
             }
-            "gs.flex.CSRStore.batch_insert_vertices" => {
-                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
-                if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re
-                        .captures(&parameters)
-                        .expect("Match batch insert vertices error");
-                    let label = cap[1].to_string();
-                    let filename = cap[2].to_string();
-                    let properties = cap[3].to_string();
-                    let data_root = "";
-                    let data_root_path = PathBuf::from(data_root);
-
-                    let mut graph_modifier = GraphModifier::new(&data_root_path);
-
-                    graph_modifier.skip_header();
-                    graph_modifier.parallel(self.workers);
-                    let mut graph = self.graph_db.write().unwrap();
-                    println!(
-                        "insert vertices: label: {}, filename: {}, properties: {}",
-                        label, filename, properties
-                    );
-                    graph_modifier
-                        .apply_vertices_insert_with_filename(&mut graph, &label, &filename, &properties)
-                        .unwrap();
-
-                    let reply =
-                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
-                    return Ok(Response::new(reply));
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!(
-                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_insert_vertices"
-                        ),
-                    };
-                    return Ok(Response::new(reply));
-                }
-            }
-            "gs.flex.CSRStore.batch_insert_edges" => {
-                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
-                if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re
-                        .captures(&parameters)
-                        .expect("Match batch insert edges error");
-                    let label = cap[1].to_string();
-                    let filename = cap[2].to_string();
-                    let properties = cap[3].to_string();
-                    let data_root = "";
-                    let data_root_path = PathBuf::from(data_root);
-
-                    let mut graph_modifier = GraphModifier::new(&data_root_path);
-
-                    graph_modifier.skip_header();
-                    graph_modifier.parallel(self.workers);
-                    let mut graph = self.graph_db.write().unwrap();
-                    println!(
-                        "insert edges: label: {}, filename: {}, properties: {}",
-                        label, filename, properties
-                    );
-                    graph_modifier
-                        .apply_edges_insert_with_filename(&mut graph, &label, &filename, &properties)
-                        .unwrap();
-
-                    let reply =
-                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
-                    return Ok(Response::new(reply));
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!(
-                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_insert_edges"
-                        ),
-                    };
-                    return Ok(Response::new(reply));
-                }
-            }
-            "gs.flex.CSRStore.batch_delete_vertices" => {
-                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
-                if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re
-                        .captures(&parameters)
-                        .expect("Match batch delete vertices error");
-                    let label = cap[1].to_string();
-                    let filename = cap[2].to_string();
-                    let properties = cap[3].to_string();
-                    let data_root = "";
-                    let data_root_path = PathBuf::from(data_root);
-
-                    let mut graph_modifier = GraphModifier::new(&data_root_path);
-
-                    graph_modifier.skip_header();
-                    graph_modifier.parallel(self.workers);
-                    let mut graph = self.graph_db.write().unwrap();
-                    println!(
-                        "delete vertices: label: {}, filename: {}, properties: {}",
-                        label, filename, properties
-                    );
-                    graph_modifier
-                        .apply_vertices_delete_with_filename(&mut graph, &label, &filename, &properties)
-                        .unwrap();
-
-                    let reply =
-                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
-                    return Ok(Response::new(reply));
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!(
-                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_delete_vertices"
-                        ),
-                    };
-                    return Ok(Response::new(reply));
-                }
-            }
-            "gs.flex.CSRStore.batch_delete_edges" => {
-                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
-                if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re
-                        .captures(&parameters)
-                        .expect("Match batch delete edges error");
-                    let label = cap[1].to_string();
-                    let filename = cap[2].to_string();
-                    let properties = cap[3].to_string();
-                    let data_root = "";
-                    let data_root_path = PathBuf::from(data_root);
-
-                    let mut graph_modifier = GraphModifier::new(&data_root_path);
-
-                    graph_modifier.skip_header();
-                    graph_modifier.parallel(self.workers);
-                    let mut graph = self.graph_db.write().unwrap();
-                    println!(
-                        "delete edges: label: {}, filename: {}, properties: {}",
-                        label, filename, properties
-                    );
-                    graph_modifier
-                        .apply_edges_delete_with_filename(&mut graph, &label, &filename, &properties)
-                        .unwrap();
-
-                    let reply =
-                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
-                    return Ok(Response::new(reply));
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!(
-                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_delete_edges"
-                        ),
-                    };
-                    return Ok(Response::new(reply));
-                }
-            }
             _ => {
                 let query_name_re = Regex::new(r"custom.(\S*)").unwrap();
                 if query_name_re.is_match(&function_name) {
@@ -603,12 +575,50 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                     {
                         info!("222");
                     } else if let Some(query) = self.query_register.get_query(&query_name) {
-                        let mut parameters_map = HashMap::<String, String>::new();
-                        let parameter_re = Regex::new(r#""([^"]*)"(?:,|$)"#).unwrap();
-                        for caps in parameter_re.captures_iter(&parameters) {
-                            if let Some(matched) = caps.get(1) {
-                                println!("Matched parameter: {}", matched.as_str());
+                        if let Some(inputs_info) = self
+                            .query_register
+                            .get_query_inputs_info(&query_name)
+                        {
+                            let mut parameters_map = HashMap::<String, String>::new();
+                            let parameter_re = Regex::new(r#""([^"]*)"(?:,|$)"#).unwrap();
+                            let mut input_index = 0;
+                            for caps in parameter_re.captures_iter(&parameters) {
+                                if let Some(matched) = caps.get(1) {
+                                    parameters_map.insert(
+                                        inputs_info[input_index].0.clone(),
+                                        matched.as_str().to_string(),
+                                    );
+                                    input_index += 1;
+                                }
                             }
+                            let mut conf = JobConf::new(query_name.clone().to_owned());
+                            conf.set_workers(self.workers);
+                            conf.reset_servers(ServerConf::Partial(self.servers.clone()));
+                            let graph = self.graph_db.read().unwrap();
+                            let graph_index = self.graph_index.read().unwrap();
+                            let results = {
+                                pegasus::run(conf.clone(), || {
+                                    query.Query(conf.clone(), &graph, &graph_index, parameters_map.clone())
+                                })
+                                .expect("submit query failure")
+                            };
+                            let mut query_results = vec![];
+                            for result in results {
+                                query_results.push(String::from_utf8(result.unwrap()).unwrap());
+                            }
+                            let reply = pb::CallResponse {
+                                is_success: true,
+                                results: query_results,
+                                reason: format!(""),
+                            };
+                            return Ok(Response::new(reply));
+                        } else {
+                            let reply = pb::CallResponse {
+                                is_success: false,
+                                results: vec![],
+                                reason: format!("Failed to get inputs info of query: {}", function_name),
+                            };
+                            return Ok(Response::new(reply));
                         }
                     }
                 } else {

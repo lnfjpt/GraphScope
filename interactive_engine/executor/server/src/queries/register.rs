@@ -1,20 +1,20 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 use std::time::Instant;
-
-use dlopen::wrapper::{Container, WrapperApi};
-use serde::{Deserialize, Serialize};
 
 use bmcsr::graph::Direction;
 use bmcsr::graph_db::GraphDB;
 use bmcsr::types::LabelId;
+use dlopen::wrapper::{Container, WrapperApi};
 use graph_index::types::{ArrayData, DataType as IndexDataType, Item};
 use graph_index::GraphIndex;
 use pegasus::api::*;
 use pegasus::errors::BuildJobError;
 use pegasus::result::ResultSink;
 use pegasus::{JobConf, ServerConf};
+use serde::{Deserialize, Serialize};
 
 #[derive(WrapperApi)]
 pub struct QueryApi {
@@ -97,7 +97,10 @@ pub struct QueriesConfig {
 }
 
 pub struct QueryRegister {
-    query_map: HashMap<String, Container<QueryApi>>,
+    query_map: RwLock<HashMap<String, Arc<Container<QueryApi>>>>,
+    query_inputs: RwLock<HashMap<String, Vec<(String, String)>>>,
+    query_outputs: RwLock<HashMap<String, Vec<(String, String)>>>,
+    query_description: RwLock<HashMap<String, String>>,
     precompute_vertex_map: HashMap<String, (PrecomputeSetting, Container<PrecomputeVertexApi>)>,
     precompute_edge_map: HashMap<String, (PrecomputeSetting, Container<PrecomputeEdgeApi>)>,
 }
@@ -105,14 +108,47 @@ pub struct QueryRegister {
 impl QueryRegister {
     pub fn new() -> Self {
         Self {
-            query_map: HashMap::new(),
+            query_map: RwLock::new(HashMap::new()),
+            query_inputs: RwLock::new(HashMap::new()),
+            query_outputs: RwLock::new(HashMap::new()),
+            query_description: RwLock::new(HashMap::new()),
             precompute_vertex_map: HashMap::new(),
             precompute_edge_map: HashMap::new(),
         }
     }
 
-    fn register(&mut self, query_name: String, lib: Container<QueryApi>) {
-        self.query_map.insert(query_name, lib);
+    pub fn register(
+        &self, query_name: String, lib: Container<QueryApi>, inputs_info: Vec<(String, String)>,
+        outputs_info: Vec<(String, String)>, description: String,
+    ) {
+        {
+            let mut query_map = self
+                .query_map
+                .write()
+                .expect("query_map poisoned");
+            query_map.insert(query_name.clone(), Arc::new(lib));
+        }
+        {
+            let mut query_inputs = self
+                .query_inputs
+                .write()
+                .expect("query_inputs poisoned");
+            query_inputs.insert(query_name.clone(), inputs_info);
+        }
+        {
+            let mut query_outputs = self
+                .query_outputs
+                .write()
+                .expect("query_outputs poisoned");
+            query_outputs.insert(query_name.clone(), outputs_info);
+        }
+        {
+            let mut query_description = self
+                .query_description
+                .write()
+                .expect("query_description poisoned");
+            query_description.insert(query_name.clone(), description);
+        }
     }
 
     fn register_vertex_precompute(
@@ -156,13 +192,32 @@ impl QueryRegister {
         for query in config.read_queries {
             let lib_path = query.path.clone();
             let libc: Container<QueryApi> = unsafe { Container::load(lib_path) }.unwrap();
-
-            self.register(query.queries_name, libc);
+            self.register(query.queries_name, libc, vec![], vec![], "".to_string());
         }
     }
 
-    pub fn get_query(&self, query_name: &String) -> Option<&Container<QueryApi>> {
-        self.query_map.get(query_name)
+    pub fn get_query(&self, query_name: &String) -> Option<Arc<Container<QueryApi>>> {
+        let query_map = self
+            .query_map
+            .read()
+            .expect("query_map poisoned");
+        if let Some(query) = query_map.get(query_name) {
+            Some(query.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_query_inputs_info(&self, query_name: &String) -> Option<Vec<(String, String)>> {
+        let query_inputs = self
+            .query_inputs
+            .read()
+            .expect("query_inputs poisoned");
+        if let Some(inputs_info) = query_inputs.get(query_name) {
+            Some(inputs_info.clone())
+        } else {
+            None
+        }
     }
 
     pub fn get_precompute_vertex(
