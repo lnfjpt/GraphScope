@@ -372,7 +372,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
         &self, req: Request<pb::CallRequest>,
     ) -> Result<Response<pb::CallResponse>, Status> {
         let pb::CallRequest { query } = req.into_inner();
-        let function_name_re = Regex::new(r"^CALL (.*)\(([\s\S]*?)\)$").unwrap();
+        let function_name_re = Regex::new(r"^CALL ([^\(]*)\(([\s\S]*?)\)$").unwrap();
         let (function_name, parameters) = if function_name_re.is_match(&query) {
             let capture = function_name_re
                 .captures(&query)
@@ -385,20 +385,17 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
         };
         match function_name.as_str() {
             "gs.flex.custom.asProcedure" => {
-                let parameters_re = Regex::new(
-                    r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*\[((?:\['[^']*'(?:,\s*'[^']*')*\]\
-                           (?:,\s*)?)*)\]\s*,\s*\[((?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*)\]\s*,\s*'([^']*)'\s*$"
-                ).unwrap();
+                let parameters_re = Regex::new(r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*\[((?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*)\]\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*,\s*'([^']*)'\s*$").unwrap();
                 if parameters_re.is_match(&parameters) {
                     let cap = parameters_re
                         .captures(&parameters)
                         .expect("Match asProcedure parameters error");
-                    let query_name = cap[0].to_string();
-                    let query = cap[1].to_string();
-                    let mode = cap[2].to_string();
-                    let outputs = cap[3].to_string();
-                    let inputs = cap[4].to_string();
-                    let description = cap[5].to_string();
+                    let query_name = cap[1].to_string();
+                    let query = cap[2].to_string();
+                    let mode = cap[3].to_string();
+                    let outputs = cap[4].to_string();
+                    let inputs = cap[5].to_string();
+                    let description = cap[6].to_string();
                     let mut inputs_info = vec![];
                     let mut outputs_info = vec![];
                     let input_re = Regex::new(r"\['([^']*)',\s*'([^']*)'\]").unwrap();
@@ -418,6 +415,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         .to_path_buf();
                     let gie_dir = exe_path
                         .parent()
+                        .and_then(|p| p.parent())
                         .and_then(|p| p.parent())
                         .and_then(|p| p.parent())
                         .and_then(|p| p.parent())
@@ -470,7 +468,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                             .arg("-s")
                             .arg(format!(
                                 "{}/GraphScope/interactive_engine/executor/store/bmcsr/schema.json",
-                                temp_dir
+                                gie_dir_str
                             ))
                             .arg("-r")
                             .arg("single_machine")
@@ -492,7 +490,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         fs::create_dir_all(&query_project_path).expect("Failed to create project dir");
                     }
                     let codegen_path = format!("{}/{}.rs", temp_dir, query_name);
-                    let lib_path = format!("{}/src/lib.rs", query_project);
+                    let lib_path = format!("{}/lib.rs", query_project);
                     fs::copy(codegen_path, lib_path).expect("Failed to copy rust code");
 
                     let cargo_template_path = format!("{}/benchmark/Cargo.toml.template", gie_dir_str);
