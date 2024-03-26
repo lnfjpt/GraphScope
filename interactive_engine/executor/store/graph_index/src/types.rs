@@ -17,6 +17,7 @@ pub enum DataType {
     U64Vec,
     Double,
     ID,
+    String,
     NULL,
 }
 
@@ -49,6 +50,7 @@ pub enum Item {
     U64Vec(Vec<u64>),
     Double(f64),
     ID(DefaultId),
+    String(String),
     Null,
 }
 
@@ -230,6 +232,16 @@ pub fn str_to_data_type(data_type_str: &String) -> DataType {
     match data_type_str.as_ref() {
         "Int32" => DataType::Int32,
         "UInt64" => DataType::UInt64,
+        "String" => DataType::String,
         _ => DataType::NULL,
+    }
+}
+
+pub fn str_to_default_value(default_value: &String, data_type: DataType) -> Item {
+    match data_type {
+        DataType::Int32 => Item::Int32(default_value.parse::<i32>().unwrap()),
+        DataType::UInt64 => Item::UInt64(default_value.parse::<u64>().unwrap()),
+        DataType::String => Item::String(default_value.clone()),
+        _ => Item::Int32(0),
     }
 }
