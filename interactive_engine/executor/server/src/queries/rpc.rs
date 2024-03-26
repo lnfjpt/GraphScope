@@ -117,7 +117,7 @@ impl<S: pb::bi_job_service_server::BiJobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error>>
-        where {
+where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -369,7 +369,10 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
         let pb::CallRequest { query } = req.into_inner();
         let function_name_re = Regex::new(r"^CALL (.*)\(([\s\S]*?)\)$").unwrap();
         let (function_name, parameters) = if function_name_re.is_match(&query) {
-            let capture = function_name_re.captures(&query).expect("Capture function_name error");
+            let capture = function_name_re
+                .captures(&query)
+                .expect("Capture function_name error");
+            println!("function_name: {}, parameters: {}", capture[1].to_string(), capture[2].to_string());
             (capture[1].to_string(), capture[2].to_string())
         } else {
             let reply = pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
@@ -382,7 +385,9 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                            (?:,\s*)?)*\])\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*,\s*'([^']*)'\s*$"
                 ).unwrap();
                 if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re.captures(&parameters).expect("Match asProcedure parameters error");
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match asProcedure parameters error");
                     let query_name = cap[0].to_string();
                     let query = cap[1].to_string();
                     let mode = cap[2].to_string();
@@ -390,7 +395,13 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                     let inputs = cap[4].to_string();
                     let description = cap[5].to_string();
                 } else {
-                    let reply = pb::CallResponse { is_success: false, results: vec![], reason: format!("Fail to parse parameters for procedure: gs.flex.custom.asProcedure") };
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.custom.asProcedure"
+                        ),
+                    };
                 }
             }
             "gs.flex.custom.defPrecompute" => {
@@ -399,7 +410,9 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                            (?:,\s*)?)*\])\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*,\s*'([^']*)'\s*$"
                 ).unwrap();
                 if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re.captures(&parameters).expect("Match asProcedure parameters error");
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match asProcedure parameters error");
                     let query_name = cap[0].to_string();
                     let query = cap[1].to_string();
                     let mode = cap[2].to_string();
@@ -407,17 +420,187 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                     let inputs = cap[4].to_string();
                     let description = cap[5].to_string();
                 } else {
-                    let reply = pb::CallResponse { is_success: false, results: vec![], reason:  format!("Fail to parse parameters for procedure: gs.flex.custom.defPrecompute") };
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.custom.defPrecompute"
+                        ),
+                    };
+                }
+            }
+            "gs.flex.CSRStore.batch_insert_vertices" => {
+                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match batch insert vertices error");
+                    let label = cap[1].to_string();
+                    let filename = cap[2].to_string();
+                    let properties = cap[3].to_string();
+                    let data_root = "";
+                    let data_root_path = PathBuf::from(data_root);
+
+                    let mut graph_modifier = GraphModifier::new(&data_root_path);
+
+                    graph_modifier.skip_header();
+                    graph_modifier.parallel(self.workers);
+                    let mut graph = self.graph_db.write().unwrap();
+                    println!(
+                        "insert vertices: label: {}, filename: {}, properties: {}",
+                        label, filename, properties
+                    );
+                    graph_modifier
+                        .apply_vertices_insert_with_filename(&mut graph, &label, &filename, &properties)
+                        .unwrap();
+
+                    let reply =
+                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+                    return Ok(Response::new(reply));
+                } else {
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_insert_vertices"
+                        ),
+                    };
+                    return Ok(Response::new(reply));
+                }
+            }
+            "gs.flex.CSRStore.batch_insert_edges" => {
+                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match batch insert edges error");
+                    let label = cap[1].to_string();
+                    let filename = cap[2].to_string();
+                    let properties = cap[3].to_string();
+                    let data_root = "";
+                    let data_root_path = PathBuf::from(data_root);
+
+                    let mut graph_modifier = GraphModifier::new(&data_root_path);
+
+                    graph_modifier.skip_header();
+                    graph_modifier.parallel(self.workers);
+                    let mut graph = self.graph_db.write().unwrap();
+                    println!(
+                        "insert edges: label: {}, filename: {}, properties: {}",
+                        label, filename, properties
+                    );
+                    graph_modifier
+                        .apply_edges_insert_with_filename(&mut graph, &label, &filename, &properties)
+                        .unwrap();
+
+                    let reply =
+                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+                    return Ok(Response::new(reply));
+                } else {
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_insert_edges"
+                        ),
+                    };
+                    return Ok(Response::new(reply));
+                }
+            }
+            "gs.flex.CSRStore.batch_delete_vertices" => {
+                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match batch delete vertices error");
+                    let label = cap[1].to_string();
+                    let filename = cap[2].to_string();
+                    let properties = cap[3].to_string();
+                    let data_root = "";
+                    let data_root_path = PathBuf::from(data_root);
+
+                    let mut graph_modifier = GraphModifier::new(&data_root_path);
+
+                    graph_modifier.skip_header();
+                    graph_modifier.parallel(self.workers);
+                    let mut graph = self.graph_db.write().unwrap();
+                    println!(
+                        "delete vertices: label: {}, filename: {}, properties: {}",
+                        label, filename, properties
+                    );
+                    graph_modifier
+                        .apply_vertices_delete_with_filename(&mut graph, &label, &filename, &properties)
+                        .unwrap();
+
+                    let reply =
+                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+                    return Ok(Response::new(reply));
+                } else {
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_delete_vertices"
+                        ),
+                    };
+                    return Ok(Response::new(reply));
+                }
+            }
+            "gs.flex.CSRStore.batch_delete_edges" => {
+                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match batch delete edges error");
+                    let label = cap[1].to_string();
+                    let filename = cap[2].to_string();
+                    let properties = cap[3].to_string();
+                    let data_root = "";
+                    let data_root_path = PathBuf::from(data_root);
+
+                    let mut graph_modifier = GraphModifier::new(&data_root_path);
+
+                    graph_modifier.skip_header();
+                    graph_modifier.parallel(self.workers);
+                    let mut graph = self.graph_db.write().unwrap();
+                    println!(
+                        "delete edges: label: {}, filename: {}, properties: {}",
+                        label, filename, properties
+                    );
+                    graph_modifier
+                        .apply_edges_delete_with_filename(&mut graph, &label, &filename, &properties)
+                        .unwrap();
+
+                    let reply =
+                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+                    return Ok(Response::new(reply));
+                } else {
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_delete_edges"
+                        ),
+                    };
+                    return Ok(Response::new(reply));
                 }
             }
             _ => {
                 let query_name_re = Regex::new(r"custom.(\S*)").unwrap();
                 if query_name_re.is_match(&function_name) {
-                    let cap = query_name_re.captures(&function_name).expect("Fail to match query name");
+                    let cap = query_name_re
+                        .captures(&function_name)
+                        .expect("Fail to match query name");
                     let query_name = cap[1].to_string();
-                    if let Some((precompute_setting, precompute)) = self.query_register.get_precompute_vertex(&query_name) {
+                    if let Some((precompute_setting, precompute)) = self
+                        .query_register
+                        .get_precompute_vertex(&query_name)
+                    {
                         info!("111");
-                    } else if let Some((precompute_setting, precompute)) = self.query_register.get_precompute_vertex(&query_name) {
+                    } else if let Some((precompute_setting, precompute)) = self
+                        .query_register
+                        .get_precompute_vertex(&query_name)
+                    {
                         info!("222");
                     } else if let Some(query) = self.query_register.get_query(&query_name) {
                         let mut parameters_map = HashMap::<String, String>::new();
@@ -429,7 +612,11 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         }
                     }
                 } else {
-                    let reply = pb::CallResponse { is_success: false, results: vec![], reason: format!("Unknown procedure name: {}", function_name) };
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!("Unknown procedure name: {}", function_name),
+                    };
                     return Ok(Response::new(reply));
                 }
             }
