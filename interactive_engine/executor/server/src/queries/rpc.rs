@@ -397,14 +397,14 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                     let inputs = cap[5].to_string();
                     let description = cap[6].to_string();
                     let mut inputs_info = vec![];
-                    let mut outputs_info = vec![];
+                    let mut outputs_info = HashMap::new();
                     let input_re = Regex::new(r"\['([^']*)',\s*'([^']*)'\]").unwrap();
                     for cap in input_re.captures_iter(&inputs) {
                         inputs_info.push((cap[1].to_string(), cap[2].to_string()));
                     }
                     let output_re = Regex::new(r"\['([^']*)',\s*'([^']*)'\]").unwrap();
                     for cap in output_re.captures_iter(&outputs) {
-                        outputs_info.push((cap[1].to_string(), cap[2].to_string()));
+                        outputs_info.insert(cap[1].to_string(), cap[2].to_string());
                     }
                     let exe_path = env::current_exe()?;
                     let exe_dir = exe_path
@@ -495,7 +495,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
 
                     let cargo_template_path = format!("{}/benchmark/Cargo.toml.template", gie_dir_str);
                     let mut cargo_toml_contents = fs::read_to_string(cargo_template_path)?;
-                    cargo_toml_contents = cargo_toml_contents.replace("${query_path}", query_name.as_str());
+                    cargo_toml_contents = cargo_toml_contents.replace("${query_name}", query_name.as_str());
                     let cargo_toml_path = format!("{}/benchmark/{}/Cargo.toml", gie_dir_str, query_name);
                     fs::write(cargo_toml_path, cargo_toml_contents).expect("Failed to write cargo file");
 
@@ -514,7 +514,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         }
                     }
                     let dylib_path = format!(
-                        "{}/benchmark/{}/target/release/lib{}.dylib",
+                        "{}/benchmark/{}/target/release/lib{}.so",
                         gie_dir_str, query_name, query_name
                     );
                     let libc: Container<QueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
@@ -532,19 +532,89 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
             }
             "gs.flex.custom.defPrecompute" => {
                 let parameters_re = Regex::new(
-                    r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\]\
-                           (?:,\s*)?)*\])\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*,\s*'([^']*)'\s*$"
+                    r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*$"
                 ).unwrap();
                 if parameters_re.is_match(&parameters) {
                     let cap = parameters_re
                         .captures(&parameters)
-                        .expect("Match asProcedure parameters error");
-                    let query_name = cap[0].to_string();
-                    let query = cap[1].to_string();
-                    let mode = cap[2].to_string();
-                    let outputs = cap[3].to_string();
-                    let inputs = cap[4].to_string();
-                    let description = cap[5].to_string();
+                        .expect("Match defPrecompute parameters error");
+                    let query_name = cap[1].to_string();
+                    let target = cap[2].to_string();
+                    let mappings = cap[3].to_string();
+                    let mut mappings_list = vec![];
+                    let mappings_re = Regex::new(r"\['([^']*)',\s*'([^']*)',\s*'([^']*)'\]").unwrap();
+                    for cap in mappings_re.captures_iter(&mappings) {
+                        mappings_list.push((cap[1].to_string(), cap[2].to_string(), cap[3].to_string()));
+                    }
+                    if let Some(outputs_info) = self
+                        .query_register
+                        .get_query_outputs_info(&query_name)
+                    {
+                        let vertex_re = Regex::new(r"^\s*\((\w+):\s(\w+)\)\s*$").unwrap();
+                        let edge_re = Regex::new(
+                            r"\((\w+):\s*(\w+)\)((-|<-\[|\]-\])(\w+):(\w+)(\]|->|-\]))\((\w+): (\w+)\)",
+                        )
+                        .unwrap();
+                        if vertex_re.is_match(&target) {
+                            let cap = vertex_re
+                                .captures(&target)
+                                .expect("Failed to parse target");
+                            let alias = cap[1].to_string();
+                            let label_name = cap[2].to_string();
+                            let (label_id, property_size) = {
+                                let graph = self.graph_db.read().unwrap();
+                                if let Some(label_id) = graph
+                                    .graph_schema
+                                    .vertex_type_to_id
+                                    .get(&label_name)
+                                {
+                                    let property_size = graph.get_vertices_num(*label_id);
+                                    (*label_id, property_size)
+                                } else {
+                                    let reply = pb::CallResponse {
+                                        is_success: false,
+                                        results: vec![],
+                                        reason: format!("Invalid vertex label name: {}", label_name),
+                                    };
+                                    return Ok(Response::new(reply));
+                                }
+                            };
+                            let mut precompute_info = vec![];
+                            for i in mappings_list {
+                                let precompute_name = i.0.split('.').collect::<Vec<&str>>()[1].to_string();
+                                if let Some(info) = outputs_info.get(&i.1) {
+                                    let data_type = graph_index::types::str_to_data_type(info);
+                                    let default_value = graph_index::types::str_to_default_value(info, data_type);
+                                    if precompute_name != "id" {
+                                        let mut graph_index = self
+                                            .graph_index
+                                            .write()
+                                            .expect("Graph index poisoned");
+                                        graph_index.init_vertex_index(
+                                            precompute_name.clone(),
+                                            label_id,
+                                            data_type,
+                                            Some(property_size),
+                                            Some(default_value),
+                                        );
+                                    }
+                                    precompute_info.push((precompute_name, data_type));
+                                } else {
+                                    let reply = pb::CallResponse {
+                                        is_success: false,
+                                        results: vec![],
+                                        reason: format!("Unknown results in outputs"),
+                                    };
+                                    return Ok(Response::new(reply));
+                                }
+                            }
+                            self.query_register
+                                .register_vertex_precompute(query_name, precompute_info);
+                        } else if edge_re.is_match(&target) {
+                        } else {
+                        }
+                    } else {
+                    }
                 } else {
                     let reply = pb::CallResponse {
                         is_success: false,
@@ -553,6 +623,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                             "Fail to parse parameters for procedure: gs.flex.custom.defPrecompute"
                         ),
                     };
+                    return Ok(Response::new(reply));
                 }
             }
             _ => {

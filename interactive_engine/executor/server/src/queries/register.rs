@@ -8,7 +8,7 @@ use bmcsr::graph::Direction;
 use bmcsr::graph_db::GraphDB;
 use bmcsr::types::LabelId;
 use dlopen::wrapper::{Container, WrapperApi};
-use graph_index::types::{ArrayData, DataType as IndexDataType, Item};
+use graph_index::types::{ArrayData, DataType as IndexDataType, DataType, Item};
 use graph_index::GraphIndex;
 use pegasus::api::*;
 use pegasus::errors::BuildJobError;
@@ -99,8 +99,9 @@ pub struct QueriesConfig {
 pub struct QueryRegister {
     query_map: RwLock<HashMap<String, Arc<Container<QueryApi>>>>,
     query_inputs: RwLock<HashMap<String, Vec<(String, String)>>>,
-    query_outputs: RwLock<HashMap<String, Vec<(String, String)>>>,
+    query_outputs: RwLock<HashMap<String, HashMap<String, String>>>,
     query_description: RwLock<HashMap<String, String>>,
+    precompute_mappings: RwLock<HashMap<String, Vec<(String, DataType)>>>,
     precompute_vertex_map: HashMap<String, (PrecomputeSetting, Container<PrecomputeVertexApi>)>,
     precompute_edge_map: HashMap<String, (PrecomputeSetting, Container<PrecomputeEdgeApi>)>,
 }
@@ -112,6 +113,7 @@ impl QueryRegister {
             query_inputs: RwLock::new(HashMap::new()),
             query_outputs: RwLock::new(HashMap::new()),
             query_description: RwLock::new(HashMap::new()),
+            precompute_mappings: RwLock::new(HashMap::new()),
             precompute_vertex_map: HashMap::new(),
             precompute_edge_map: HashMap::new(),
         }
@@ -119,7 +121,7 @@ impl QueryRegister {
 
     pub fn register(
         &self, query_name: String, lib: Container<QueryApi>, inputs_info: Vec<(String, String)>,
-        outputs_info: Vec<(String, String)>, description: String,
+        outputs_info: HashMap<String, String>, description: String,
     ) {
         {
             let mut query_map = self
@@ -151,14 +153,22 @@ impl QueryRegister {
         }
     }
 
-    fn register_vertex_precompute(
+    pub fn register_vertex_precompute(&self, query_name: String, mappings: Vec<(String, DataType)>) {
+        let mut precompute_mappings = self
+            .precompute_mappings
+            .write()
+            .expect("query_description poisoned");
+        precompute_mappings.insert(query_name.clone(), mappings);
+    }
+
+    fn register_vertex_precompute2(
         &mut self, query_name: String, setting: PrecomputeSetting, lib: Container<PrecomputeVertexApi>,
     ) {
         self.precompute_vertex_map
             .insert(query_name, (setting, lib));
     }
 
-    fn register_edge_precompute(
+    fn register_edge_precompute2(
         &mut self, query_name: String, setting: PrecomputeSetting, lib: Container<PrecomputeEdgeApi>,
     ) {
         self.precompute_edge_map
@@ -174,14 +184,14 @@ impl QueryRegister {
                 if precompute.precompute_type == "vertex" {
                     let libc: Container<PrecomputeVertexApi> =
                         unsafe { Container::load(lib_path) }.unwrap();
-                    self.register_vertex_precompute(
+                    self.register_vertex_precompute2(
                         precompute.precompute_name.clone(),
                         precompute.clone(),
                         libc,
                     );
                 } else {
                     let libc: Container<PrecomputeEdgeApi> = unsafe { Container::load(lib_path) }.unwrap();
-                    self.register_edge_precompute(
+                    self.register_edge_precompute2(
                         precompute.precompute_name.clone(),
                         precompute.clone(),
                         libc,
@@ -192,7 +202,7 @@ impl QueryRegister {
         for query in config.read_queries {
             let lib_path = query.path.clone();
             let libc: Container<QueryApi> = unsafe { Container::load(lib_path) }.unwrap();
-            self.register(query.queries_name, libc, vec![], vec![], "".to_string());
+            self.register(query.queries_name, libc, vec![], HashMap::new(), "".to_string());
         }
     }
 
@@ -215,6 +225,18 @@ impl QueryRegister {
             .expect("query_inputs poisoned");
         if let Some(inputs_info) = query_inputs.get(query_name) {
             Some(inputs_info.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_query_outputs_info(&self, query_name: &String) -> Option<HashMap<String, String>> {
+        let query_outputs = self
+            .query_outputs
+            .read()
+            .expect("query_inputs poisoned");
+        if let Some(outputs_info) = query_outputs.get(query_name) {
+            Some(outputs_info.clone())
         } else {
             None
         }
