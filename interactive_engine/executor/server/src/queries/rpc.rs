@@ -122,7 +122,7 @@ impl<S: pb::bi_job_service_server::BiJobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error>>
-where {
+        where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -552,11 +552,11 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         .query_register
                         .get_query_outputs_info(&query_name)
                     {
-                        let vertex_re = Regex::new(r"^\s*\((\w+):\s(\w+)\)\s*$").unwrap();
+                        let vertex_re = Regex::new(r"^\s*\((\w+)\s*:\s*(\w+)\)\s*$").unwrap();
                         let edge_re = Regex::new(
                             r"\((\w+):\s*(\w+)\)((-|<-\[|\]-\])(\w+):(\w+)(\]|->|-\]))\((\w+): (\w+)\)",
                         )
-                        .unwrap();
+                            .unwrap();
                         if vertex_re.is_match(&target) {
                             let cap = vertex_re
                                 .captures(&target)
@@ -587,7 +587,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 if let Some(info) = outputs_info.get(&i.1) {
                                     let data_type = graph_index::types::str_to_data_type(info);
                                     let default_value =
-                                        graph_index::types::str_to_default_value(info, data_type);
+                                        graph_index::types::str_to_default_value(&i.2, data_type);
                                     if precompute_name != "id" {
                                         let mut graph_index = self
                                             .graph_index
@@ -635,6 +635,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
             _ => {
                 let query_name_re = Regex::new(r"custom.(\S*)").unwrap();
                 if query_name_re.is_match(&function_name) {
+                    println!("Start to run query {}", function_name);
                     let cap = query_name_re
                         .captures(&function_name)
                         .expect("Fail to match query name");
@@ -643,6 +644,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         .query_register
                         .get_precompute_vertex(&query_name)
                     {
+                        println!("{} is a vertex precompute", query_name);
                         let query = self
                             .query_register
                             .get_query(&query_name)
@@ -656,11 +658,12 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                             pegasus::run(conf.clone(), || {
                                 query.Query(conf.clone(), &graph, &graph_index, HashMap::new())
                             })
-                            .expect("submit query failure")
+                                .expect("submit query failure")
                         };
                         let mut id_index = 0;
                         let mut data_list = vec![];
                         for index in 0..vertex_precompute_info.len() {
+                            println!("Header {}", vertex_precompute_info[index].0);
                             if vertex_precompute_info[index].0 == "id" {
                                 data_list.push(ArrayData::Int32Array(vec![]));
                                 id_index = index;
@@ -699,6 +702,20 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 }
                             }
                         }
+                        drop(graph_index);
+                        {
+                            let mut graph_index = self.graph_index.write().unwrap();
+                            for i in 0..vertex_precompute_info.len() {
+                                if vertex_precompute_info[i].0 != "id" {
+                                    graph_index.add_vertex_index_batch(
+                                        label_id,
+                                        &vertex_precompute_info[i].0,
+                                        &index_vec,
+                                        data_list[i].as_ref()
+                                    ).unwrap();
+                                }
+                            }
+                        }
                         let reply =
                             pb::CallResponse { is_success: true, results: vec![], reason: format!("") };
                         return Ok(Response::new(reply));
@@ -733,7 +750,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 pegasus::run(conf.clone(), || {
                                     query.Query(conf.clone(), &graph, &graph_index, parameters_map.clone())
                                 })
-                                .expect("submit query failure")
+                                    .expect("submit query failure")
                             };
                             let mut query_results = vec![];
                             for result in results {
