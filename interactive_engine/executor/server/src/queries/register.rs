@@ -101,7 +101,7 @@ pub struct QueryRegister {
     query_inputs: RwLock<HashMap<String, Vec<(String, String)>>>,
     query_outputs: RwLock<HashMap<String, HashMap<String, String>>>,
     query_description: RwLock<HashMap<String, String>>,
-    precompute_mappings: RwLock<HashMap<String, Vec<(String, DataType)>>>,
+    precompute_vertex_mappings: RwLock<HashMap<String, (u8, Vec<(String, DataType)>)>>,
     precompute_vertex_map: HashMap<String, (PrecomputeSetting, Container<PrecomputeVertexApi>)>,
     precompute_edge_map: HashMap<String, (PrecomputeSetting, Container<PrecomputeEdgeApi>)>,
 }
@@ -113,7 +113,7 @@ impl QueryRegister {
             query_inputs: RwLock::new(HashMap::new()),
             query_outputs: RwLock::new(HashMap::new()),
             query_description: RwLock::new(HashMap::new()),
-            precompute_mappings: RwLock::new(HashMap::new()),
+            precompute_vertex_mappings: RwLock::new(HashMap::new()),
             precompute_vertex_map: HashMap::new(),
             precompute_edge_map: HashMap::new(),
         }
@@ -153,12 +153,30 @@ impl QueryRegister {
         }
     }
 
-    pub fn register_vertex_precompute(&self, query_name: String, mappings: Vec<(String, DataType)>) {
-        let mut precompute_mappings = self
-            .precompute_mappings
+    pub fn register_vertex_precompute(
+        &self, query_name: String, label_id: u8, mappings: Vec<(String, DataType)>,
+    ) {
+        let mut precompute_vertex_mappings = self
+            .precompute_vertex_mappings
             .write()
             .expect("query_description poisoned");
-        precompute_mappings.insert(query_name.clone(), mappings);
+        precompute_vertex_mappings.insert(query_name.clone(), (label_id, mappings));
+    }
+
+    pub fn get_precompute_vertex(&self, precompute_name: &String) -> Option<(u8, Vec<(String, DataType)>)> {
+        let mut precompute_vertex_mappings = self
+            .precompute_vertex_mappings
+            .write()
+            .expect("query_description poisoned");
+        precompute_vertex_mappings
+            .get(precompute_name)
+            .cloned()
+    }
+
+    pub fn get_precompute_edge(
+        &self, precompute_name: &String,
+    ) -> Option<&(PrecomputeSetting, Container<PrecomputeEdgeApi>)> {
+        self.precompute_edge_map.get(precompute_name)
     }
 
     fn register_vertex_precompute2(
@@ -240,18 +258,6 @@ impl QueryRegister {
         } else {
             None
         }
-    }
-
-    pub fn get_precompute_vertex(
-        &self, precompute_name: &String,
-    ) -> Option<&(PrecomputeSetting, Container<PrecomputeVertexApi>)> {
-        self.precompute_vertex_map.get(precompute_name)
-    }
-
-    pub fn get_precompute_edge(
-        &self, precompute_name: &String,
-    ) -> Option<&(PrecomputeSetting, Container<PrecomputeEdgeApi>)> {
-        self.precompute_edge_map.get(precompute_name)
     }
 
     pub fn precompute_names(&self) -> Vec<String> {

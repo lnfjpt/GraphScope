@@ -13,10 +13,12 @@ use std::{env, fs};
 
 use bmcsr::graph_db::GraphDB;
 use bmcsr::graph_modifier::{DeleteGenerator, GraphModifier};
+use bmcsr::ldbc_parser::LDBCVertexParser;
 use bmcsr::schema::InputSchema;
 use bmcsr::traverse::traverse;
 use dlopen::wrapper::{Container, WrapperApi};
 use futures::Stream;
+use graph_index::types::{ArrayData, DataType};
 use graph_index::GraphIndex;
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
@@ -584,7 +586,8 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 let precompute_name = i.0.split('.').collect::<Vec<&str>>()[1].to_string();
                                 if let Some(info) = outputs_info.get(&i.1) {
                                     let data_type = graph_index::types::str_to_data_type(info);
-                                    let default_value = graph_index::types::str_to_default_value(info, data_type);
+                                    let default_value =
+                                        graph_index::types::str_to_default_value(info, data_type);
                                     if precompute_name != "id" {
                                         let mut graph_index = self
                                             .graph_index
@@ -608,8 +611,11 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                     return Ok(Response::new(reply));
                                 }
                             }
-                            self.query_register
-                                .register_vertex_precompute(query_name, precompute_info);
+                            self.query_register.register_vertex_precompute(
+                                query_name,
+                                label_id,
+                                precompute_info,
+                            );
                         } else if edge_re.is_match(&target) {
                         } else {
                         }
@@ -633,11 +639,69 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         .captures(&function_name)
                         .expect("Fail to match query name");
                     let query_name = cap[1].to_string();
-                    if let Some((precompute_setting, precompute)) = self
+                    if let Some((label_id, vertex_precompute_info)) = self
                         .query_register
                         .get_precompute_vertex(&query_name)
                     {
-                        info!("111");
+                        let query = self
+                            .query_register
+                            .get_query(&query_name)
+                            .expect("Failed to get procedure of precompute");
+                        let mut conf = JobConf::new(query_name.clone().to_owned());
+                        conf.set_workers(self.workers);
+                        conf.reset_servers(ServerConf::Partial(self.servers.clone()));
+                        let graph = self.graph_db.read().unwrap();
+                        let graph_index = self.graph_index.read().unwrap();
+                        let results = {
+                            pegasus::run(conf.clone(), || {
+                                query.Query(conf.clone(), &graph, &graph_index, HashMap::new())
+                            })
+                            .expect("submit query failure")
+                        };
+                        let mut id_index = 0;
+                        let mut data_list = vec![];
+                        for index in 0..vertex_precompute_info.len() {
+                            if vertex_precompute_info[index].0 == "id" {
+                                data_list.push(ArrayData::Int32Array(vec![]));
+                                id_index = index;
+                            } else {
+                                match vertex_precompute_info[index].1 {
+                                    DataType::Int32 => data_list.push(ArrayData::Int32Array(vec![])),
+                                    DataType::UInt64 => data_list.push(ArrayData::Uint64Array(vec![])),
+                                    _ => panic!("Unsupport data type"),
+                                };
+                            }
+                        }
+                        let mut index_vec = vec![];
+                        for result in results {
+                            let result_str = String::from_utf8(result.unwrap())
+                                .unwrap();
+                            let result = result_str
+                                .split("|")
+                                .collect::<Vec<&str>>();
+                            for i in 0..vertex_precompute_info.len() {
+                                if i == id_index {
+                                    let original_id = result[i].parse::<usize>().unwrap();
+                                    let global_id =
+                                        LDBCVertexParser::<usize>::to_global_id(original_id, label_id);
+                                    let internal_id = graph.get_internal_id(global_id);
+                                    index_vec.push(internal_id);
+                                } else {
+                                    match data_list.get_mut(i).unwrap() {
+                                        ArrayData::Int32Array(ref mut data) => {
+                                            data.push(result[i].parse::<i32>().unwrap())
+                                        }
+                                        ArrayData::Uint64Array(ref mut data) => {
+                                            data.push(result[i].parse::<u64>().unwrap())
+                                        }
+                                        _ => panic!("Unsupport data type"),
+                                    }
+                                }
+                            }
+                        }
+                        let reply =
+                            pb::CallResponse { is_success: true, results: vec![], reason: format!("") };
+                        return Ok(Response::new(reply));
                     } else if let Some((precompute_setting, precompute)) = self
                         .query_register
                         .get_precompute_vertex(&query_name)
