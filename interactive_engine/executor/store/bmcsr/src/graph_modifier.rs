@@ -1,9 +1,3 @@
-use crate::col_table::{parse_properties, ColTable};
-use crate::columns::DataType;
-use crate::columns::{Column, StringColumn};
-use csv::ReaderBuilder;
-use rayon::prelude::*;
-use rust_htslib::bgzf::Reader as GzReader;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
@@ -12,7 +6,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 
+use csv::ReaderBuilder;
+use rayon::prelude::*;
+use rust_htslib::bgzf::Reader as GzReader;
+
 use crate::bmscsr::BatchMutableSingleCsr;
+use crate::col_table::{parse_properties, ColTable};
+use crate::columns::DataType;
+use crate::columns::{Column, StringColumn};
 use crate::csr::CsrTrait;
 use crate::error::GDBResult;
 use crate::graph::{Direction, IndexType};

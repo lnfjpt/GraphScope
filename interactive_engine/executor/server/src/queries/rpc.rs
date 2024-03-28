@@ -122,7 +122,7 @@ impl<S: pb::bi_job_service_server::BiJobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error>>
-        where {
+where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -556,7 +556,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         let edge_re = Regex::new(
                             r"\((\w+):\s*(\w+)\)((-|<-\[|\]-\])(\w+):(\w+)(\]|->|-\]))\((\w+): (\w+)\)",
                         )
-                            .unwrap();
+                        .unwrap();
                         if vertex_re.is_match(&target) {
                             let cap = vertex_re
                                 .captures(&target)
@@ -632,6 +632,162 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                     return Ok(Response::new(reply));
                 }
             }
+            "gs.flex.CSRStore.batch_insert_vertices" => {
+                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match batch insert vertices error");
+                    let label = cap[1].to_string();
+                    let filename = cap[2].to_string();
+                    let properties = cap[3].to_string();
+                    let data_root = "";
+                    let data_root_path = PathBuf::from(data_root);
+
+                    let mut graph_modifier = GraphModifier::new(&data_root_path);
+
+                    graph_modifier.skip_header();
+                    graph_modifier.parallel(self.workers);
+                    let mut graph = self.graph_db.write().unwrap();
+                    println!(
+                        "insert vertices: label: {}, filename: {}, properties: {}",
+                        label, filename, properties
+                    );
+                    graph_modifier
+                        .apply_vertices_insert_with_filename(&mut graph, &label, &filename, &properties)
+                        .unwrap();
+
+                    let reply =
+                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+                    return Ok(Response::new(reply));
+                } else {
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_insert_vertices"
+                        ),
+                    };
+                    return Ok(Response::new(reply));
+                }
+            }
+            "gs.flex.CSRStore.batch_insert_edges" => {
+                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match batch insert edges error");
+                    let label = cap[1].to_string();
+                    let filename = cap[2].to_string();
+                    let properties = cap[3].to_string();
+                    let data_root = "";
+                    let data_root_path = PathBuf::from(data_root);
+
+                    let mut graph_modifier = GraphModifier::new(&data_root_path);
+
+                    graph_modifier.skip_header();
+                    graph_modifier.parallel(self.workers);
+                    let mut graph = self.graph_db.write().unwrap();
+                    println!(
+                        "insert edges: label: {}, filename: {}, properties: {}",
+                        label, filename, properties
+                    );
+                    graph_modifier
+                        .apply_edges_insert_with_filename(&mut graph, &label, &filename, &properties)
+                        .unwrap();
+
+                    let reply =
+                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+                    return Ok(Response::new(reply));
+                } else {
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_insert_edges"
+                        ),
+                    };
+                    return Ok(Response::new(reply));
+                }
+            }
+            "gs.flex.CSRStore.batch_delete_vertices" => {
+                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match batch delete vertices error");
+                    let label = cap[1].to_string();
+                    let filename = cap[2].to_string();
+                    let properties = cap[3].to_string();
+                    let data_root = "";
+                    let data_root_path = PathBuf::from(data_root);
+
+                    let mut graph_modifier = GraphModifier::new(&data_root_path);
+
+                    graph_modifier.skip_header();
+                    graph_modifier.parallel(self.workers);
+                    let mut graph = self.graph_db.write().unwrap();
+                    println!(
+                        "delete vertices: label: {}, filename: {}, properties: {}",
+                        label, filename, properties
+                    );
+                    graph_modifier
+                        .apply_vertices_delete_with_filename(&mut graph, &label, &filename, &properties)
+                        .unwrap();
+
+                    let reply =
+                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+                    return Ok(Response::new(reply));
+                } else {
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_delete_vertices"
+                        ),
+                    };
+                    return Ok(Response::new(reply));
+                }
+            }
+            "gs.flex.CSRStore.batch_delete_edges" => {
+                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
+                if parameters_re.is_match(&parameters) {
+                    let cap = parameters_re
+                        .captures(&parameters)
+                        .expect("Match batch delete edges error");
+                    let label = cap[1].to_string();
+                    let filename = cap[2].to_string();
+                    let properties = cap[3].to_string();
+                    let data_root = "";
+                    let data_root_path = PathBuf::from(data_root);
+
+                    let mut graph_modifier = GraphModifier::new(&data_root_path);
+
+                    graph_modifier.skip_header();
+                    graph_modifier.parallel(self.workers);
+                    let mut graph = self.graph_db.write().unwrap();
+                    println!(
+                        "delete edges: label: {}, filename: {}, properties: {}",
+                        label, filename, properties
+                    );
+                    graph_modifier
+                        .apply_edges_delete_with_filename(&mut graph, &label, &filename, &properties)
+                        .unwrap();
+
+                    let reply =
+                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+                    return Ok(Response::new(reply));
+                } else {
+                    let reply = pb::CallResponse {
+                        is_success: false,
+                        results: vec![],
+                        reason: format!(
+                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_delete_edges"
+                        ),
+                    };
+                    return Ok(Response::new(reply));
+                }
+            }
             _ => {
                 let query_name_re = Regex::new(r"custom.(\S*)").unwrap();
                 if query_name_re.is_match(&function_name) {
@@ -658,7 +814,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                             pegasus::run(conf.clone(), || {
                                 query.Query(conf.clone(), &graph, &graph_index, HashMap::new())
                             })
-                                .expect("submit query failure")
+                            .expect("submit query failure")
                         };
                         let mut id_index = 0;
                         let mut data_list = vec![];
@@ -677,11 +833,8 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         }
                         let mut index_vec = vec![];
                         for result in results {
-                            let result_str = String::from_utf8(result.unwrap())
-                                .unwrap();
-                            let result = result_str
-                                .split("|")
-                                .collect::<Vec<&str>>();
+                            let result_str = String::from_utf8(result.unwrap()).unwrap();
+                            let result = result_str.split("|").collect::<Vec<&str>>();
                             for i in 0..vertex_precompute_info.len() {
                                 if i == id_index {
                                     let original_id = result[i].parse::<usize>().unwrap();
@@ -707,12 +860,14 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                             let mut graph_index = self.graph_index.write().unwrap();
                             for i in 0..vertex_precompute_info.len() {
                                 if vertex_precompute_info[i].0 != "id" {
-                                    graph_index.add_vertex_index_batch(
-                                        label_id,
-                                        &vertex_precompute_info[i].0,
-                                        &index_vec,
-                                        data_list[i].as_ref()
-                                    ).unwrap();
+                                    graph_index
+                                        .add_vertex_index_batch(
+                                            label_id,
+                                            &vertex_precompute_info[i].0,
+                                            &index_vec,
+                                            data_list[i].as_ref(),
+                                        )
+                                        .unwrap();
                                 }
                             }
                         }
@@ -750,7 +905,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 pegasus::run(conf.clone(), || {
                                     query.Query(conf.clone(), &graph, &graph_index, parameters_map.clone())
                                 })
-                                    .expect("submit query failure")
+                                .expect("submit query failure")
                             };
                             let mut query_results = vec![];
                             for result in results {
