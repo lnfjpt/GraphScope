@@ -695,7 +695,6 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                     graph_modifier
                         .apply_edges_insert_with_filename(&mut graph, &label, &filename, &properties)
                         .unwrap();
-
                     let reply =
                         pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
                     return Ok(Response::new(reply));
