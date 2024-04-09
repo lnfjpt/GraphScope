@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut conf = JobConf::new(query_name.clone().to_owned() + "-" + &index.to_string());
         conf.set_workers(workers);
-        conf.reset_servers(ServerConf::All);
+        conf.reset_servers(ServerConf::Partial(vec![0]));
         match split[0] {
             "bi9" => {
                 println!("Start run query \"BI 9\"");
