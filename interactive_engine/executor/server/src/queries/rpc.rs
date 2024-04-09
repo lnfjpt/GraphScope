@@ -18,7 +18,7 @@ use bmcsr::schema::InputSchema;
 use bmcsr::traverse::traverse;
 use dlopen::wrapper::{Container, WrapperApi};
 use futures::Stream;
-use graph_index::types::{ArrayData, DataType};
+use graph_index::types::{ArrayData, DataType, WriteOp};
 use graph_index::GraphIndex;
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
@@ -35,7 +35,8 @@ use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
 use crate::generated::protocol as pb;
-use crate::queries::register::{QueryApi, QueryRegister};
+use crate::queries::register::{QueryRegister, ReadQueryApi};
+use crate::queries::write_graph;
 
 pub struct StandaloneServiceListener;
 
@@ -276,7 +277,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
         let graph = self.graph_db.read().unwrap();
         let graph_index = self.graph_index.read().unwrap();
 
-        if let Some(libc) = self.query_register.get_query(&job_name) {
+        if let Some(libc) = self.query_register.get_read_query(&job_name) {
             let conf_temp = conf.clone();
             if let Err(e) = pegasus::run_opt(conf, sink, |worker| {
                 worker.dataflow(libc.Query(conf_temp.clone(), &graph, &graph_index, input_params.clone()))
@@ -519,7 +520,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         "{}/benchmark/{}/target/release/lib{}.so",
                         gie_dir_str, query_name, query_name
                     );
-                    let libc: Container<QueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
+                    let libc: Container<ReadQueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
                     self.query_register
                         .register(query_name, libc, inputs_info, outputs_info, description);
                 } else {
@@ -616,11 +617,8 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 label_id,
                                 precompute_info,
                             );
-                        } else if edge_re.is_match(&target) {
-                        } else {
-                        }
-                    } else {
-                    }
+                        } else if edge_re.is_match(&target) {} else {}
+                    } else {}
                 } else {
                     let reply = pb::CallResponse {
                         is_success: false,
@@ -802,7 +800,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         println!("{} is a vertex precompute", query_name);
                         let query = self
                             .query_register
-                            .get_query(&query_name)
+                            .get_read_query(&query_name)
                             .expect("Failed to get procedure of precompute");
                         let mut conf = JobConf::new(query_name.clone().to_owned());
                         conf.set_workers(self.workers);
@@ -878,7 +876,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         .get_precompute_vertex(&query_name)
                     {
                         info!("222");
-                    } else if let Some(query) = self.query_register.get_query(&query_name) {
+                    } else if let Some(query) = self.query_register.get_read_query(&query_name) {
                         if let Some(inputs_info) = self
                             .query_register
                             .get_query_inputs_info(&query_name)
@@ -915,6 +913,105 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 results: query_results,
                                 reason: format!(""),
                             };
+                            return Ok(Response::new(reply));
+                        } else {
+                            let reply = pb::CallResponse {
+                                is_success: false,
+                                results: vec![],
+                                reason: format!("Failed to get inputs info of query: {}", function_name),
+                            };
+                            return Ok(Response::new(reply));
+                        }
+                    } else if let Some(query) = self.query_register.get_write_query(&query_name) {
+                        // Run write query
+                        if let Some(inputs_info) = self
+                            .query_register
+                            .get_query_inputs_info(&query_name)
+                        {
+                            let mut parameters_map = HashMap::<String, String>::new();
+                            let parameter_re = Regex::new(r#""([^"]*)"(?:,|$)"#).unwrap();
+                            let mut input_index = 0;
+                            for caps in parameter_re.captures_iter(&parameters) {
+                                if let Some(matched) = caps.get(1) {
+                                    parameters_map.insert(
+                                        inputs_info[input_index].0.clone(),
+                                        matched.as_str().to_string(),
+                                    );
+                                    input_index += 1;
+                                }
+                            }
+                            let mut conf = JobConf::new(query_name.clone().to_owned());
+                            conf.set_workers(self.workers);
+                            conf.reset_servers(ServerConf::Partial(self.servers.clone()));
+                            let graph = self.graph_db.read().unwrap();
+                            let graph_index = self.graph_index.read().unwrap();
+                            let results = {
+                                pegasus::run(conf.clone(), || {
+                                    query.Query(conf.clone(), &graph, &graph_index, parameters_map.clone())
+                                })
+                                    .expect("submit query failure")
+                            };
+                            let mut query_results = vec![];
+                            for result in results {
+                                if let Ok(result) = result {
+                                    for op in result {
+                                        query_results.push(op);
+                                    }
+                                }
+                            }
+                            drop(graph);
+                            let mut graph = self.graph_db.write().unwrap();
+                            for write_op in query_results.drain(..) {
+                                match write_op {
+                                    WriteOp::InsertVertices { label, global_ids, properties } => {
+                                        write_graph::insert_vertices(
+                                            &mut graph, label, global_ids, properties,
+                                        );
+                                    }
+                                    WriteOp::InsertEdges {
+                                        src_label,
+                                        edge_label,
+                                        dst_label,
+                                        edges,
+                                        properties,
+                                    } => {
+                                        write_graph::insert_edges(&mut graph, src_label, edge_label, dst_label, edges, properties, self.workers)
+                                    }
+                                    WriteOp::DeleteVertices { label, global_ids } => {
+                                        write_graph::delete_vertices(
+                                            &mut graph,
+                                            label,
+                                            global_ids,
+                                            self.workers,
+                                        );
+                                    }
+                                    WriteOp::DeleteEdges { src_label, edge_label, dst_label, lids } => {
+                                        write_graph::delete_edges::<usize, usize>(
+                                            &mut graph,
+                                            src_label,
+                                            edge_label,
+                                            dst_label,
+                                            lids,
+                                            self.workers,
+                                        );
+                                    }
+                                    WriteOp::SetVertices { label, global_ids, properties } => {
+                                        // Set vertices properties
+                                    }
+                                    WriteOp::SetEdges {
+                                        src_label,
+                                        edge_label,
+                                        dst_label,
+                                        src_offset,
+                                        dst_offset,
+                                        properties,
+                                    } => {
+                                        // Set edge properties here
+                                    }
+                                };
+                            }
+                            let reply =
+                                pb::CallResponse { is_success: true, results: vec![], reason: format!("") };
                             return Ok(Response::new(reply));
                         } else {
                             let reply = pb::CallResponse {

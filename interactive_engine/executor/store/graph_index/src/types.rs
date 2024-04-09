@@ -1,12 +1,77 @@
 use std::error::Error;
-use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Debug, Display, Formatter};
+use std::io;
+use std::io::{Write};
 
+use bmcsr::col_table::ColTable;
+use bmcsr::columns::Item as GraphItem;
 use dyn_type::CastError;
 use serde::{Deserialize, Serialize};
+use pegasus_common::io::{ReadExt, WriteExt};
+use pegasus_common::codec::{Encode, Decode};
 
 pub type DefaultId = usize;
 pub type InternalId = usize;
 pub type LabelId = u8;
+
+pub enum WriteOp {
+    InsertVertices { label: LabelId, global_ids: Vec<usize>, properties: Option<Vec<ArrayData>> },
+    InsertEdges { src_label: LabelId, edge_label: LabelId, dst_label: LabelId, edges: Vec<(usize, usize)>, properties: Option<Vec<ArrayData>> },
+    DeleteVertices { label: LabelId, global_ids: Vec<usize> },
+    DeleteEdges { src_label: LabelId, edge_label: LabelId, dst_label: LabelId, lids: Vec<(usize, usize)> },
+    SetVertices { label: LabelId, global_ids: Vec<usize>, properties: Vec<(String, ArrayData)> },
+    SetEdges { src_label: LabelId, edge_label: LabelId, dst_label: LabelId, src_offset: Vec<usize>, dst_offset: Vec<usize>, properties: Vec<(String, ArrayData)> },
+}
+
+impl Clone for WriteOp {
+    #[inline]
+    fn clone(&self) -> Self {
+        match self {
+            WriteOp::InsertVertices { label, global_ids, properties } => WriteOp::InsertVertices { label: *label, global_ids: global_ids.clone(), properties: properties.clone() },
+            WriteOp::InsertEdges { src_label, edge_label, dst_label, edges, properties } => WriteOp::InsertEdges { src_label: *src_label, edge_label: *edge_label, dst_label: *dst_label, edges: edges.clone(), properties: properties.clone() },
+            WriteOp::DeleteVertices { label, global_ids } => WriteOp::DeleteVertices { label: *label, global_ids: global_ids.clone() },
+            WriteOp::DeleteEdges { src_label, edge_label, dst_label, lids } => WriteOp::DeleteEdges { src_label: *src_label, edge_label: *edge_label, dst_label: *dst_label, lids: lids.clone() },
+            WriteOp::SetVertices { label, global_ids, properties } => WriteOp::SetVertices { label: *label, global_ids: global_ids.clone(), properties: properties.clone() },
+            WriteOp::SetEdges { src_label, edge_label, dst_label, src_offset, dst_offset, properties } => WriteOp::SetEdges { src_label: *src_label, edge_label: *edge_label, dst_label: *dst_label, src_offset: src_offset.clone(), dst_offset: dst_offset.clone(), properties: properties.clone() },
+        }
+    }
+}
+
+impl Encode for WriteOp {
+    fn write_to<W: WriteExt>(&self, writer: &mut W) -> io::Result<()> {
+        match self {
+            WriteOp::InsertVertices { label, global_ids, properties } => {
+                writer.write_u8(*label);
+                writer.write_u64(global_ids.len() as u64);
+                for data in global_ids.iter() {
+                    writer.write_u64(*data as u64);
+                }
+                if properties.is_none() {
+                    writer.write_u64(0);
+                } else {
+                    if let Some(properties) = properties {
+                        writer.write_u64(properties[0].len() as u64);
+                        for data in properties.iter() {}
+                    }
+                }
+            }
+            _ => panic!("Unsupport type")
+        }
+        Ok(())
+    }
+}
+
+impl Decode for WriteOp {
+    fn read_from<R: ReadExt>(reader: &mut R) -> io::Result<Self> {
+        Ok(WriteOp::InsertVertices { label: 1, global_ids: vec![], properties: Some(vec![]) })
+    }
+}
+
+impl Debug for WriteOp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WriteOp InsertVertices")
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum DataType {
@@ -179,9 +244,11 @@ impl Clone for Direction {
     }
 }
 
+#[derive(Clone)]
 pub enum ArrayData {
     Int32Array(Vec<i32>),
     Uint64Array(Vec<u64>),
+    UsizeArray(Vec<usize>),
 }
 
 impl Debug for ArrayData {
@@ -199,6 +266,38 @@ impl ArrayData {
             ArrayData::Int32Array(data) => ArrayDataRef::Int32Array(&data),
             ArrayData::Uint64Array(data) => ArrayDataRef::Uint64Array(&data),
             _ => panic!("Unknown type"),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            ArrayData::Int32Array(data) => data.len(),
+            ArrayData::Uint64Array(data) => data.len(),
+            ArrayData::UsizeArray(data) => data.len(),
+        }
+    }
+
+    pub fn push_item(&mut self, item: GraphItem) {
+        match self {
+            ArrayData::Int32Array(data) => {
+                if let GraphItem::Int32(item) = item {
+                    data.push(item);
+                }
+            },
+            ArrayData::Uint64Array(data) => {
+                if let GraphItem::UInt64(item) = item {
+                    data.push(item);
+                }
+            },
+            ArrayData::UsizeArray(data) => panic!("Unknown type"),
+        }
+    }
+
+    pub fn get_item(&self, index: usize) -> GraphItem {
+        match self {
+            ArrayData::Int32Array(data) => GraphItem::Int32(data[index]),
+            ArrayData::Uint64Array(data) => GraphItem::UInt64(data[index]),
+            ArrayData::UsizeArray(data) => panic!("Unknown type"),
         }
     }
 }

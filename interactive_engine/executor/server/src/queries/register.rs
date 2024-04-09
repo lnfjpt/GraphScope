@@ -4,11 +4,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 use std::time::Instant;
 
+use bmcsr::col_table::ColTable;
 use bmcsr::graph::Direction;
 use bmcsr::graph_db::GraphDB;
 use bmcsr::types::LabelId;
 use dlopen::wrapper::{Container, WrapperApi};
-use graph_index::types::{ArrayData, DataType as IndexDataType, DataType, Item};
+use graph_index::types::{ArrayData, DataType as IndexDataType, DataType, Item, WriteOp};
 use graph_index::GraphIndex;
 use pegasus::api::*;
 use pegasus::errors::BuildJobError;
@@ -17,13 +18,23 @@ use pegasus::{JobConf, ServerConf};
 use serde::{Deserialize, Serialize};
 
 #[derive(WrapperApi)]
-pub struct QueryApi {
+pub struct ReadQueryApi {
     Query: fn(
         conf: JobConf,
         graph: &GraphDB<usize, usize>,
         graph_index: &GraphIndex,
         input_params: HashMap<String, String>,
     ) -> Box<dyn Fn(&mut Source<i32>, ResultSink<Vec<u8>>) -> Result<(), BuildJobError>>,
+}
+
+#[derive(WrapperApi)]
+pub struct WriteQueryApi {
+    Query: fn(
+        conf: JobConf,
+        graph: &GraphDB<usize, usize>,
+        graph_index: &GraphIndex,
+        input_params: HashMap<String, String>,
+    ) -> Box<dyn Fn(&mut Source<i32>, ResultSink<Vec<WriteOp>>) -> Result<(), BuildJobError>>,
 }
 
 #[derive(WrapperApi)]
@@ -97,7 +108,7 @@ pub struct QueriesConfig {
 }
 
 pub struct QueryRegister {
-    query_map: RwLock<HashMap<String, Arc<Container<QueryApi>>>>,
+    query_map: RwLock<HashMap<String, Arc<Container<ReadQueryApi>>>>,
     query_inputs: RwLock<HashMap<String, Vec<(String, String)>>>,
     query_outputs: RwLock<HashMap<String, HashMap<String, String>>>,
     query_description: RwLock<HashMap<String, String>>,
@@ -120,7 +131,7 @@ impl QueryRegister {
     }
 
     pub fn register(
-        &self, query_name: String, lib: Container<QueryApi>, inputs_info: Vec<(String, String)>,
+        &self, query_name: String, lib: Container<ReadQueryApi>, inputs_info: Vec<(String, String)>,
         outputs_info: HashMap<String, String>, description: String,
     ) {
         {
@@ -219,12 +230,12 @@ impl QueryRegister {
         }
         for query in config.read_queries {
             let lib_path = query.path.clone();
-            let libc: Container<QueryApi> = unsafe { Container::load(lib_path) }.unwrap();
+            let libc: Container<ReadQueryApi> = unsafe { Container::load(lib_path) }.unwrap();
             self.register(query.queries_name, libc, vec![], HashMap::new(), "".to_string());
         }
     }
 
-    pub fn get_query(&self, query_name: &String) -> Option<Arc<Container<QueryApi>>> {
+    pub fn get_read_query(&self, query_name: &String) -> Option<Arc<Container<ReadQueryApi>>> {
         let query_map = self
             .query_map
             .read()
@@ -234,6 +245,10 @@ impl QueryRegister {
         } else {
             None
         }
+    }
+
+    pub fn get_write_query(&self, query_name: &String) -> Option<Arc<Container<WriteQueryApi>>> {
+        None
     }
 
     pub fn get_query_inputs_info(&self, query_name: &String) -> Option<Vec<(String, String)>> {

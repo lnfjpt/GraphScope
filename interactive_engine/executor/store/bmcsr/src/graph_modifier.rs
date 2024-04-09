@@ -833,10 +833,10 @@ impl GraphModifier {
         } else {
             input
                 .oe_csr
-                .parallel_delete_edges(&delete_edge_set, false, 4);
+                .parallel_delete_edges(&delete_edge_set, false, p);
             input
                 .oe_csr
-                .parallel_delete_edges(&ie_to_delete, false, 4);
+                .parallel_delete_edges(&ie_to_delete, false, p);
         }
 
         input.ie_csr.delete_vertices(dst_delete_set);
