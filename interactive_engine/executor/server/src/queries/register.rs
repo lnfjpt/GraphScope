@@ -108,7 +108,8 @@ pub struct QueriesConfig {
 }
 
 pub struct QueryRegister {
-    query_map: RwLock<HashMap<String, Arc<Container<ReadQueryApi>>>>,
+    read_query_map: RwLock<HashMap<String, Arc<Container<ReadQueryApi>>>>,
+    write_query_map: RwLock<HashMap<String, Arc<Container<WriteQueryApi>>>>,
     query_inputs: RwLock<HashMap<String, Vec<(String, String)>>>,
     query_outputs: RwLock<HashMap<String, HashMap<String, String>>>,
     query_description: RwLock<HashMap<String, String>>,
@@ -120,7 +121,8 @@ pub struct QueryRegister {
 impl QueryRegister {
     pub fn new() -> Self {
         Self {
-            query_map: RwLock::new(HashMap::new()),
+            read_query_map: RwLock::new(HashMap::new()),
+            write_query_map: RwLock::new(HashMap::new()),
             query_inputs: RwLock::new(HashMap::new()),
             query_outputs: RwLock::new(HashMap::new()),
             query_description: RwLock::new(HashMap::new()),
@@ -135,11 +137,11 @@ impl QueryRegister {
         outputs_info: HashMap<String, String>, description: String,
     ) {
         {
-            let mut query_map = self
-                .query_map
+            let mut read_query_map = self
+                .read_query_map
                 .write()
-                .expect("query_map poisoned");
-            query_map.insert(query_name.clone(), Arc::new(lib));
+                .expect("read_query_map poisoned");
+            read_query_map.insert(query_name.clone(), Arc::new(lib));
         }
         {
             let mut query_inputs = self
@@ -236,11 +238,11 @@ impl QueryRegister {
     }
 
     pub fn get_read_query(&self, query_name: &String) -> Option<Arc<Container<ReadQueryApi>>> {
-        let query_map = self
-            .query_map
+        let read_query_map = self
+            .read_query_map
             .read()
-            .expect("query_map poisoned");
-        if let Some(query) = query_map.get(query_name) {
+            .expect("read_query_map poisoned");
+        if let Some(query) = read_query_map.get(query_name) {
             Some(query.clone())
         } else {
             None

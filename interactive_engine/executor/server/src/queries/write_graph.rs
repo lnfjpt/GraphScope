@@ -1,8 +1,12 @@
 use std::collections::HashSet;
 use std::str::FromStr;
+use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::{BufReader, Write};
 
 use bmcsr::bmscsr::BatchMutableSingleCsr;
 use bmcsr::col_table::ColTable;
+use bmcsr::graph_modifier::GraphModifier;
 use bmcsr::columns::{DataType, Item};
 use bmcsr::csr::CsrTrait;
 use bmcsr::graph::{Direction, IndexType};
@@ -12,9 +16,9 @@ use bmcsr::types::{DefaultId, LabelId};
 use graph_index::types::ArrayData;
 
 fn properties_to_items<G, I>(properties: Vec<ArrayData>) -> Vec<Vec<Item>>
-where
-    I: Send + Sync + IndexType,
-    G: FromStr + Send + Sync + IndexType + Eq,
+    where
+        I: Send + Sync + IndexType,
+        G: FromStr + Send + Sync + IndexType + Eq,
 {
     let properties_len = if properties.len() > 0 { properties[0].len() } else { 0 };
     let mut properties_items = Vec::with_capacity(properties_len);
@@ -56,7 +60,7 @@ pub fn insert_vertices<G, I>(
 
 pub fn insert_edges<G, I>(
     graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
-    edges: Vec<(G, G)>, properties: Option<Vec<ArrayData>>, parallel: u32
+    edges: Vec<(G, G)>, properties: Option<Vec<ArrayData>>, parallel: u32,
 ) where
     I: Send + Sync + IndexType,
     G: FromStr + Send + Sync + IndexType + Eq,
@@ -276,6 +280,33 @@ pub fn delete_edges<G, I>(
     if let Some(table) = oe_prop {
         graph.oe_edge_prop_table.insert(index, table);
     }
+}
+
+pub fn insert_vertices_by_schema<G, I>(graph: &mut GraphDB<G, I>, vertex_label: LabelId, input_dir: String, filenames: &Vec<String>, id_col: i32, mappings: &Vec<i32>, parallel: u32) where
+    I: Send + Sync + IndexType,
+    G: FromStr + Send + Sync + IndexType + Eq, {
+    let mut modifier = GraphModifier::new(input_dir);
+    modifier.skip_header();
+    modifier.parallel(parallel);
+    modifier.apply_vertices_insert_with_filename(graph, vertex_label, filenames, id_col, mappings).unwrap();
+}
+
+pub fn insert_edges_by_schema<G, I>(graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, input_dir: String, filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32, mappings: &Vec<i32>, parallel: u32) where
+    I: Send + Sync + IndexType,
+    G: FromStr + Send + Sync + IndexType + Eq, {
+    let mut modifier = GraphModifier::new(input_dir);
+    modifier.skip_header();
+    modifier.parallel(parallel);
+    modifier.apply_edges_insert_with_filename(graph, src_label, edge_label, dst_label, filenames, src_id_col, dst_id_col, mappings, parallel).unwrap();
+}
+
+pub fn delete_vertices_by_schema<G, I>(graph: &mut GraphDB<G, I>, vertex_label: LabelId, input_dir: String, filenames: &Vec<String>, id_col: i32, parallel: u32) where
+    I: Send + Sync + IndexType,
+    G: FromStr + Send + Sync + IndexType + Eq, {
+    let mut modifier = GraphModifier::new(input_dir);
+    modifier.skip_header();
+    modifier.parallel(parallel);
+ //   modifier.apply_vertices_insert_with_filename(graph, vertex_label, filenames, id_col, mappings).unwrap();
 }
 
 // fn set_csrs<G, I>(graph: &mut GraphDB<G, I>, mut reps: Vec<CsrRep<I>>)

@@ -1,38 +1,185 @@
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::io;
-use std::io::{Write};
+use std::io::Write;
 
 use bmcsr::col_table::ColTable;
 use bmcsr::columns::Item as GraphItem;
 use dyn_type::CastError;
-use serde::{Deserialize, Serialize};
+use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
-use pegasus_common::codec::{Encode, Decode};
+use serde::{Deserialize, Serialize};
 
 pub type DefaultId = usize;
 pub type InternalId = usize;
 pub type LabelId = u8;
 
 pub enum WriteOp {
-    InsertVertices { label: LabelId, global_ids: Vec<usize>, properties: Option<Vec<ArrayData>> },
-    InsertEdges { src_label: LabelId, edge_label: LabelId, dst_label: LabelId, edges: Vec<(usize, usize)>, properties: Option<Vec<ArrayData>> },
-    DeleteVertices { label: LabelId, global_ids: Vec<usize> },
-    DeleteEdges { src_label: LabelId, edge_label: LabelId, dst_label: LabelId, lids: Vec<(usize, usize)> },
-    SetVertices { label: LabelId, global_ids: Vec<usize>, properties: Vec<(String, ArrayData)> },
-    SetEdges { src_label: LabelId, edge_label: LabelId, dst_label: LabelId, src_offset: Vec<usize>, dst_offset: Vec<usize>, properties: Vec<(String, ArrayData)> },
+    InsertVertices {
+        label: LabelId,
+        global_ids: Vec<usize>,
+        properties: Option<Vec<ArrayData>>,
+    },
+    InsertEdges {
+        src_label: LabelId,
+        edge_label: LabelId,
+        dst_label: LabelId,
+        edges: Vec<(usize, usize)>,
+        properties: Option<Vec<ArrayData>>,
+    },
+    InsertVerticesBySchema {
+        label: LabelId,
+        input_dir: String,
+        filenames: Vec<String>,
+        id_col: i32,
+        mappings: Vec<i32>,
+    },
+    InsertEdgesBySchema {
+        src_label: LabelId,
+        edge_label: LabelId,
+        dst_label: LabelId,
+        input_dir: String,
+        filenames: Vec<String>,
+        src_id_col: i32,
+        dst_id_col: i32,
+        mappings: Vec<i32>,
+    },
+    DeleteVertices {
+        label: LabelId,
+        global_ids: Vec<usize>,
+    },
+    DeleteEdges {
+        src_label: LabelId,
+        edge_label: LabelId,
+        dst_label: LabelId,
+        lids: Vec<(usize, usize)>,
+    },
+    DeleteVerticesBySchema {
+        label: LabelId,
+        input_dir: String,
+        filenames: Vec<String>,
+        id_col: i32,
+    },
+    DeleteEdgesBySchema {
+        src_label: LabelId,
+        edge_label: LabelId,
+        dst_label: LabelId,
+        input_dir: String,
+        filenames: Vec<String>,
+        src_id_col: i32,
+        dst_id_col: i32,
+    },
+    SetVertices {
+        label: LabelId,
+        global_ids: Vec<usize>,
+        properties: Vec<(String, ArrayData)>,
+    },
+    SetEdges {
+        src_label: LabelId,
+        edge_label: LabelId,
+        dst_label: LabelId,
+        src_offset: Vec<usize>,
+        dst_offset: Vec<usize>,
+        properties: Vec<(String, ArrayData)>,
+    },
 }
 
 impl Clone for WriteOp {
     #[inline]
     fn clone(&self) -> Self {
         match self {
-            WriteOp::InsertVertices { label, global_ids, properties } => WriteOp::InsertVertices { label: *label, global_ids: global_ids.clone(), properties: properties.clone() },
-            WriteOp::InsertEdges { src_label, edge_label, dst_label, edges, properties } => WriteOp::InsertEdges { src_label: *src_label, edge_label: *edge_label, dst_label: *dst_label, edges: edges.clone(), properties: properties.clone() },
-            WriteOp::DeleteVertices { label, global_ids } => WriteOp::DeleteVertices { label: *label, global_ids: global_ids.clone() },
-            WriteOp::DeleteEdges { src_label, edge_label, dst_label, lids } => WriteOp::DeleteEdges { src_label: *src_label, edge_label: *edge_label, dst_label: *dst_label, lids: lids.clone() },
-            WriteOp::SetVertices { label, global_ids, properties } => WriteOp::SetVertices { label: *label, global_ids: global_ids.clone(), properties: properties.clone() },
-            WriteOp::SetEdges { src_label, edge_label, dst_label, src_offset, dst_offset, properties } => WriteOp::SetEdges { src_label: *src_label, edge_label: *edge_label, dst_label: *dst_label, src_offset: src_offset.clone(), dst_offset: dst_offset.clone(), properties: properties.clone() },
+            WriteOp::InsertVertices { label, global_ids, properties } => WriteOp::InsertVertices {
+                label: *label,
+                global_ids: global_ids.clone(),
+                properties: properties.clone(),
+            },
+            WriteOp::InsertEdges { src_label, edge_label, dst_label, edges, properties } => {
+                WriteOp::InsertEdges {
+                    src_label: *src_label,
+                    edge_label: *edge_label,
+                    dst_label: *dst_label,
+                    edges: edges.clone(),
+                    properties: properties.clone(),
+                }
+            }
+            WriteOp::InsertVerticesBySchema { label, input_dir, filenames, id_col, mappings } => {
+                WriteOp::InsertVerticesBySchema {
+                    label: *label,
+                    input_dir: input_dir.clone(),
+                    filenames: filenames.clone(),
+                    id_col: *id_col,
+                    mappings: mappings.clone(),
+                }
+            }
+            WriteOp::InsertEdgesBySchema {
+                src_label,
+                edge_label,
+                dst_label,
+                input_dir,
+                filenames,
+                src_id_col,
+                dst_id_col,
+                mappings,
+            } => WriteOp::InsertEdgesBySchema {
+                src_label: *src_label,
+                edge_label: *edge_label,
+                dst_label: *dst_label,
+                input_dir: input_dir.clone(),
+                filenames: filenames.clone(),
+                src_id_col: *src_id_col,
+                dst_id_col: *dst_id_col,
+                mappings: mappings.clone(),
+            },
+            WriteOp::DeleteVertices { label, global_ids } => {
+                WriteOp::DeleteVertices { label: *label, global_ids: global_ids.clone() }
+            }
+            WriteOp::DeleteEdges { src_label, edge_label, dst_label, lids } => WriteOp::DeleteEdges {
+                src_label: *src_label,
+                edge_label: *edge_label,
+                dst_label: *dst_label,
+                lids: lids.clone(),
+            },
+            WriteOp::DeleteVerticesBySchema { label, input_dir, filenames, id_col } => {
+                WriteOp::DeleteVerticesBySchema {
+                    label: *label,
+                    input_dir: input_dir.clone(),
+                    filenames: filenames.clone(),
+                    id_col: *id_col,
+                }
+            }
+            WriteOp::DeleteEdgesBySchema {
+                src_label,
+                edge_label,
+                dst_label,
+                input_dir,
+                filenames,
+                src_id_col,
+                dst_id_col,
+            } => WriteOp::DeleteEdgesBySchema {
+                src_label: *src_label,
+                edge_label: *edge_label,
+                dst_label: *dst_label,
+                input_dir: input_dir.clone(),
+                filenames: filenames.clone(),
+                src_id_col: *src_id_col,
+                dst_id_col: *dst_id_col,
+            },
+            WriteOp::SetVertices { label, global_ids, properties } => WriteOp::SetVertices {
+                label: *label,
+                global_ids: global_ids.clone(),
+                properties: properties.clone(),
+            },
+            WriteOp::SetEdges { src_label, edge_label, dst_label, src_offset, dst_offset, properties } => {
+                WriteOp::SetEdges {
+                    src_label: *src_label,
+                    edge_label: *edge_label,
+                    dst_label: *dst_label,
+                    src_offset: src_offset.clone(),
+                    dst_offset: dst_offset.clone(),
+                    properties: properties.clone(),
+                }
+            }
+            _ => todo!(),
         }
     }
 }
@@ -55,7 +202,60 @@ impl Encode for WriteOp {
                     }
                 }
             }
-            _ => panic!("Unsupport type")
+            WriteOp::InsertVerticesBySchema { label, input_dir, filenames, id_col, mappings } => {
+                writer.write_u8(2);
+                writer.write_u8(*label);
+                input_dir.write_to(writer);
+                writer.write_u64(filenames.len() as u64);
+                for filename in filenames {
+                    filename.write_to(writer);
+                }
+                writer.write_i32(*id_col);
+                writer.write_u64(mappings.len() as u64);
+                for index in mappings {
+                    writer.write_i32(*index);
+                }
+            }
+            WriteOp::InsertEdgesBySchema { src_label, edge_label, dst_label, input_dir, filenames, src_id_col, dst_id_col, mappings } => {
+                writer.write_u8(3);
+                writer.write_u8(*src_label);
+                writer.write_u8(*edge_label);
+                writer.write_u8(*dst_label);
+                input_dir.write_to(writer);
+                writer.write_u64(filenames.len() as u64);
+                for filename in filenames {
+                    filename.write_to(writer);
+                }
+                writer.write_i32(*src_id_col);
+                writer.write_i32(*dst_id_col);
+                writer.write_u64(mappings.len() as u64);
+                for index in mappings {
+                    writer.write_i32(*index);
+                }
+            }
+            WriteOp::DeleteVerticesBySchema { label, input_dir, filenames, id_col } => {
+                writer.write_u8(6);
+                writer.write_u8(*label);
+                input_dir.write_to(writer);
+                writer.write_u64(filenames.len() as u64);
+                for filename in filenames {
+                    filename.write_to(writer);
+                }
+                writer.write_i32(*id_col);
+            }
+            WriteOp::DeleteEdgesBySchema { src_label, edge_label, dst_label, input_dir, filenames, src_id_col, dst_id_col } => {
+                writer.write_u8(7);
+                writer.write_u8(*src_label);
+                writer.write_u8(*dst_label);
+                input_dir.write_to(writer);
+                writer.write_u64(filenames.len() as u64);
+                for filename in filenames {
+                    filename.write_to(writer);
+                }
+                writer.write_i32(*src_id_col);
+                writer.write_i32(*dst_id_col);
+            }
+            _ => panic!("Unsupport type"),
         }
         Ok(())
     }
@@ -63,7 +263,70 @@ impl Encode for WriteOp {
 
 impl Decode for WriteOp {
     fn read_from<R: ReadExt>(reader: &mut R) -> io::Result<Self> {
-        Ok(WriteOp::InsertVertices { label: 1, global_ids: vec![], properties: Some(vec![]) })
+        let op_type = reader.read_u8()?;
+        match op_type {
+            2 => {
+                let label = reader.read_u8()?;
+                let input_dir = String::read_from(reader)?;
+                let files_num = reader.read_u64()? as usize;
+                let mut filenames = Vec::with_capacity(files_num);
+                for i in 0..files_num {
+                    filenames.push(String::read_from(reader)?);
+                }
+                let id_col = reader.read_i32()?;
+                let mappings_len = reader.read_u64()? as usize;
+                let mut mappings = Vec::with_capacity(mappings_len);
+                for i in 0..mappings_len {
+                    mappings.push(reader.read_i32()?);
+                }
+                Ok(WriteOp::InsertVerticesBySchema { label, input_dir, filenames, id_col, mappings })
+            }
+            3 => {
+                let src_label = reader.read_u8()?;
+                let edge_label = reader.read_u8()?;
+                let dst_label = reader.read_u8()?;
+                let input_dir = String::read_from(reader)?;
+                let files_num = reader.read_u64()? as usize;
+                let mut filenames = Vec::with_capacity(files_num);
+                for i in 0..files_num {
+                    filenames.push(String::read_from(reader)?);
+                }
+                let src_id_col = reader.read_i32()?;
+                let dst_id_col = reader.read_i32()?;
+                let mappings_len = reader.read_u64()? as usize;
+                let mut mappings = Vec::with_capacity(mappings_len);
+                for i in 0..mappings_len {
+                    mappings.push(reader.read_i32()?);
+                }
+                Ok(WriteOp::InsertEdgesBySchema { src_label, edge_label, dst_label, input_dir, filenames, src_id_col, dst_id_col, mappings })
+            }
+            6 => {
+                let label = reader.read_u8()?;
+                let input_dir = String::read_from(reader)?;
+                let files_num = reader.read_u64()? as usize;
+                let mut filenames = Vec::with_capacity(files_num);
+                for i in 0..files_num {
+                    filenames.push(String::read_from(reader)?);
+                }
+                let id_col = reader.read_i32()?;
+                Ok(WriteOp::DeleteVerticesBySchema { label, input_dir, filenames, id_col })
+            }
+            7 => {
+                let src_label = reader.read_u8()?;
+                let edge_label = reader.read_u8()?;
+                let dst_label = reader.read_u8()?;
+                let input_dir = String::read_from(reader)?;
+                let files_num = reader.read_u64()? as usize;
+                let mut filenames = Vec::with_capacity(files_num);
+                for i in 0..files_num {
+                    filenames.push(String::read_from(reader)?);
+                }
+                let src_id_col = reader.read_i32()?;
+                let dst_id_col = reader.read_i32()?;
+                Ok(WriteOp::DeleteEdgesBySchema { src_label, edge_label, dst_label, input_dir, filenames, src_id_col, dst_id_col })
+            }
+            _ => todo!()
+        }
     }
 }
 
@@ -283,12 +546,12 @@ impl ArrayData {
                 if let GraphItem::Int32(item) = item {
                     data.push(item);
                 }
-            },
+            }
             ArrayData::Uint64Array(data) => {
                 if let GraphItem::UInt64(item) = item {
                     data.push(item);
                 }
-            },
+            }
             ArrayData::UsizeArray(data) => panic!("Unknown type"),
         }
     }

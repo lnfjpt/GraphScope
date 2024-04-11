@@ -1,12 +1,14 @@
-use csv::{ReaderBuilder, StringRecord};
-use rayon::prelude::*;
-use bmcsr::columns::{Item, DataType};
-use bmcsr::error::GDBResult;
-use bmcsr::ldbc_parser::LDBCVertexParser;
+use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::PathBuf;
+
+use bmcsr::columns::{DataType, Item};
+use bmcsr::error::GDBResult;
+use bmcsr::ldbc_parser::LDBCVertexParser;
+use csv::{ReaderBuilder, StringRecord};
+use rayon::prelude::*;
 use rust_htslib::bgzf::Reader as GzReader;
-use std::fs::File;
+
 use crate::types::ArrayData;
 
 pub fn get_partition(id: &u64, workers: usize, num_servers: usize) -> u64 {
@@ -33,15 +35,21 @@ fn create_array_data(headers: &[(String, DataType)]) -> Vec<ArrayData> {
         match data_type {
             DataType::Int32 => array_datas.push(ArrayData::Int32Array(vec![])),
             DataType::UInt64 => array_datas.push(ArrayData::Uint64Array(vec![])),
-            _ => panic!("Unsupport data type")
+            _ => panic!("Unsupport data type"),
         }
     }
     array_datas
 }
 
-pub fn parse_vertex_file(path: &PathBuf, skip_header: bool, delim: u8, parser: LDBCVertexParser<usize>, mappings: Vec<i32>,
-                         headers: &[(String, DataType)], id: u32, parallel: u32) -> (Vec<usize>, Option<Vec<ArrayData>>) {
-    let path_str = path.clone().to_str().map(|s| s.to_string()).unwrap();
+pub fn parse_vertex_file(
+    path: &PathBuf, skip_header: bool, delim: u8, parser: LDBCVertexParser<usize>, mappings: Vec<i32>,
+    headers: &[(String, DataType)], id: u32, parallel: u32,
+) -> (Vec<usize>, Option<Vec<ArrayData>>) {
+    let path_str = path
+        .clone()
+        .to_str()
+        .map(|s| s.to_string())
+        .unwrap();
     let mut global_ids = vec![];
     let mut properties = create_array_data(headers);
     if path_str.ends_with(".csv.gz") {
@@ -60,8 +68,7 @@ pub fn parse_vertex_file(path: &PathBuf, skip_header: bool, delim: u8, parser: L
                 if let Ok(record) = result {
                     let vertex_meta = parser.parse_vertex_meta(&record);
                     global_ids.push(vertex_meta.global_id);
-                    if let Ok(mut property) =
-                        parse_properties(&record, headers, mappings.as_slice()) {
+                    if let Ok(mut property) = parse_properties(&record, headers, mappings.as_slice()) {
                         for (i, data) in property.drain(..).enumerate() {
                             properties[i].push_item(data);
                         }
@@ -83,8 +90,7 @@ pub fn parse_vertex_file(path: &PathBuf, skip_header: bool, delim: u8, parser: L
                 if let Ok(record) = result {
                     let vertex_meta = parser.parse_vertex_meta(&record);
                     global_ids.push(vertex_meta.global_id);
-                    if let Ok(mut property) =
-                        parse_properties(&record, headers, mappings.as_slice()) {
+                    if let Ok(mut property) = parse_properties(&record, headers, mappings.as_slice()) {
                         for (i, data) in property.drain(..).enumerate() {
                             properties[i].push_item(data);
                         }

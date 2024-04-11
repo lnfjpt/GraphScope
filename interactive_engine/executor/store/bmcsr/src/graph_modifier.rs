@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use rust_htslib::bgzf::Reader as GzReader;
 
 use crate::bmscsr::BatchMutableSingleCsr;
-use crate::col_table::{parse_properties, ColTable};
+use crate::col_table::{parse_properties, ColTable, parse_properties_by_mappings};
 use crate::columns::DataType;
 use crate::columns::{Column, StringColumn};
 use crate::csr::CsrTrait;
@@ -24,8 +24,8 @@ use crate::schema::{CsrGraphSchema, InputSchema, Schema};
 use crate::types::{DefaultId, LabelId};
 
 fn process_csv_rows<F>(path: &PathBuf, mut process_row: F, skip_header: bool, delim: u8)
-where
-    F: FnMut(&csv::StringRecord),
+    where
+        F: FnMut(&csv::StringRecord),
 {
     if let Some(path_str) = path.clone().to_str() {
         if path_str.ends_with(".csv.gz") {
@@ -62,6 +62,7 @@ where
         }
     }
 }
+
 pub struct DeleteGenerator<G: FromStr + Send + Sync + IndexType + std::fmt::Display = DefaultId> {
     input_dir: PathBuf,
 
@@ -149,8 +150,8 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
     }
 
     fn iterate_persons<I>(&mut self, graph: &GraphDB<G, I>)
-    where
-        I: Send + Sync + IndexType,
+        where
+            I: Send + Sync + IndexType,
     {
         let person_label = graph
             .graph_schema
@@ -242,8 +243,8 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
     }
 
     fn iterate_forums<I>(&mut self, graph: &GraphDB<G, I>)
-    where
-        I: Send + Sync + IndexType,
+        where
+            I: Send + Sync + IndexType,
     {
         let forum_label = graph
             .graph_schema
@@ -286,8 +287,8 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
     }
 
     fn iterate_posts<I>(&mut self, graph: &GraphDB<G, I>)
-    where
-        I: Send + Sync + IndexType,
+        where
+            I: Send + Sync + IndexType,
     {
         let post_label = graph
             .graph_schema
@@ -327,8 +328,8 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
     }
 
     fn iterate_comments<I>(&mut self, graph: &GraphDB<G, I>)
-    where
-        I: Send + Sync + IndexType,
+        where
+            I: Send + Sync + IndexType,
     {
         let comment_label = graph
             .graph_schema
@@ -372,8 +373,8 @@ impl<G: FromStr + Send + Sync + IndexType + Eq + std::fmt::Display> DeleteGenera
     }
 
     pub fn generate<I>(&mut self, graph: &GraphDB<G, I>, batch_id: &str)
-    where
-        I: Send + Sync + IndexType,
+        where
+            I: Send + Sync + IndexType,
     {
         let output_dir = self
             .input_dir
@@ -541,9 +542,9 @@ impl GraphModifier {
     fn take_csr<G, I>(
         &self, graph: &mut GraphDB<G, I>, src_label_i: LabelId, dst_label_i: LabelId, e_label_i: LabelId,
     ) -> CsrRep<I>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         let index = graph.edge_label_to_index(src_label_i, dst_label_i, e_label_i, Direction::Outgoing);
 
@@ -560,9 +561,9 @@ impl GraphModifier {
     }
 
     fn take_csrs_with_label<G, I>(&self, graph: &mut GraphDB<G, I>, label: LabelId) -> Vec<CsrRep<I>>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         let vertex_label_num = graph.vertex_label_num;
         let edge_label_num = graph.edge_label_num;
@@ -630,9 +631,9 @@ impl GraphModifier {
         results
     }
     fn take_csrs<G, I>(&self, graph: &mut GraphDB<G, I>) -> Vec<CsrRep<I>>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         let vertex_label_num = graph.vertex_label_num;
         let edge_label_num = graph.edge_label_num;
@@ -684,9 +685,9 @@ impl GraphModifier {
     }
 
     fn set_csr<G, I>(&self, graph: &mut GraphDB<G, I>, mut reps: CsrRep<I>)
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         let index =
             graph.edge_label_to_index(reps.src_label, reps.dst_label, reps.edge_label, Direction::Outgoing);
@@ -702,9 +703,9 @@ impl GraphModifier {
     }
 
     fn set_csrs<G, I>(&self, graph: &mut GraphDB<G, I>, mut reps: Vec<CsrRep<I>>)
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         for result in reps.drain(..) {
             let index = graph.edge_label_to_index(
@@ -858,53 +859,22 @@ impl GraphModifier {
     }
 
     pub fn apply_vertices_delete_with_filename<G, I>(
-        &mut self, graph: &mut GraphDB<G, I>, label: &str, filename: &str, properties: &str,
+        &mut self, graph: &mut GraphDB<G, I>, label: LabelId, filenames: &Vec<String>, id_col: i32, parallel: u32,
     ) -> GDBResult<()>
-    where
-        G: FromStr + Send + Sync + IndexType + Eq,
-        I: Send + Sync + IndexType,
+        where
+            G: FromStr + Send + Sync + IndexType + Eq,
+            I: Send + Sync + IndexType,
     {
-        let v_label_i = graph
-            .graph_schema
-            .get_vertex_label_id(label)
-            .unwrap();
-        let vertex_file_strings: Vec<String> = [filename.to_string()].to_vec();
         let mut delete_sets = vec![HashSet::new(); graph.vertex_label_num as usize];
         let mut delete_set = HashSet::new();
-
-        info!("Deleting vertex - {}", graph.graph_schema.vertex_label_names()[v_label_i as usize]);
+        info!("Deleting vertex - {}", graph.graph_schema.vertex_label_names()[label as usize]);
         let vertex_files_prefix = self.input_dir.clone();
-        let vertex_files = get_files_list_beta(&vertex_files_prefix, &vertex_file_strings);
+        let vertex_files = get_files_list_beta(&vertex_files_prefix, filenames);
         if vertex_files.is_empty() {
             return Ok(());
         }
-        let vertex_properties_types = graph
-            .graph_schema
-            .get_vertex_schema(v_label_i)
-            .unwrap();
 
-        let input_header: Vec<(String, DataType)> = properties
-            .split(',')
-            .map(|part| part.trim())
-            .map(|s| {
-                (
-                    s.to_string(),
-                    vertex_properties_types
-                        .get(s)
-                        .unwrap_or_else(|| &(DataType::String, 0 as usize))
-                        .0
-                        .clone(),
-                )
-            })
-            .collect();
-        let mut id_col = 0;
-        for (index, (n, _)) in input_header.iter().enumerate() {
-            if n == "id" {
-                id_col = index;
-                break;
-            }
-        }
-        let parser = LDBCVertexParser::<G>::new(v_label_i as LabelId, id_col);
+        let parser = LDBCVertexParser::<G>::new(label as LabelId, id_col as usize);
         for vertex_file in vertex_files.iter() {
             process_csv_rows(
                 vertex_file,
@@ -914,7 +884,7 @@ impl GraphModifier {
                         .vertex_map
                         .get_internal_id(vertex_meta.global_id)
                         .unwrap();
-                    if got_label == v_label_i as LabelId {
+                    if got_label == label as LabelId {
                         delete_set.insert(lid);
                     }
                 },
@@ -923,9 +893,9 @@ impl GraphModifier {
             );
         }
 
-        delete_sets[v_label_i as usize] = delete_set;
+        delete_sets[label as usize] = delete_set;
 
-        let mut input_reps = self.take_csrs_with_label(graph, v_label_i as LabelId);
+        let mut input_reps = self.take_csrs_with_label(graph, label);
         input_reps.iter_mut().for_each(|rep| {
             let edge_file_strings = vec![];
             let input_header = graph
@@ -942,11 +912,11 @@ impl GraphModifier {
             );
         });
         self.set_csrs(graph, input_reps);
-        let delete_set = &delete_sets[v_label_i as usize];
+        let delete_set = &delete_sets[label as usize];
         for v in delete_set.iter() {
             graph
                 .vertex_map
-                .remove_vertex(v_label_i as LabelId, v);
+                .remove_vertex(label, v);
         }
 
         Ok(())
@@ -955,9 +925,9 @@ impl GraphModifier {
     pub fn apply_edges_delete_with_filename<G, I>(
         &mut self, graph: &mut GraphDB<G, I>, label: &str, filename: &str, properties: &str,
     ) -> GDBResult<()>
-    where
-        G: FromStr + Send + Sync + IndexType + Eq,
-        I: Send + Sync + IndexType,
+        where
+            G: FromStr + Send + Sync + IndexType + Eq,
+            I: Send + Sync + IndexType,
     {
         let labels = label.split("_").collect::<Vec<&str>>();
         let src_label = labels[0];
@@ -1010,9 +980,9 @@ impl GraphModifier {
     fn apply_deletes<G, I>(
         &mut self, graph: &mut GraphDB<G, I>, delete_schema: &InputSchema,
     ) -> GDBResult<()>
-    where
-        G: FromStr + Send + Sync + IndexType + Eq,
-        I: Send + Sync + IndexType,
+        where
+            G: FromStr + Send + Sync + IndexType + Eq,
+            I: Send + Sync + IndexType,
     {
         let vertex_label_num = graph.vertex_label_num;
         let mut delete_sets = vec![];
@@ -1100,68 +1070,29 @@ impl GraphModifier {
     }
 
     pub fn apply_vertices_insert_with_filename<G, I>(
-        &mut self, graph: &mut GraphDB<G, I>, label: &str, filename: &str, properties: &str,
+        &mut self, graph: &mut GraphDB<G, I>, label: LabelId, filenames: &Vec<String>, id_col: i32, mappings: &Vec<i32>,
     ) -> GDBResult<()>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
-        let v_label_i = graph
-            .graph_schema
-            .get_vertex_label_id(label)
-            .unwrap();
         let graph_header = graph
             .graph_schema
-            .get_vertex_header(v_label_i as LabelId)
+            .get_vertex_header(label as LabelId)
             .unwrap();
-        let vertex_properties_types = graph
-            .graph_schema
-            .get_vertex_schema(v_label_i)
-            .unwrap();
+        let header = graph_header.to_vec();
 
-        let input_header: Vec<(String, DataType)> = properties
-            .split(',')
-            .map(|part| part.trim())
-            .map(|s| {
-                (
-                    s.to_string(),
-                    vertex_properties_types
-                        .get(s)
-                        .unwrap_or_else(|| &(DataType::String, 0 as usize))
-                        .0
-                        .clone(),
-                )
-            })
-            .collect();
-
-        let mut keep_set = HashSet::new();
-
-        for pair in graph_header {
-            keep_set.insert(pair.0.clone());
-        }
-        let mut selected = vec![false; input_header.len()];
-        let mut id_col_id = 0;
-        for (index, (n, _)) in input_header.iter().enumerate() {
-            if keep_set.contains(n) {
-                selected[index] = true;
-            }
-            if n == "id" {
-                id_col_id = index;
-            }
-        }
-
-        let parser = LDBCVertexParser::<G>::new(v_label_i as LabelId, id_col_id);
+        let parser = LDBCVertexParser::<G>::new(label as LabelId, id_col as usize);
         let vertex_files_prefix = self.input_dir.clone();
-        let vertex_file_strings: Vec<String> = [filename.to_string()].to_vec();
 
-        let vertex_files = get_files_list(&vertex_files_prefix, &vertex_file_strings);
+        let vertex_files = get_files_list(&vertex_files_prefix, filenames);
         if vertex_files.is_err() {
             warn!(
-                "Get vertex files {:?}/{:?} failed: {:?}",
-                &vertex_files_prefix,
-                &vertex_file_strings,
-                vertex_files.err().unwrap()
-            );
+                    "Get vertex files {:?}/{:?} failed: {:?}",
+                    &vertex_files_prefix,
+                    filenames,
+                    vertex_files.err().unwrap()
+                );
             return Ok(());
         }
         let vertex_files = vertex_files.unwrap();
@@ -1173,7 +1104,7 @@ impl GraphModifier {
                 vertex_file,
                 |record| {
                     let vertex_meta = parser.parse_vertex_meta(&record);
-                    if let Ok(properties) = parse_properties(&record, &input_header, selected.as_slice()) {
+                    if let Ok(properties) = parse_properties_by_mappings(&record, &header, mappings) {
                         graph.insert_vertex(vertex_meta.label, vertex_meta.global_id, Some(properties));
                     }
                 },
@@ -1188,9 +1119,9 @@ impl GraphModifier {
     fn apply_vertices_inserts<G, I>(
         &mut self, graph: &mut GraphDB<G, I>, input_schema: &InputSchema,
     ) -> GDBResult<()>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         let v_label_num = graph.vertex_label_num;
         for v_label_i in 0..v_label_num {
@@ -1266,8 +1197,8 @@ impl GraphModifier {
         &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
         input_header: &[(String, DataType)], graph_schema: &CsrGraphSchema, files: &Vec<PathBuf>,
     ) -> GDBResult<(Vec<(G, G)>, Option<ColTable>)>
-    where
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         let mut edges = vec![];
 
@@ -1433,49 +1364,117 @@ impl GraphModifier {
         );
     }
 
-    pub fn apply_edges_insert_with_filename<G, I>(
-        &mut self, graph: &mut GraphDB<G, I>, label: &str, filename: &str, properties: &str,
+    pub fn apply_edges_insert_with_filename<G, I>
+    (
+        &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32, mappings: &Vec<i32>,
+        parallel: u32,
     ) -> GDBResult<()>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
-        let label_vec = label.split("_").collect::<Vec<&str>>();
-        let src_label = label_vec[0];
-        let e_label = label_vec[1];
-        let dst_label = label_vec[2];
-        let src_label_i = graph
-            .graph_schema
-            .get_vertex_label_id(src_label)
+        let mut parser = LDBCEdgeParser::<G>::new(src_label, dst_label, edge_label);
+        parser.with_endpoint_col_id(src_id_col as usize, dst_id_col as usize);
+
+        let edge_files_prefix = self.input_dir.clone();
+        let edge_files = get_files_list(&edge_files_prefix, filenames);
+        if edge_files.is_err() {
+            warn!(
+                    "Get vertex files {:?}/{:?} failed: {:?}",
+                    &edge_files_prefix,
+                    filenames,
+                    edge_files.err().unwrap()
+                );
+            return Ok(());
+        }
+        let edge_files = edge_files.unwrap();
+        let mut input_reps = self.take_csr(graph, src_label, dst_label, edge_label);
+        let mut edges = vec![];
+        let graph_header = graph.graph_schema
+            .get_edge_header(src_label, edge_label, dst_label)
             .unwrap();
-        let dst_label_i = graph
-            .graph_schema
-            .get_vertex_label_id(dst_label)
-            .unwrap();
-        let e_label_i = graph
-            .graph_schema
-            .get_edge_label_id(e_label)
-            .unwrap();
-        let mut input_reps = self.take_csr(graph, src_label_i, dst_label_i, e_label_i);
-        let edge_file_strings: Vec<String> = [filename.to_string()].to_vec();
-        let input_header: Vec<(String, DataType)> = properties
-            .split(',')
-            .map(|part| part.trim())
-            .map(|s| {
-                (
-                    s.to_string(),
-                    graph
-                        .graph_schema
-                        .get_edge_schema((src_label_i, e_label_i, dst_label_i))
-                        .unwrap()
-                        .get(s)
-                        .unwrap_or_else(|| &(DataType::String, 0 as usize))
-                        .0
-                        .clone(),
+        let mut table_header = vec![];
+        for pair in graph_header {
+            table_header.push((pair.1.clone(), pair.0.clone()));
+        }
+        let mut prop_table = ColTable::new(table_header.clone());
+        if table_header.is_empty() {
+            for file in edge_files {
+                process_csv_rows(
+                    &file,
+                    |record| {
+                        let edge_meta = parser.parse_edge_meta(&record);
+                        edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                    },
+                    self.skip_header,
+                    self.delim,
+                );
+            }
+        } else {
+            for file in edge_files {
+                process_csv_rows(
+                    &file,
+                    |record| {
+                        let edge_meta = parser.parse_edge_meta(&record);
+                        edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                        if let Ok(properties) =
+                            parse_properties_by_mappings(&record, &graph_header, mappings)
+                        {
+                            prop_table.push(&properties);
+                        }
+                    },
+                    self.skip_header,
+                    self.delim,
                 )
+            }
+        }
+
+        let parsed_edges: Vec<(I, I)> = edges
+            .par_iter()
+            .map(|(src, dst)| {
+                let (got_src_label, src_lid) = graph.vertex_map.get_internal_id(*src).unwrap();
+                let (got_dst_label, dst_lid) = graph.vertex_map.get_internal_id(*dst).unwrap();
+                if got_src_label != src_label || got_dst_label != dst_label {
+                    warn!("insert edges with wrong label");
+                    (<I as IndexType>::max(), <I as IndexType>::max())
+                } else {
+                    (src_lid, dst_lid)
+                }
             })
             .collect();
-        self.parallel_insert_rep(&mut input_reps, graph, &edge_file_strings, &input_header, self.parallel);
+        let new_src_num = graph.vertex_map.vertex_num(src_label);
+        input_reps.oe_prop = if let Some(old_table) = input_reps.oe_prop.take() {
+            Some(input_reps.oe_csr.insert_edges_with_prop(
+                new_src_num,
+                &parsed_edges,
+                &prop_table,
+                false,
+                parallel,
+                old_table,
+            ))
+        } else {
+            input_reps
+                .oe_csr
+                .insert_edges(new_src_num, &parsed_edges, false, parallel);
+            None
+        };
+
+        let new_dst_num = graph.vertex_map.vertex_num(dst_label);
+        input_reps.ie_prop = if let Some(old_table) = input_reps.ie_prop.take() {
+            Some(input_reps.ie_csr.insert_edges_with_prop(
+                new_dst_num,
+                &parsed_edges,
+                &prop_table,
+                true,
+                parallel,
+                old_table,
+            ))
+        } else {
+            input_reps
+                .ie_csr
+                .insert_edges(new_dst_num, &parsed_edges, true, parallel);
+            None
+        };
         self.set_csr(graph, input_reps);
         Ok(())
     }
@@ -1483,9 +1482,9 @@ impl GraphModifier {
     fn apply_edges_inserts<G, I>(
         &mut self, graph: &mut GraphDB<G, I>, input_schema: &InputSchema,
     ) -> GDBResult<()>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         let mut input_reps = self.take_csrs(graph);
         for ir in input_reps.iter_mut() {
@@ -1504,9 +1503,9 @@ impl GraphModifier {
     }
 
     pub fn insert<G, I>(&mut self, graph: &mut GraphDB<G, I>, insert_schema: &InputSchema) -> GDBResult<()>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         self.apply_vertices_inserts(graph, &insert_schema)?;
         self.apply_edges_inserts(graph, &insert_schema)?;
@@ -1514,9 +1513,9 @@ impl GraphModifier {
     }
 
     pub fn delete<G, I>(&mut self, graph: &mut GraphDB<G, I>, delete_schema: &InputSchema) -> GDBResult<()>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         self.apply_deletes(graph, &delete_schema)?;
         Ok(())
