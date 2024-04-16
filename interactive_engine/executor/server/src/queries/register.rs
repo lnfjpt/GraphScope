@@ -16,6 +16,7 @@ use pegasus::errors::BuildJobError;
 use pegasus::result::ResultSink;
 use pegasus::{JobConf, ServerConf};
 use serde::{Deserialize, Serialize};
+use crate::queries::write_graph;
 
 #[derive(WrapperApi)]
 pub struct ReadQueryApi {
@@ -104,7 +105,8 @@ pub struct QueriesSetting {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct QueriesConfig {
     precompute: Option<Vec<PrecomputeSetting>>,
-    read_queries: Vec<QueriesSetting>,
+    read_queries: Option<Vec<QueriesSetting>>,
+    write_queries: Option<Vec<QueriesSetting>>,
 }
 
 pub struct QueryRegister {
@@ -132,7 +134,7 @@ impl QueryRegister {
         }
     }
 
-    pub fn register(
+    pub fn register_read_query(
         &self, query_name: String, lib: Container<ReadQueryApi>, inputs_info: Vec<(String, String)>,
         outputs_info: HashMap<String, String>, description: String,
     ) {
@@ -156,6 +158,33 @@ impl QueryRegister {
                 .write()
                 .expect("query_outputs poisoned");
             query_outputs.insert(query_name.clone(), outputs_info);
+        }
+        {
+            let mut query_description = self
+                .query_description
+                .write()
+                .expect("query_description poisoned");
+            query_description.insert(query_name.clone(), description);
+        }
+    }
+
+    pub fn register_write_query(
+        &self, query_name: String, lib: Container<WriteQueryApi>, inputs_info: Vec<(String, String)>,
+        description: String,
+    ) {
+        {
+            let mut write_query_map = self
+                .write_query_map
+                .write()
+                .expect("read_query_map poisoned");
+            write_query_map.insert(query_name.clone(), Arc::new(lib));
+        }
+        {
+            let mut query_inputs = self
+                .query_inputs
+                .write()
+                .expect("query_inputs poisoned");
+            query_inputs.insert(query_name.clone(), inputs_info);
         }
         {
             let mut query_description = self
@@ -230,10 +259,19 @@ impl QueryRegister {
                 }
             }
         }
-        for query in config.read_queries {
-            let lib_path = query.path.clone();
-            let libc: Container<ReadQueryApi> = unsafe { Container::load(lib_path) }.unwrap();
-            self.register(query.queries_name, libc, vec![], HashMap::new(), "".to_string());
+        if let Some(read_queries) = config.read_queries {
+            for query in read_queries {
+                let lib_path = query.path.clone();
+                let libc: Container<ReadQueryApi> = unsafe { Container::load(lib_path) }.unwrap();
+                self.register_read_query(query.queries_name, libc, vec![], HashMap::new(), "".to_string());
+            }
+        }
+        if let Some(write_queries) = config.write_queries {
+            for query in write_queries {
+                let lib_path = query.path.clone();
+                let libc: Container<WriteQueryApi> = unsafe { Container::load(lib_path) }.unwrap();
+                self.register_write_query(query.queries_name, libc, vec![], "".to_string());
+            }
         }
     }
 
@@ -250,7 +288,55 @@ impl QueryRegister {
     }
 
     pub fn get_write_query(&self, query_name: &String) -> Option<Arc<Container<WriteQueryApi>>> {
-        None
+        let write_query_map = self
+            .write_query_map
+            .read()
+            .expect("read_query_map poisoned");
+        if let Some(query) = write_query_map.get(query_name) {
+            Some(query.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn run_write_queries(&self, graph: &mut GraphDB<usize, usize>, graph_index: &mut GraphIndex, worker_num: u32) {
+        let write_query_map = self.write_query_map.read().unwrap();
+        for (query_name, libc) in write_query_map.iter() {
+            println!("Start run query {}", query_name);
+            let job_name = format!("{}-{}", query_name, 0);
+            let mut conf = JobConf::new(job_name);
+            conf.set_workers(worker_num);
+            conf.reset_servers(ServerConf::Partial(vec![0]));
+            let results = {
+                pegasus::run(conf.clone(), || {
+                    libc.Query(
+                        conf.clone(),
+                        graph,
+                        graph_index,
+                        HashMap::new(),
+                    )
+                })
+                    .expect("submit write query failure")
+            };
+            let mut query_results = vec![];
+            for result in results {
+                if let Ok(result) = result {
+                    for op in result {
+                        query_results.push(op);
+                    }
+                }
+            }
+            for write_op in query_results.drain(..) {
+                match write_op {
+                    WriteOp::InsertVertices { label, global_ids, properties } => {
+                        write_graph::insert_vertices(
+                            graph, label, global_ids, properties,
+                        );
+                    }
+                    _ => todo!()
+                }
+            }
+        }
     }
 
     pub fn get_query_inputs_info(&self, query_name: &String) -> Option<Vec<(String, String)>> {
@@ -510,7 +596,7 @@ impl QueryRegister {
                         dst_label,
                     )
                 })
-                .expect("submit precompute failure")
+                    .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {
@@ -603,7 +689,7 @@ impl QueryRegister {
                         dst_label,
                     )
                 })
-                .expect("submit precompute failure")
+                    .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {

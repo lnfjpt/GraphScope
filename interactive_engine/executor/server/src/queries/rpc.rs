@@ -35,7 +35,7 @@ use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
 use crate::generated::protocol as pb;
-use crate::queries::register::{QueryRegister, ReadQueryApi};
+use crate::queries::register::{QueryRegister, ReadQueryApi, WriteQueryApi};
 use crate::queries::write_graph;
 
 pub struct StandaloneServiceListener;
@@ -383,7 +383,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
             println!("function_name: {}, parameters: {}", capture[1].to_string(), capture[2].to_string());
             (capture[1].to_string(), capture[2].to_string())
         } else {
-            let reply = pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
+            let reply = pb::CallResponse { is_success: false, results: vec![], reason: "".to_string() };
             return Ok(Response::new(reply));
         };
         match function_name.as_str() {
@@ -520,9 +520,15 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         "{}/benchmark/{}/target/release/lib{}.so",
                         gie_dir_str, query_name, query_name
                     );
-                    let libc: Container<ReadQueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
-                    self.query_register
-                        .register(query_name, libc, inputs_info, outputs_info, description);
+                    if mode == "read" {
+                        let libc: Container<ReadQueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
+                        self.query_register
+                            .register_read_query(query_name, libc, inputs_info, outputs_info, description);
+                    } else if mode == "write" {
+                        let libc: Container<WriteQueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
+                        self.query_register
+                            .register_write_query(query_name, libc, inputs_info, description);
+                    }
                 } else {
                     let reply = pb::CallResponse {
                         is_success: false,
