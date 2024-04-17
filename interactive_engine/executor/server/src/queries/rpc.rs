@@ -1075,7 +1075,8 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                         dst_label,
                                         src_offset,
                                         dst_offset,
-                                        properties,
+                                        src_properties,
+                                        dst_properties,
                                     } => {
                                         // Set edge properties here
                                         let mut graph_index = self.graph_index.write().unwrap();
@@ -1091,7 +1092,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                             dst_label,
                                             Direction::Incoming,
                                         );
-                                        for (property_name, data) in properties.iter() {
+                                        for (property_name, data) in src_properties.iter() {
                                             let data_type = data.get_type();
                                             graph_index.init_outgoing_edge_index(
                                                 property_name.clone(),
@@ -1100,15 +1101,6 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                                 edge_label,
                                                 data_type,
                                                 Some(oe_property_size),
-                                                Some(Item::Int32(0)),
-                                            );
-                                            graph_index.init_incoming_edge_index(
-                                                property_name.clone(),
-                                                src_label,
-                                                dst_label,
-                                                edge_label,
-                                                data_type,
-                                                Some(ie_property_size),
                                                 Some(Item::Int32(0)),
                                             );
                                             graph_index
@@ -1121,6 +1113,18 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                                     data.as_ref(),
                                                 )
                                                 .unwrap();
+                                        }
+                                        for (property_name, data) in dst_properties.iter() {
+                                            let data_type = data.get_type();
+                                            graph_index.init_incoming_edge_index(
+                                                property_name.clone(),
+                                                src_label,
+                                                dst_label,
+                                                edge_label,
+                                                data_type,
+                                                Some(ie_property_size),
+                                                Some(Item::Int32(0)),
+                                            );
                                             graph_index
                                                 .add_incoming_edge_index_batch(
                                                     src_label,

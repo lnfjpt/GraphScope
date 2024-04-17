@@ -80,7 +80,8 @@ pub enum WriteOp {
         dst_label: LabelId,
         src_offset: Vec<usize>,
         dst_offset: Vec<usize>,
-        properties: Vec<(String, ArrayData)>,
+        src_properties: Vec<(String, ArrayData)>,
+        dst_properties: Vec<(String, ArrayData)>,
     },
 }
 
@@ -169,14 +170,15 @@ impl Clone for WriteOp {
                 global_ids: global_ids.clone(),
                 properties: properties.clone(),
             },
-            WriteOp::SetEdges { src_label, edge_label, dst_label, src_offset, dst_offset, properties } => {
+            WriteOp::SetEdges { src_label, edge_label, dst_label, src_offset, dst_offset, src_properties, dst_properties } => {
                 WriteOp::SetEdges {
                     src_label: *src_label,
                     edge_label: *edge_label,
                     dst_label: *dst_label,
                     src_offset: src_offset.clone(),
                     dst_offset: dst_offset.clone(),
-                    properties: properties.clone(),
+                    src_properties: src_properties.clone(),
+                    dst_properties: dst_properties.clone(),
                 }
             }
         }
@@ -254,7 +256,7 @@ impl Encode for WriteOp {
                 writer.write_i32(*src_id_col);
                 writer.write_i32(*dst_id_col);
             }
-            WriteOp::SetVertices { label, global_ids, properties} => {
+            WriteOp::SetVertices { label, global_ids, properties } => {
                 writer.write_u8(8);
                 writer.write_u8(*label);
                 writer.write_u64(global_ids.len() as u64);
@@ -263,7 +265,7 @@ impl Encode for WriteOp {
                 }
                 properties.write_to(writer);
             }
-            WriteOp::SetEdges { src_label, edge_label, dst_label, src_offset, dst_offset, properties } => {
+            WriteOp::SetEdges { src_label, edge_label, dst_label, src_offset, dst_offset, src_properties, dst_properties } => {
                 writer.write_u8(9);
                 writer.write_u8(*src_label);
                 writer.write_u8(*edge_label);
@@ -276,7 +278,8 @@ impl Encode for WriteOp {
                 for i in dst_offset {
                     writer.write_u64(*i as u64);
                 }
-                properties.write_to(writer);
+                src_properties.write_to(writer);
+                dst_properties.write_to(writer);
             }
             _ => todo!(),
         }
@@ -356,7 +359,7 @@ impl Decode for WriteOp {
                     global_ids.push(reader.read_u64()? as usize);
                 }
                 let properties = Vec::<(String, ArrayData)>::read_from(reader)?;
-                Ok(WriteOp::SetVertices {label, global_ids, properties})
+                Ok(WriteOp::SetVertices { label, global_ids, properties })
             }
             9 => {
                 let src_label = reader.read_u8()?;
@@ -372,8 +375,9 @@ impl Decode for WriteOp {
                 for i in 0..dst_offset_len {
                     dst_offset.push(reader.read_u64()? as usize);
                 }
-                let properties = Vec::<(String, ArrayData)>::read_from(reader)?;
-                Ok(WriteOp::SetEdges {src_label, edge_label, dst_label, src_offset, dst_offset, properties})
+                let src_properties = Vec::<(String, ArrayData)>::read_from(reader)?;
+                let dst_properties = Vec::<(String, ArrayData)>::read_from(reader)?;
+                Ok(WriteOp::SetEdges { src_label, edge_label, dst_label, src_offset, dst_offset, src_properties, dst_properties })
             }
             _ => todo!()
         }
@@ -583,7 +587,7 @@ impl Encode for ArrayData {
                     writer.write_i32(*i);
                 }
             }
-            _=> todo!()
+            _ => todo!()
         }
         Ok(())
     }
