@@ -869,7 +869,7 @@ impl GraphModifier {
         let mut delete_set = HashSet::new();
         info!("Deleting vertex - {}", graph.graph_schema.vertex_label_names()[label as usize]);
         let vertex_files_prefix = self.input_dir.clone();
-        let vertex_files = get_files_list_beta(&vertex_files_prefix, filenames);
+        let vertex_files = get_files_list(&vertex_files_prefix, filenames).unwrap();
         if vertex_files.is_empty() {
             return Ok(());
         }
@@ -922,53 +922,21 @@ impl GraphModifier {
         Ok(())
     }
 
-    pub fn apply_edges_delete_with_filename<G, I>(
-        &mut self, graph: &mut GraphDB<G, I>, label: &str, filename: &str, properties: &str,
+    pub fn apply_edges_delete_with_filename<G, I>
+    (
+        &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32, parallel: u32,
     ) -> GDBResult<()>
         where
             G: FromStr + Send + Sync + IndexType + Eq,
             I: Send + Sync + IndexType,
     {
-        let labels = label.split("_").collect::<Vec<&str>>();
-        let src_label = labels[0];
-        let dst_label = labels[2];
-        let edge_label = labels[1];
-        let src_label_i = graph
-            .graph_schema
-            .get_vertex_label_id(src_label)
-            .unwrap();
-        let dst_label_i = graph
-            .graph_schema
-            .get_vertex_label_id(dst_label)
-            .unwrap();
-        let edge_label_i = graph
-            .graph_schema
-            .get_edge_label_id(edge_label)
-            .unwrap();
-        let mut input_resp = self.take_csr(graph, src_label_i, dst_label_i, edge_label_i);
-        let edge_file_strings: Vec<String> = [filename.to_string()].to_vec();
-        let input_header: Vec<(String, DataType)> = properties
-            .split(',')
-            .map(|part| part.trim())
-            .map(|s| {
-                (
-                    s.to_string(),
-                    graph
-                        .graph_schema
-                        .get_edge_schema((src_label_i, edge_label_i, dst_label_i))
-                        .unwrap()
-                        .get(s)
-                        .unwrap_or_else(|| &(DataType::String, 0 as usize))
-                        .0
-                        .clone(),
-                )
-            })
-            .collect();
+        let mut input_resp = self.take_csr(graph, src_label, dst_label, edge_label);
+        let input_header: Vec<(String, DataType)> = vec![];
         let mut delete_sets = vec![HashSet::new(); graph.vertex_label_num as usize];
         self.parallel_delete_rep(
             &mut input_resp,
             graph,
-            &edge_file_strings,
+            filenames,
             &input_header,
             &delete_sets,
             self.parallel,

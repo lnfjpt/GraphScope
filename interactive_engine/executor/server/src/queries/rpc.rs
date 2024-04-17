@@ -11,6 +11,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use std::{env, fs};
 
+use bmcsr::graph::Direction;
 use bmcsr::graph_db::GraphDB;
 use bmcsr::graph_modifier::{DeleteGenerator, GraphModifier};
 use bmcsr::ldbc_parser::LDBCVertexParser;
@@ -18,7 +19,7 @@ use bmcsr::schema::InputSchema;
 use bmcsr::traverse::traverse;
 use dlopen::wrapper::{Container, WrapperApi};
 use futures::Stream;
-use graph_index::types::{ArrayData, DataType, WriteOp};
+use graph_index::types::{ArrayData, DataType, Item, WriteOp};
 use graph_index::GraphIndex;
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
@@ -123,7 +124,7 @@ impl<S: pb::bi_job_service_server::BiJobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error>>
-        where {
+where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -522,12 +523,22 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                     );
                     if mode == "read" {
                         let libc: Container<ReadQueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
-                        self.query_register
-                            .register_read_query(query_name, libc, inputs_info, outputs_info, description);
+                        self.query_register.register_read_query(
+                            query_name,
+                            libc,
+                            inputs_info,
+                            outputs_info,
+                            description,
+                        );
                     } else if mode == "write" {
-                        let libc: Container<WriteQueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
-                        self.query_register
-                            .register_write_query(query_name, libc, inputs_info, description);
+                        let libc: Container<WriteQueryApi> =
+                            unsafe { Container::load(dylib_path) }.unwrap();
+                        self.query_register.register_write_query(
+                            query_name,
+                            libc,
+                            inputs_info,
+                            description,
+                        );
                     }
                 } else {
                     let reply = pb::CallResponse {
@@ -563,7 +574,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         let edge_re = Regex::new(
                             r"\((\w+):\s*(\w+)\)((-|<-\[|\]-\])(\w+):(\w+)(\]|->|-\]))\((\w+): (\w+)\)",
                         )
-                            .unwrap();
+                        .unwrap();
                         if vertex_re.is_match(&target) {
                             let cap = vertex_re
                                 .captures(&target)
@@ -623,8 +634,11 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 label_id,
                                 precompute_info,
                             );
-                        } else if edge_re.is_match(&target) {} else {}
-                    } else {}
+                        } else if edge_re.is_match(&target) {
+                        } else {
+                        }
+                    } else {
+                    }
                 } else {
                     let reply = pb::CallResponse {
                         is_success: false,
@@ -734,9 +748,9 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         "delete edges: label: {}, filename: {}, properties: {}",
                         label, filename, properties
                     );
-                    graph_modifier
-                        .apply_edges_delete_with_filename(&mut graph, &label, &filename, &properties)
-                        .unwrap();
+                    // graph_modifier
+                    //     .apply_edges_delete_with_filename(&mut graph, &label, &filename, &properties)
+                    //     .unwrap();
 
                     let reply =
                         pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
@@ -778,7 +792,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                             pegasus::run(conf.clone(), || {
                                 query.Query(conf.clone(), &graph, &graph_index, HashMap::new())
                             })
-                                .expect("submit query failure")
+                            .expect("submit query failure")
                         };
                         let mut id_index = 0;
                         let mut data_list = vec![];
@@ -869,7 +883,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 pegasus::run(conf.clone(), || {
                                     query.Query(conf.clone(), &graph, &graph_index, parameters_map.clone())
                                 })
-                                    .expect("submit query failure")
+                                .expect("submit query failure")
                             };
                             let mut query_results = vec![];
                             for result in results {
@@ -916,7 +930,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 pegasus::run(conf.clone(), || {
                                     query.Query(conf.clone(), &graph, &graph_index, parameters_map.clone())
                                 })
-                                    .expect("submit query failure")
+                                .expect("submit query failure")
                             };
                             let mut query_results = vec![];
                             for result in results {
@@ -941,11 +955,54 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                         dst_label,
                                         edges,
                                         properties,
+                                    } => write_graph::insert_edges(
+                                        &mut graph,
+                                        src_label,
+                                        edge_label,
+                                        dst_label,
+                                        edges,
+                                        properties,
+                                        self.workers,
+                                    ),
+                                    WriteOp::InsertVerticesBySchema {
+                                        label,
+                                        input_dir,
+                                        filenames,
+                                        id_col,
+                                        mappings,
                                     } => {
-                                        write_graph::insert_edges(&mut graph, src_label, edge_label, dst_label, edges, properties, self.workers)
+                                        write_graph::insert_vertices_by_schema(
+                                            &mut graph,
+                                            label,
+                                            input_dir,
+                                            &filenames,
+                                            id_col,
+                                            &mappings,
+                                            self.workers,
+                                        );
                                     }
-                                    WriteOp::InsertVerticesBySchema { label, input_dir, filenames, id_col, mappings } => {
-                                        write_graph::insert_vertices_by_schema(&mut graph, label, input_dir, &filenames, id_col, &mappings, self.workers);
+                                    WriteOp::InsertEdgesBySchema {
+                                        src_label,
+                                        edge_label,
+                                        dst_label,
+                                        input_dir,
+                                        filenames,
+                                        src_id_col,
+                                        dst_id_col,
+                                        mappings,
+                                    } => {
+                                        write_graph::insert_edges_by_schema(
+                                            &mut graph,
+                                            src_label,
+                                            edge_label,
+                                            dst_label,
+                                            input_dir,
+                                            &filenames,
+                                            src_id_col,
+                                            dst_id_col,
+                                            &mappings,
+                                            self.workers,
+                                        );
                                     }
                                     WriteOp::DeleteVertices { label, global_ids } => {
                                         write_graph::delete_vertices(
@@ -965,8 +1022,52 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                             self.workers,
                                         );
                                     }
+                                    WriteOp::DeleteVerticesBySchema {
+                                        label,
+                                        input_dir,
+                                        filenames,
+                                        id_col,
+                                    } => {
+                                        write_graph::delete_vertices_by_schema(
+                                            &mut graph,
+                                            label,
+                                            input_dir,
+                                            &filenames,
+                                            id_col,
+                                            self.workers,
+                                        );
+                                    }
+                                    WriteOp::DeleteEdgesBySchema {
+                                        src_label,
+                                        edge_label,
+                                        dst_label,
+                                        input_dir,
+                                        filenames,
+                                        src_id_col,
+                                        dst_id_col,
+                                    } => {}
                                     WriteOp::SetVertices { label, global_ids, properties } => {
                                         // Set vertices properties
+                                        let mut graph_index = self.graph_index.write().unwrap();
+                                        let property_size = graph.get_vertices_num(label);
+                                        for (property_name, data) in properties.iter() {
+                                            let data_type = data.get_type();
+                                            graph_index.init_vertex_index(
+                                                property_name.clone(),
+                                                label,
+                                                data_type,
+                                                Some(property_size),
+                                                Some(Item::Int32(0)),
+                                            );
+                                            graph_index
+                                                .add_vertex_index_batch(
+                                                    label,
+                                                    property_name,
+                                                    &global_ids,
+                                                    data.as_ref(),
+                                                )
+                                                .unwrap();
+                                        }
                                     }
                                     WriteOp::SetEdges {
                                         src_label,
@@ -977,8 +1078,62 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                         properties,
                                     } => {
                                         // Set edge properties here
+                                        let mut graph_index = self.graph_index.write().unwrap();
+                                        let oe_property_size = graph.get_max_edge_offset(
+                                            src_label,
+                                            edge_label,
+                                            dst_label,
+                                            Direction::Outgoing,
+                                        );
+                                        let ie_property_size = graph.get_max_edge_offset(
+                                            src_label,
+                                            edge_label,
+                                            dst_label,
+                                            Direction::Incoming,
+                                        );
+                                        for (property_name, data) in properties.iter() {
+                                            let data_type = data.get_type();
+                                            graph_index.init_outgoing_edge_index(
+                                                property_name.clone(),
+                                                src_label,
+                                                dst_label,
+                                                edge_label,
+                                                data_type,
+                                                Some(oe_property_size),
+                                                Some(Item::Int32(0)),
+                                            );
+                                            graph_index.init_incoming_edge_index(
+                                                property_name.clone(),
+                                                src_label,
+                                                dst_label,
+                                                edge_label,
+                                                data_type,
+                                                Some(ie_property_size),
+                                                Some(Item::Int32(0)),
+                                            );
+                                            graph_index
+                                                .add_outgoing_edge_index_batch(
+                                                    src_label,
+                                                    edge_label,
+                                                    dst_label,
+                                                    property_name,
+                                                    &src_offset,
+                                                    data.as_ref(),
+                                                )
+                                                .unwrap();
+                                            graph_index
+                                                .add_incoming_edge_index_batch(
+                                                    src_label,
+                                                    edge_label,
+                                                    dst_label,
+                                                    property_name,
+                                                    &dst_offset,
+                                                    data.as_ref(),
+                                                )
+                                                .unwrap();
+                                        }
                                     }
-                                    _ => todo!()
+                                    _ => todo!(),
                                 };
                             }
                             let reply =

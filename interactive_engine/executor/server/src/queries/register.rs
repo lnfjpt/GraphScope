@@ -16,6 +16,7 @@ use pegasus::errors::BuildJobError;
 use pegasus::result::ResultSink;
 use pegasus::{JobConf, ServerConf};
 use serde::{Deserialize, Serialize};
+
 use crate::queries::write_graph;
 
 #[derive(WrapperApi)]
@@ -299,7 +300,9 @@ impl QueryRegister {
         }
     }
 
-    pub fn run_write_queries(&self, graph: &mut GraphDB<usize, usize>, graph_index: &mut GraphIndex, worker_num: u32) {
+    pub fn run_write_queries(
+        &self, graph: &mut GraphDB<usize, usize>, graph_index: &mut GraphIndex, worker_num: u32,
+    ) {
         let write_query_map = self.write_query_map.read().unwrap();
         for (query_name, libc) in write_query_map.iter() {
             println!("Start run query {}", query_name);
@@ -308,14 +311,7 @@ impl QueryRegister {
             conf.set_workers(worker_num);
             conf.reset_servers(ServerConf::Partial(vec![0]));
             let results = {
-                pegasus::run(conf.clone(), || {
-                    libc.Query(
-                        conf.clone(),
-                        graph,
-                        graph_index,
-                        HashMap::new(),
-                    )
-                })
+                pegasus::run(conf.clone(), || libc.Query(conf.clone(), graph, graph_index, HashMap::new()))
                     .expect("submit write query failure")
             };
             let mut query_results = vec![];
@@ -329,11 +325,9 @@ impl QueryRegister {
             for write_op in query_results.drain(..) {
                 match write_op {
                     WriteOp::InsertVertices { label, global_ids, properties } => {
-                        write_graph::insert_vertices(
-                            graph, label, global_ids, properties,
-                        );
+                        write_graph::insert_vertices(graph, label, global_ids, properties);
                     }
-                    _ => todo!()
+                    _ => todo!(),
                 }
             }
         }
@@ -596,7 +590,7 @@ impl QueryRegister {
                         dst_label,
                     )
                 })
-                    .expect("submit precompute failure")
+                .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {
@@ -689,7 +683,7 @@ impl QueryRegister {
                         dst_label,
                     )
                 })
-                    .expect("submit precompute failure")
+                .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {

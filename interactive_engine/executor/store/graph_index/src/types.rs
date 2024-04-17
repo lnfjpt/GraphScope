@@ -179,7 +179,6 @@ impl Clone for WriteOp {
                     properties: properties.clone(),
                 }
             }
-            _ => todo!(),
         }
     }
 }
@@ -255,7 +254,31 @@ impl Encode for WriteOp {
                 writer.write_i32(*src_id_col);
                 writer.write_i32(*dst_id_col);
             }
-            _ => panic!("Unsupport type"),
+            WriteOp::SetVertices { label, global_ids, properties} => {
+                writer.write_u8(8);
+                writer.write_u8(*label);
+                writer.write_u64(global_ids.len() as u64);
+                for i in global_ids {
+                    writer.write_u64(*i as u64);
+                }
+                properties.write_to(writer);
+            }
+            WriteOp::SetEdges { src_label, edge_label, dst_label, src_offset, dst_offset, properties } => {
+                writer.write_u8(9);
+                writer.write_u8(*src_label);
+                writer.write_u8(*edge_label);
+                writer.write_u8(*dst_label);
+                writer.write_u64(src_offset.len() as u64);
+                for i in src_offset {
+                    writer.write_u64(*i as u64);
+                }
+                writer.write_u64(dst_offset.len() as u64);
+                for i in dst_offset {
+                    writer.write_u64(*i as u64);
+                }
+                properties.write_to(writer);
+            }
+            _ => todo!(),
         }
         Ok(())
     }
@@ -324,6 +347,33 @@ impl Decode for WriteOp {
                 let src_id_col = reader.read_i32()?;
                 let dst_id_col = reader.read_i32()?;
                 Ok(WriteOp::DeleteEdgesBySchema { src_label, edge_label, dst_label, input_dir, filenames, src_id_col, dst_id_col })
+            }
+            8 => {
+                let label = reader.read_u8()?;
+                let global_ids_len = reader.read_u64()? as usize;
+                let mut global_ids = Vec::with_capacity(global_ids_len);
+                for i in 0..global_ids_len {
+                    global_ids.push(reader.read_u64()? as usize);
+                }
+                let properties = Vec::<(String, ArrayData)>::read_from(reader)?;
+                Ok(WriteOp::SetVertices {label, global_ids, properties})
+            }
+            9 => {
+                let src_label = reader.read_u8()?;
+                let edge_label = reader.read_u8()?;
+                let dst_label = reader.read_u8()?;
+                let src_offset_len = reader.read_u64()? as usize;
+                let mut src_offset = Vec::with_capacity(src_offset_len);
+                for i in 0..src_offset_len {
+                    src_offset.push(reader.read_u64()? as usize);
+                }
+                let dst_offset_len = reader.read_u64()? as usize;
+                let mut dst_offset = Vec::with_capacity(dst_offset_len);
+                for i in 0..dst_offset_len {
+                    dst_offset.push(reader.read_u64()? as usize);
+                }
+                let properties = Vec::<(String, ArrayData)>::read_from(reader)?;
+                Ok(WriteOp::SetEdges {src_label, edge_label, dst_label, src_offset, dst_offset, properties})
             }
             _ => todo!()
         }
@@ -523,6 +573,39 @@ impl Debug for ArrayData {
     }
 }
 
+impl Encode for ArrayData {
+    fn write_to<W: WriteExt>(&self, writer: &mut W) -> io::Result<()> {
+        match self {
+            ArrayData::Int32Array(data) => {
+                writer.write_u8(0);
+                writer.write_u64(data.len() as u64);
+                for i in data.iter() {
+                    writer.write_i32(*i);
+                }
+            }
+            _=> todo!()
+        }
+        Ok(())
+    }
+}
+
+impl Decode for ArrayData {
+    fn read_from<R: ReadExt>(reader: &mut R) -> io::Result<Self> {
+        let data_type = reader.read_u8()?;
+        match data_type {
+            0 => {
+                let data_len = reader.read_u64()? as usize;
+                let mut data = Vec::with_capacity(data_len);
+                for i in 0..data_len {
+                    data.push(reader.read_i32()?);
+                }
+                Ok(ArrayData::Int32Array(data))
+            }
+            _ => todo!()
+        }
+    }
+}
+
 impl ArrayData {
     pub fn as_ref(&self) -> ArrayDataRef {
         match self {
@@ -561,6 +644,14 @@ impl ArrayData {
             ArrayData::Int32Array(data) => GraphItem::Int32(data[index]),
             ArrayData::Uint64Array(data) => GraphItem::UInt64(data[index]),
             ArrayData::UsizeArray(data) => panic!("Unknown type"),
+        }
+    }
+
+    pub fn get_type(&self) -> DataType {
+        match self {
+            ArrayData::Int32Array(_) => DataType::Int32,
+            ArrayData::Uint64Array(data) => DataType::UInt64,
+            ArrayData::UsizeArray(data) => DataType::ID,
         }
     }
 }
