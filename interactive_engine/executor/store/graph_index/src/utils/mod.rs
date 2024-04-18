@@ -42,68 +42,57 @@ fn create_array_data(headers: &[(String, DataType)]) -> Vec<ArrayData> {
 }
 
 pub fn parse_vertex_file(
-    path: &PathBuf, skip_header: bool, delim: u8, parser: LDBCVertexParser<usize>, mappings: Vec<i32>,
-    headers: &[(String, DataType)], id: u32, parallel: u32,
-) -> (Vec<usize>, Option<Vec<ArrayData>>) {
-    let path_str = path
-        .clone()
-        .to_str()
-        .map(|s| s.to_string())
-        .unwrap();
+    input_dir: &String, filenames: Vec<String>, skip_header: bool, delim: u8, parser: LDBCVertexParser<usize>, id: u32, parallel: u32,
+) -> Vec<u64> {
+    let input_dir = PathBuf::from(input_dir);
+    let path_list = bmcsr::graph_loader::get_files_list(&input_dir, &filenames);
+    let path_list = path_list.unwrap();
     let mut global_ids = vec![];
-    let mut properties = create_array_data(headers);
-    if path_str.ends_with(".csv.gz") {
-        if let Ok(gz_reader) = GzReader::from_path(&path) {
-            let mut rdr = ReaderBuilder::new()
-                .delimiter(delim)
-                .buffer_capacity(4096)
-                .comment(Some(b'#'))
-                .flexible(true)
-                .has_headers(skip_header)
-                .from_reader(gz_reader);
-            for (index, result) in rdr.records().enumerate() {
-                if index % (id as usize) != 0 {
-                    continue;
-                }
-                if let Ok(record) = result {
-                    let vertex_meta = parser.parse_vertex_meta(&record);
-                    global_ids.push(vertex_meta.global_id);
-                    if let Ok(mut property) = parse_properties(&record, headers, mappings.as_slice()) {
-                        for (i, data) in property.drain(..).enumerate() {
-                            properties[i].push_item(data);
-                        }
+    for path in path_list {
+        let path_str = path
+            .clone()
+            .to_str()
+            .map(|s| s.to_string())
+            .unwrap();
+        if path_str.ends_with(".csv.gz") {
+            if let Ok(gz_reader) = GzReader::from_path(path) {
+                let mut rdr = ReaderBuilder::new()
+                    .delimiter(delim)
+                    .buffer_capacity(4096)
+                    .comment(Some(b'#'))
+                    .flexible(true)
+                    .has_headers(skip_header)
+                    .from_reader(gz_reader);
+                for (index, result) in rdr.records().enumerate() {
+                    if index % (id as usize) != 0 {
+                        continue;
+                    }
+                    if let Ok(record) = result {
+                        let vertex_meta = parser.parse_vertex_meta(&record);
+                        global_ids.push(vertex_meta.global_id as u64);
                     }
                 }
             }
-        }
-    } else if path_str.ends_with(".csv") {
-        if let Ok(file) = File::open(&path) {
-            let reader = BufReader::new(file);
-            let mut rdr = ReaderBuilder::new()
-                .delimiter(delim)
-                .buffer_capacity(4096)
-                .comment(Some(b'#'))
-                .flexible(true)
-                .has_headers(skip_header)
-                .from_reader(reader);
-            for result in rdr.records() {
-                if let Ok(record) = result {
-                    let vertex_meta = parser.parse_vertex_meta(&record);
-                    global_ids.push(vertex_meta.global_id);
-                    if let Ok(mut property) = parse_properties(&record, headers, mappings.as_slice()) {
-                        for (i, data) in property.drain(..).enumerate() {
-                            properties[i].push_item(data);
-                        }
+        } else if path_str.ends_with(".csv") {
+            if let Ok(file) = File::open(path) {
+                let reader = BufReader::new(file);
+                let mut rdr = ReaderBuilder::new()
+                    .delimiter(delim)
+                    .buffer_capacity(4096)
+                    .comment(Some(b'#'))
+                    .flexible(true)
+                    .has_headers(skip_header)
+                    .from_reader(reader);
+                for result in rdr.records() {
+                    if let Ok(record) = result {
+                        let vertex_meta = parser.parse_vertex_meta(&record);
+                        global_ids.push(vertex_meta.global_id as u64);
                     }
                 }
             }
         }
     }
-    if properties.is_empty() {
-        (global_ids, None)
-    } else {
-        (global_ids, Some(vec![]))
-    }
+    global_ids
 }
 
 pub fn parse_properties(
