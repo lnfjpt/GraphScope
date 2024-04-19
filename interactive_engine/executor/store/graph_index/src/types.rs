@@ -46,7 +46,7 @@ pub enum WriteOp {
     },
     DeleteVertices {
         label: LabelId,
-        global_ids: Vec<u64>,
+        global_ids: Vec<usize>,
     },
     DeleteEdges {
         src_label: LabelId,
