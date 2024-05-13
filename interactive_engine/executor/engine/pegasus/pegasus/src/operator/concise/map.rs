@@ -18,6 +18,7 @@ use crate::api::Unary;
 use crate::errors::BuildJobError;
 use crate::stream::Stream;
 use crate::Data;
+use std::time::Instant;
 
 /// A private function of getting a `Map` operator's name as a base name given by the system
 /// plus an extra name given by the user
@@ -82,21 +83,58 @@ impl<I: Data> Map<I> for Stream<I> {
         self.unary(&_get_name("flat_map", name), |info| {
             let index = info.index;
             move |input, output| {
-                input.for_each_batch(|dataset| {
+                let mut eval_time = 0_u128;
+                let mut batch_time = 0_u128;
+                let mut send_time0 = 0_u128;
+                let mut send_time1 = 0_u128;
+                let mut chunk_time = 0_u128;
+                let mut push_time = 0_u128;
+                let start = Instant::now();
+                let result = input.for_each_batch(|dataset| {
+                    let batch_start = Instant::now();
                     if !dataset.is_empty() {
                         let mut session = output.new_session(&dataset.tag)?;
+                        let mut data_vec = vec![];
+                        let push_start: Instant = Instant::now();
                         for item in dataset.drain() {
+                            data_vec.push(item);
+                        }
+                        push_time += push_start.elapsed().as_nanos();
+                        let chunk_start = Instant::now();
+                        for item in data_vec.drain(..) {
+                        // for item in dataset.drain() {
+                            let eval_start = Instant::now();
                             let iter = func(item)?;
+                            eval_time += eval_start.elapsed().as_nanos();
+                            let send_start = Instant::now();
                             if let Err(err) = session.give_iterator(iter) {
                                 if err.is_would_block() || err.is_interrupted() {
                                     trace_worker!("flat_map_{} is blocked on {:?};", index, session.tag,);
                                 }
+                                send_time1 += send_start.elapsed().as_nanos();
                                 return Err(err)?;
                             }
+                            send_time0 += send_start.elapsed().as_nanos();
                         }
+                        chunk_time += chunk_start.elapsed().as_nanos();
                     }
+                    batch_time += batch_start.elapsed().as_nanos();
                     Ok(())
-                })
+                });
+                let total_time = start.elapsed().as_nanos() as f64 / 1e9;
+                let eval_time = eval_time as f64 / 1e9;
+                let batch_time = batch_time as f64 / 1e9;
+                let send_time0 = send_time0 as f64 / 1e9;
+                let send_time1 = send_time1 as f64 / 1e9;
+                let chunk_time = chunk_time as f64 / 1e9;
+                let push_time = push_time as f64 / 1e9;
+                if index == 3 || index == 4 {
+                    println!(
+                        "flat_map_{} eval time: {:?}, total time: {:?}, batch time: {}, send time: {} / {}, chunk time {}, push time {}",
+                        index, eval_time, total_time, batch_time, send_time0, send_time1, chunk_time, push_time
+                    );
+                }
+                result
             }
         })
     }

@@ -15,6 +15,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Instant;
 
 use ahash::AHashSet;
 
@@ -150,16 +151,18 @@ pub(crate) struct PerChannelPush<D: Data> {
     push: MicroBatchPush<D>,
     cancel_handle: ChannelCancelPtr,
     re_seq: TidyTagMap<u64>,
+
+    count_1: u128,
+    count_3: u128,
 }
 
 impl<D: Data> PerChannelPush<D> {
     pub(crate) fn new(
-        ch_info: ChannelInfo, delta: MergedScopeDelta, push: MicroBatchPush<D>, ch: CancelHandle,
-        src: u32,
+        ch_info: ChannelInfo, delta: MergedScopeDelta, push: MicroBatchPush<D>, ch: CancelHandle, src: u32,
     ) -> Self {
         let cancel_handle = ChannelCancelPtr::new(ch_info.scope_level, delta.clone(), ch);
         let re_seq = TidyTagMap::new(ch_info.scope_level);
-        PerChannelPush { ch_info, src, delta, push, cancel_handle, re_seq }
+        PerChannelPush { ch_info, src, delta, push, cancel_handle, re_seq, count_1: 0, count_3: 0 }
     }
 
     pub(crate) fn get_cancel_handle(&self) -> ChannelCancelPtr {
@@ -186,6 +189,7 @@ impl<D: Data> Push<MicroBatch<D>> for PerChannelPush<D> {
             let tag = self.delta.evolve(&batch.tag);
             if let Some(end) = batch.take_end() {
                 if self.delta.scope_level_delta() > 0 {
+                    let start = Instant::now();
                     // enter / to-child
                     let end_cp = end.clone();
                     batch.set_end(end);
@@ -197,12 +201,16 @@ impl<D: Data> Push<MicroBatch<D>> for PerChannelPush<D> {
                     trace_worker!("channel[{}] pushed end of scope{:?};", self.ch_info.id.index, last.tag);
                     self.push.push(last)
                 } else if self.delta.scope_level_delta() == 0 {
+                    let start = Instant::now();
                     batch.set_end(end);
                     batch.set_tag(tag);
                     trace_worker!("channel[{}] pushed end of scope{:?};", self.ch_info.id.index, batch.tag);
-                    self.push.push(batch)
+                    let ret = self.push.push(batch);
+                    self.count_1 += start.elapsed().as_micros();
+                    ret
                 } else {
                     // leave / to parent
+                    let start = Instant::now();
                     if !batch.is_empty() {
                         let seq = self.re_seq.get_mut_or_insert(&tag);
                         batch.set_tag(tag);
@@ -215,13 +223,16 @@ impl<D: Data> Push<MicroBatch<D>> for PerChannelPush<D> {
                 }
             } else if !batch.is_empty() {
                 // is not end, is not empty;
+                let start = Instant::now();
                 if self.delta.scope_level_delta() < 0 {
                     let seq = self.re_seq.get_mut_or_insert(&tag);
                     batch.set_seq(*seq);
                     *seq += 1;
                 }
                 batch.set_tag(tag);
-                self.push.push(batch)
+                let ret = self.push.push(batch);
+                self.count_3 += start.elapsed().as_micros();
+                ret
             } else {
                 //is not end, and is empty, ignore;
                 Ok(())
@@ -261,6 +272,12 @@ impl<D: Data> Push<MicroBatch<D>> for PerChannelPush<D> {
     }
 
     fn close(&mut self) -> Result<(), IOError> {
+        println!(
+            "channel[{}]: {}, {}",
+            self.ch_info.index(),
+            self.count_1 as f64 / 1e6,
+            self.count_3 as f64 / 1e6,
+        );
         self.push.close()
     }
 }

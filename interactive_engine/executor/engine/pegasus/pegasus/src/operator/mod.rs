@@ -417,6 +417,7 @@ impl Operator {
                 self.exec_st.get() / self.fire_times
             );
         }
+        println!("worker-{}, op-{:?}: fire {}, elapsed {}", crate::worker_id::get_current_worker().index, self.info, self.fire_times, self.exec_st.get() as f64 / 1000.0);
     }
 
     fn fire_inner(&mut self) -> Result<(), JobExecError> {
