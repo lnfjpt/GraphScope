@@ -27,7 +27,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::date::Date;
 use crate::date_time::DateTime;
-use crate::types::DefaultId;
 
 #[cfg(feature = "hugepage_table")]
 use huge_container::HugeVec;
@@ -122,28 +121,34 @@ impl<'a> From<&'a str> for DataType {
 
 #[derive(Clone)]
 pub enum Item {
+    Boolean(bool),
     Int32(i32),
     UInt32(u32),
     Int64(i64),
     UInt64(u64),
+    Float(f32),
     Double(f64),
     String(String),
     Date(Date),
     DateTime(DateTime),
-    ID(DefaultId),
+    VertexId(u64),
+    EdgeId((u64, u64)),
     Null,
 }
 
 #[derive(Clone)]
 pub enum RefItem<'a> {
+    Boolean(&'a bool),
     Int32(&'a i32),
     UInt32(&'a u32),
     Int64(&'a i64),
     UInt64(&'a u64),
+    Float(&'a f32),
     Double(&'a f64),
     Date(&'a Date),
     DateTime(&'a DateTime),
-    ID(&'a DefaultId),
+    VertexId(&'a u64),
+    EdgeId((&'a u64, &'a u64)),
     String(&'a String),
     Null,
 }
@@ -151,14 +156,17 @@ pub enum RefItem<'a> {
 impl<'a> RefItem<'a> {
     pub fn to_owned(self) -> Item {
         match self {
+            RefItem::Boolean(v) => Item::Boolean(*v),
             RefItem::Int32(v) => Item::Int32(*v),
             RefItem::UInt32(v) => Item::UInt32(*v),
             RefItem::Int64(v) => Item::Int64(*v),
             RefItem::UInt64(v) => Item::UInt64(*v),
+            RefItem::Float(v) => Item::Float(*v),
             RefItem::Double(v) => Item::Double(*v),
             RefItem::Date(v) => Item::Date(*v),
             RefItem::DateTime(v) => Item::DateTime(*v),
-            RefItem::ID(v) => Item::ID(*v),
+            RefItem::VertexId(v) => Item::VertexId(*v),
+            RefItem::EdgeId((src, dst)) => Item::EdgeId((*src, *dst)),
             RefItem::String(v) => Item::String(v.clone()),
             RefItem::Null => Item::Null,
         }
@@ -230,7 +238,7 @@ impl Debug for Item {
             Item::DateTime(v) => {
                 write!(f, "datetime[{}]", v.to_string())
             }
-            Item::ID(v) => {
+            Item::VertexId(v) => {
                 write!(f, "id[{}]", v)
             }
             Item::String(v) => {
@@ -253,7 +261,7 @@ impl ToString for Item {
             Item::Double(v) => v.to_string(),
             Item::Date(v) => v.to_string(),
             Item::DateTime(v) => v.to_string(),
-            Item::ID(v) => v.to_string(),
+            Item::VertexId(v) => v.to_string(),
             Item::String(v) => v.to_string(),
             _ => "".to_string(),
         }
@@ -284,7 +292,7 @@ impl<'a> Debug for RefItem<'a> {
             RefItem::DateTime(v) => {
                 write!(f, "datetime[{}]", v.to_string())
             }
-            RefItem::ID(v) => {
+            RefItem::VertexId(v) => {
                 write!(f, "id[{}]", v)
             }
             RefItem::String(v) => {
@@ -307,7 +315,7 @@ impl<'a> ToString for RefItem<'a> {
             RefItem::Double(v) => v.to_string(),
             RefItem::Date(v) => v.to_string(),
             RefItem::DateTime(v) => v.to_string(),
-            RefItem::ID(v) => v.to_string(),
+            RefItem::VertexId(v) => v.to_string(),
             RefItem::String(v) => v.to_string(),
             _ => "".to_string(),
         }
@@ -325,7 +333,7 @@ impl<'a> RefItem<'a> {
             RefItem::Double(v) => Ok(**v as u64),
             RefItem::Date(_) => Ok(0_u64),
             RefItem::DateTime(v) => Ok(v.to_i64() as u64),
-            RefItem::ID(v) => Ok(**v as u64),
+            RefItem::VertexId(v) => Ok(**v as u64),
             RefItem::String(_) => Err(CastError::new::<u64>(RawType::String)),
             _ => Ok(0_u64),
         }
@@ -341,7 +349,7 @@ impl<'a> RefItem<'a> {
             RefItem::Double(v) => Ok(**v as i32),
             RefItem::Date(_) => Ok(0),
             RefItem::DateTime(_) => Ok(0),
-            RefItem::ID(v) => Ok(**v as i32),
+            RefItem::VertexId(v) => Ok(**v as i32),
             RefItem::String(_) => Err(CastError::new::<i32>(RawType::String)),
             _ => Ok(0),
         }
@@ -365,7 +373,7 @@ impl<'a> RefItem<'a> {
             RefItem::Double(_) => Err(CastError::new::<u64>(RawType::Float)),
             RefItem::Date(_) => Err(CastError::new::<u64>(RawType::Unknown)),
             RefItem::DateTime(v) => Ok(**v),
-            RefItem::ID(_) => Err(CastError::new::<u64>(RawType::Long)),
+            RefItem::VertexId(_) => Err(CastError::new::<u64>(RawType::Long)),
             RefItem::String(_) => Err(CastError::new::<u64>(RawType::String)),
             _ => Err(CastError::new::<u64>(RawType::Unknown)),
         }
@@ -839,12 +847,12 @@ impl Column for IDColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::ID(x))
+        self.data.get(index).map(|x| RefItem::VertexId(x))
     }
 
     fn set(&mut self, index: usize, val: Item) {
         match val {
-            Item::ID(v) => {
+            Item::VertexId(v) => {
                 self.data[index] = v;
             }
             _ => {
@@ -855,7 +863,7 @@ impl Column for IDColumn {
 
     fn push(&mut self, val: Item) {
         match val {
-            Item::ID(v) => {
+            Item::VertexId(v) => {
                 self.data.push(v);
             }
             _ => {
@@ -876,7 +884,7 @@ impl Column for IDColumn {
         let row_num = reader.read_u64::<LittleEndian>()? as usize;
         let mut data = ColumnContainer::<DefaultId>::with_capacity(row_num);
         for _ in 0..row_num {
-            data.push(reader.read_u64::<LittleEndian>()? as DefaultId);
+            data.push(reader.read_u64::<LittleEndian>()?);
         }
         self.data = data;
         Ok(())

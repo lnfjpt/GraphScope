@@ -1,24 +1,23 @@
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{self, BufRead};
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use bmcsr::graph_db::GraphDB;
+use dlopen::wrapper::{Container, WrapperApi};
+use dlopen_derive::WrapperApi;
 use graph_index::GraphIndex;
+use pegasus::api::Source;
+use pegasus::resource::{DistributedParResourceMaps, KeyedResources, ResourceMap};
+use pegasus::result::ResultSink;
+use pegasus::BuildJobError;
+use pegasus::JobConf;
 use pegasus::{Configuration, ServerConf};
 use rpc_server::queries;
-use dlopen_derive::WrapperApi;
-use dlopen::wrapper::{Container, WrapperApi};
 use rpc_server::queries::rpc::RPCServerConfig;
 use serde::Deserialize;
 use structopt::StructOpt;
-use pegasus::JobConf;
-use pegasus::api::Source;
-use pegasus::result::ResultSink;
-use pegasus::BuildJobError;
-use std::fs::File;
-use std::io::{self, BufRead};
-use std::collections::HashMap;
-
-
 
 #[derive(WrapperApi)]
 pub struct ReadQueryApi {
@@ -113,25 +112,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut conf = JobConf::new(query_name.clone().to_owned() + "-" + &index.to_string());
         conf.set_workers(workers);
         conf.reset_servers(ServerConf::Partial(vec![0]));
+
+        let mut resource_map = Vec::with_capacity(workers as usize);
+        let mut keyed_resource_map = Vec::with_capacity(workers as usize);
+        for _ in 0..workers {
+            resource_map.push(Some(Arc::new(Mutex::new(ResourceMap::default()))));
+            keyed_resource_map.push(Some(Arc::new(Mutex::new(KeyedResources::default()))));
+        }
+        let mut resource_maps = DistributedParResourceMaps::new(&conf, resource_map, keyed_resource_map);
         match split[0] {
             "bi9" => {
                 println!("Start run query \"BI 9\"");
                 let result = {
-                    pegasus::run(conf.clone(), || {
+                    pegasus::run_with_resource_map(conf.clone(), Some(resource_maps), || {
                         libc.Query(conf.clone(), &shared_graph, HashMap::new())
                     })
-                        .expect("submit query failure")
+                    .expect("submit query failure")
                 };
                 let mut result_list = vec![];
                 for x in result {
-                    let ret =
-                        x.unwrap();
+                    let ret = x.unwrap();
                     result_list.push(String::from_utf8(ret).unwrap());
                 }
                 println!("{:?}", result_list);
                 ()
             }
-            _ => println!("Unknown query")
+            _ => println!("Unknown query"),
         }
     }
     Ok(())

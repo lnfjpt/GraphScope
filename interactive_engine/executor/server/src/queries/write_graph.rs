@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -13,9 +13,10 @@ use bmcsr::graph_db::GraphDB;
 use bmcsr::graph_modifier::GraphModifier;
 use bmcsr::schema::{CsrGraphSchema, InputSchema, Schema};
 use bmcsr::types::{DefaultId, LabelId};
-use graph_index::types::ArrayData;
+use graph_index::types::{ColumnData, ColumnDataRef, ColumnMappings, DataSource, Input};
+use graph_index::GraphIndex;
 
-fn properties_to_items<G, I>(properties: Vec<ArrayData>) -> Vec<Vec<Item>>
+fn properties_to_items<G, I>(properties: Vec<ColumnData>) -> Vec<Vec<Item>>
 where
     I: Send + Sync + IndexType,
     G: FromStr + Send + Sync + IndexType + Eq,
@@ -32,113 +33,8 @@ where
     properties_items
 }
 
-pub fn insert_vertices<G, I>(
-    graph: &mut GraphDB<G, I>, vertex_label: LabelId, global_ids: Vec<G>,
-    properties: Option<Vec<ArrayData>>,
-) where
-    I: Send + Sync + IndexType,
-    G: FromStr + Send + Sync + IndexType + Eq,
-{
-    if let Some(vertex_header) = graph
-        .graph_schema
-        .get_vertex_header(vertex_label)
-    {
-        if let Some(properties) = properties {
-            if properties.len() != vertex_header.len() {}
-            let properties_item = properties_to_items::<usize, usize>(properties);
-            for (i, property) in properties_item.into_iter().enumerate() {
-                graph.insert_vertex(vertex_label, global_ids[i], Some(property));
-            }
-        } else {
-            if vertex_header.len() != 0 {}
-            for i in 0..global_ids.len() {
-                graph.insert_vertex(vertex_label, global_ids[i], None);
-            }
-        }
-    }
-}
-
-pub fn insert_edges<G, I>(
-    graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
-    edges: Vec<(G, G)>, properties: Option<Vec<ArrayData>>, parallel: u32,
-) where
-    I: Send + Sync + IndexType,
-    G: FromStr + Send + Sync + IndexType + Eq,
-{
-    let mut lids = vec![];
-    for (src_gid, dst_gid) in edges {
-        lids.push((graph.get_internal_id(src_gid), graph.get_internal_id(dst_gid)));
-    }
-    if let Some(edge_header) = graph
-        .graph_schema
-        .get_edge_header(src_label, edge_label, dst_label)
-    {
-        let index = graph.edge_label_to_index(src_label, edge_label, dst_label, Direction::Outgoing);
-        let mut ie_csr = std::mem::replace(&mut graph.ie[index], Box::new(BatchMutableSingleCsr::new()));
-        let mut ie_prop = graph.ie_edge_prop_table.remove(&index);
-        let mut oe_csr = std::mem::replace(&mut graph.oe[index], Box::new(BatchMutableSingleCsr::new()));
-        let mut oe_prop = graph.oe_edge_prop_table.remove(&index);
-        if let Some(properties) = properties {
-            if properties.len() != edge_header.len() {}
-            let mut col_header = vec![];
-            for (col_name, data_type) in edge_header {
-                col_header.push((data_type.clone(), col_name.clone()));
-            }
-            let mut col_table = ColTable::new(col_header);
-            let mut properties_item = properties_to_items::<usize, usize>(properties);
-            for items in properties_item.drain(..) {
-                col_table.push(&items);
-            }
-            let new_src_num = graph.vertex_map.vertex_num(src_label);
-            oe_prop = if let Some(old_table) = oe_prop.take() {
-                Some(oe_csr.insert_edges_with_prop(
-                    new_src_num,
-                    &lids,
-                    &col_table,
-                    false,
-                    parallel,
-                    old_table,
-                ))
-            } else {
-                oe_csr.insert_edges(new_src_num, &lids, false, parallel);
-                None
-            };
-            let new_dst_num = graph.vertex_map.vertex_num(dst_label);
-            ie_prop = if let Some(old_table) = ie_prop.take() {
-                Some(ie_csr.insert_edges_with_prop(
-                    new_dst_num,
-                    &lids,
-                    &col_table,
-                    true,
-                    parallel,
-                    old_table,
-                ))
-            } else {
-                ie_csr.insert_edges(new_dst_num, &lids, true, parallel);
-                None
-            };
-        } else {
-            if edge_header.len() != 0 {}
-            let new_src_num = graph.vertex_map.vertex_num(src_label);
-            oe_csr.insert_edges(new_src_num, &lids, false, parallel);
-            oe_prop = None;
-            let new_dst_num = graph.vertex_map.vertex_num(dst_label);
-            ie_csr.insert_edges(new_dst_num, &lids, true, parallel);
-            ie_prop = None;
-        }
-        graph.ie[index] = ie_csr;
-        if let Some(table) = ie_prop {
-            graph.ie_edge_prop_table.insert(index, table);
-        }
-        graph.oe[index] = oe_csr;
-        if let Some(table) = oe_prop {
-            graph.oe_edge_prop_table.insert(index, table);
-        }
-    }
-}
-
-pub fn delete_vertices<G, I>(
-    graph: &mut GraphDB<G, I>, vertex_label: LabelId, global_ids: Vec<G>, parallel: u32,
+pub fn delete_vertices_by_ids<G, I>(
+    graph: &mut GraphDB<G, I>, vertex_label: LabelId, global_ids: &Vec<G>, parallel: u32,
 ) where
     I: Send + Sync + IndexType,
     G: FromStr + Send + Sync + IndexType + Eq,
@@ -244,7 +140,7 @@ pub fn delete_vertices<G, I>(
     }
 }
 
-pub fn delete_edges<G, I>(
+pub fn delete_edges_by_ids<G, I>(
     graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
     global_ids: Vec<(G, G)>, parallel: u32,
 ) where
@@ -280,19 +176,316 @@ pub fn delete_edges<G, I>(
     }
 }
 
-pub fn insert_vertices_by_schema<G, I>(
-    graph: &mut GraphDB<G, I>, vertex_label: LabelId, input_dir: String, filenames: &Vec<String>,
-    id_col: i32, mappings: &Vec<i32>, parallel: u32,
+pub fn insert_vertices<G, I>(
+    graph: &mut GraphDB<G, I>, vertex_label: LabelId, input: &Input, column_mappings: &Vec<ColumnMappings>,
+    parallel: u32,
 ) where
     I: Send + Sync + IndexType,
     G: FromStr + Send + Sync + IndexType + Eq,
 {
-    let mut modifier = GraphModifier::new(input_dir);
-    modifier.skip_header();
-    modifier.parallel(parallel);
-    modifier
-        .apply_vertices_insert_with_filename(graph, vertex_label, filenames, id_col, mappings)
-        .unwrap();
+    match input.data_source() {
+        DataSource::File => {
+            if let Some(file_input) = input.file_input() {
+                let file_location = &file_input.location;
+                let path = Path::new(file_location);
+                let input_dir = path
+                    .parent()
+                    .unwrap_or(Path::new(""))
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                let filename = path
+                    .file_name()
+                    .expect("Can not find filename")
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string();
+                let filenames = vec![filename];
+                let mut modifier = GraphModifier::new(input_dir);
+                if file_input.header_row {
+                    modifier.skip_header();
+                }
+                modifier.parallel(parallel);
+                let mut column_map = HashMap::new();
+                for column_mapping in column_mappings {
+                    let column = column_mapping.column();
+                    let column_index = column.index();
+                    let data_type = column.data_type();
+                    let property_name = column_mapping.property_name();
+                    column_map.insert(property_name.clone(), (column_index, data_type));
+                }
+                let mut id_col = -1;
+                if let Some((column_index, _)) = column_map.get("id") {
+                    id_col = *column_index;
+                }
+                let mut mappings = vec![-1; column_mappings.len()];
+                if let Some(vertex_header) = graph
+                    .graph_schema
+                    .get_vertex_header(vertex_label)
+                {
+                    for (i, (property_name, data_type)) in vertex_header.iter().enumerate() {
+                        if let Some((column_index, column_data_type)) = column_map.get(property_name) {
+                            mappings[*column_index as usize] = i as i32;
+                        }
+                    }
+                } else {
+                    panic!("vertex label {} not found", vertex_label)
+                }
+                modifier
+                    .apply_vertices_insert_with_filename(graph, vertex_label, &filenames, id_col, &mappings)
+                    .unwrap();
+            }
+        }
+        DataSource::Memory => {
+            if let Some(memory_data) = input.memory_data() {
+                todo!()
+            }
+        }
+    }
+}
+
+pub fn insert_edges<G, I>(
+    graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, input: &Input,
+    src_vertex_mappings: &Vec<ColumnMappings>, dst_vertex_mappings: &Vec<ColumnMappings>,
+    column_mappings: &Vec<ColumnMappings>, parallel: u32,
+) where
+    I: Send + Sync + IndexType,
+    G: FromStr + Send + Sync + IndexType + Eq,
+{
+    match input.data_source() {
+        DataSource::File => {
+            if let Some(file_input) = input.file_input() {
+                let file_location = &file_input.location;
+                let path = Path::new(file_location);
+                let input_dir = path
+                    .parent()
+                    .unwrap_or(Path::new(""))
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                let filename = path
+                    .file_name()
+                    .expect("Can not find filename")
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string();
+                let filenames = vec![filename];
+                let mut modifier = GraphModifier::new(input_dir);
+                if file_input.header_row {
+                    modifier.skip_header();
+                }
+                modifier.parallel(parallel);
+                let mut column_map = HashMap::new();
+                for column_mapping in src_vertex_mappings {
+                    let column = column_mapping.column();
+                    let column_index = column.index();
+                    let data_type = column.data_type();
+                    let property_name = column_mapping.property_name();
+                    if property_name == "src_id" {
+                        column_map.insert(property_name.clone(), (column_index, data_type));
+                    }
+                }
+                for column_mapping in dst_vertex_mappings {
+                    let column = column_mapping.column();
+                    let column_index = column.index();
+                    let data_type = column.data_type();
+                    let property_name = column_mapping.property_name();
+                    if property_name == "dst_id" {
+                        column_map.insert(property_name.clone(), (column_index, data_type));
+                    }
+                }
+                for column_mapping in column_mappings {
+                    let column = column_mapping.column();
+                    let column_index = column.index();
+                    let data_type = column.data_type();
+                    let property_name = column_mapping.property_name();
+                    column_map.insert(property_name.clone(), (column_index, data_type));
+                }
+                let mut src_id_col = -1;
+                let mut dst_id_col = -1;
+                if let Some((column_index, _)) = column_map.get("src_id") {
+                    src_id_col = *column_index;
+                }
+                if let Some((column_index, _)) = column_map.get("dst_id") {
+                    dst_id_col = *column_index;
+                }
+                let mut mappings = vec![-1; column_mappings.len()];
+                if let Some(edge_header) = graph
+                    .graph_schema
+                    .get_edge_header(src_label, edge_label, dst_label)
+                {
+                    for (i, (property_name, _)) in edge_header.iter().enumerate() {
+                        if let Some((column_index, _)) = column_map.get(property_name) {
+                            mappings[*column_index as usize] = i as i32;
+                        }
+                    }
+                } else {
+                    panic!("edge label {}_{}_{} not found", src_label, edge_label, dst_label)
+                }
+                modifier
+                    .apply_edges_insert_with_filename(
+                        graph, src_label, edge_label, dst_label, &filenames, src_id_col, dst_id_col,
+                        &mappings,
+                    )
+                    .unwrap();
+            }
+        }
+        DataSource::Memory => {
+            if let Some(memory_data) = input.memory_data() {
+                todo!()
+            }
+        }
+    }
+}
+
+pub fn delete_vertices(
+    graph: &mut GraphDB<usize, usize>, vertex_label: LabelId, input: &Input,
+    column_mappings: &Vec<ColumnMappings>, parallel: u32,
+) {
+    let mut column_map = HashMap::new();
+    for column_mapping in column_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        column_map.insert(property_name.clone(), (column_index, data_type));
+    }
+    let mut id_col = -1;
+    if let Some((column_index, _)) = column_map.get("id") {
+        id_col = *column_index;
+    }
+    match input.data_source() {
+        DataSource::File => {
+            if let Some(file_input) = input.file_input() {
+                let file_location = &file_input.location;
+                let path = Path::new(file_location);
+                let input_dir = path
+                    .parent()
+                    .unwrap_or(Path::new(""))
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                let filename = path
+                    .file_name()
+                    .expect("Can not find filename")
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string();
+                let filenames = vec![filename];
+                let mut modifier = GraphModifier::new(input_dir);
+                if file_input.header_row {
+                    modifier.skip_header();
+                }
+                modifier.parallel(parallel);
+                modifier
+                    .apply_vertices_delete_with_filename(graph, vertex_label, &filenames, id_col)
+                    .unwrap();
+            }
+        }
+        DataSource::Memory => {
+            if let Some(memory_data) = input.memory_data() {
+                let data = memory_data.columns();
+                let vertex_id_data = data
+                    .get(id_col as usize)
+                    .expect("Failed to get id column");
+                if let ColumnDataRef::VertexIdArray(data) = vertex_id_data.as_ref() {
+                    delete_vertices_by_ids(graph, vertex_label, data, parallel);
+                }
+            }
+        }
+    }
+}
+
+pub fn delete_edges(
+    graph: &mut GraphDB<usize, usize>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
+    input: &Input, src_vertex_mappings: &Vec<ColumnMappings>, dst_vertex_mappings: &Vec<ColumnMappings>,
+    column_mappings: &Vec<ColumnMappings>, parallel: u32,
+) {
+    let mut column_map = HashMap::new();
+    for column_mapping in src_vertex_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        if property_name == "src_id" {
+            column_map.insert(property_name.clone(), (column_index, data_type));
+        }
+    }
+    for column_mapping in dst_vertex_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        if property_name == "dst_id" {
+            column_map.insert(property_name.clone(), (column_index, data_type));
+        }
+    }
+    for column_mapping in column_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        column_map.insert(property_name.clone(), (column_index, data_type));
+    }
+    let mut src_id_col = -1;
+    let mut dst_id_col = -1;
+    if let Some((column_index, _)) = column_map.get("src_id") {
+        src_id_col = *column_index;
+    }
+    if let Some((column_index, _)) = column_map.get("dst_id") {
+        dst_id_col = *column_index;
+    }
+    match input.data_source() {
+        DataSource::File => {
+            if let Some(file_input) = input.file_input() {
+                let file_location = &file_input.location;
+                let path = Path::new(file_location);
+                let input_dir = path
+                    .parent()
+                    .unwrap_or(Path::new(""))
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                let filename = path
+                    .file_name()
+                    .expect("Can not find filename")
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string();
+                let filenames = vec![filename];
+                let mut modifier = GraphModifier::new(input_dir);
+                if file_input.header_row {
+                    modifier.skip_header();
+                }
+                modifier.parallel(parallel);
+
+                let mut mappings = vec![-1; column_mappings.len()];
+                if let Some(edge_header) = graph
+                    .graph_schema
+                    .get_edge_header(src_label, edge_label, dst_label)
+                {
+                    for (i, (property_name, _)) in edge_header.iter().enumerate() {
+                        if let Some((column_index, _)) = column_map.get(property_name) {
+                            mappings[*column_index as usize] = i as i32;
+                        }
+                    }
+                } else {
+                    panic!("edge label {}_{}_{} not found", src_label, edge_label, dst_label)
+                }
+                modifier
+                    .apply_edges_insert_with_filename(
+                        graph, src_label, edge_label, dst_label, &filenames, src_id_col, dst_id_col,
+                        &mappings,
+                    )
+                    .unwrap();
+            }
+        }
+        DataSource::Memory => {
+            if let Some(memory_data) = input.memory_data() {
+                todo!()
+            }
+        }
+    }
 }
 
 pub fn insert_edges_by_schema<G, I>(
@@ -308,7 +501,7 @@ pub fn insert_edges_by_schema<G, I>(
     modifier.parallel(parallel);
     modifier
         .apply_edges_insert_with_filename(
-            graph, src_label, edge_label, dst_label, filenames, src_id_col, dst_id_col, mappings, parallel,
+            graph, src_label, edge_label, dst_label, filenames, src_id_col, dst_id_col, mappings,
         )
         .unwrap();
 }
@@ -324,7 +517,7 @@ pub fn delete_vertices_by_schema<G, I>(
     modifier.skip_header();
     modifier.parallel(parallel);
     modifier
-        .apply_vertices_delete_with_filename(graph, vertex_label, filenames, id_col, parallel)
+        .apply_vertices_delete_with_filename(graph, vertex_label, filenames, id_col)
         .unwrap();
 }
 
@@ -340,7 +533,7 @@ pub fn delete_edges_by_schema<G, I>(
     modifier.parallel(parallel);
     modifier
         .apply_edges_delete_with_filename(
-            graph, src_label, edge_label, dst_label, filenames, src_id_col, dst_id_col, parallel,
+            graph, src_label, edge_label, dst_label, filenames, src_id_col, dst_id_col,
         )
         .unwrap();
 }
@@ -368,3 +561,69 @@ pub fn delete_edges_by_schema<G, I>(
 //         }
 //     }
 // }
+
+pub fn set_vertices(
+    graph: &mut GraphDB<usize, usize>, graph_index: &mut GraphIndex, vertex_label: LabelId, input: &Input,
+    column_mappings: &Vec<ColumnMappings>, parallel: u32,
+) {
+    let property_size = graph.get_vertices_num(vertex_label);
+    match input.data_source() {
+        DataSource::File => {
+            if let Some(file_input) = input.file_input() {
+                let file_location = &file_input.location;
+                let path = Path::new(file_location);
+                let input_dir = path
+                    .parent()
+                    .unwrap_or(Path::new(""))
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                let filename = path
+                    .file_name()
+                    .expect("Can not find filename")
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string();
+                let filenames = vec![filename];
+                let mut modifier = GraphModifier::new(input_dir);
+                if file_input.header_row {
+                    modifier.skip_header();
+                }
+                modifier.parallel(parallel);
+                let mut column_map = HashMap::new();
+                for column_mapping in column_mappings {
+                    let column = column_mapping.column();
+                    let column_index = column.index();
+                    let data_type = column.data_type();
+                    let property_name = column_mapping.property_name();
+                    column_map.insert(property_name.clone(), (column_index, data_type));
+                }
+                let mut id_col = -1;
+                if let Some((column_index, _)) = column_map.get("id") {
+                    id_col = *column_index;
+                }
+                let mut mappings = vec![-1; column_mappings.len()];
+                if let Some(vertex_header) = graph
+                    .graph_schema
+                    .get_vertex_header(vertex_label)
+                {
+                    for (i, (property_name, data_type)) in vertex_header.iter().enumerate() {
+                        if let Some((column_index, column_data_type)) = column_map.get(property_name) {
+                            mappings[*column_index as usize] = i as i32;
+                        }
+                    }
+                } else {
+                    panic!("vertex label {} not found", vertex_label)
+                }
+                modifier
+                    .apply_vertices_insert_with_filename(graph, vertex_label, &filenames, id_col, &mappings)
+                    .unwrap();
+            }
+        }
+        DataSource::Memory => {
+            if let Some(memory_data) = input.memory_data() {
+                todo!()
+            }
+        }
+    }
+}

@@ -1,15 +1,14 @@
 use std::fs::File;
-use std::io::{BufReader, Write};
+use std::io::BufReader;
 use std::path::PathBuf;
 
 use bmcsr::columns::{DataType, Item};
 use bmcsr::error::GDBResult;
 use bmcsr::ldbc_parser::LDBCVertexParser;
 use csv::{ReaderBuilder, StringRecord};
-use rayon::prelude::*;
 use rust_htslib::bgzf::Reader as GzReader;
 
-use crate::types::ArrayData;
+use crate::types::ColumnData;
 
 pub fn get_partition(id: &u64, workers: usize, num_servers: usize) -> u64 {
     let id_usize = *id as usize;
@@ -29,12 +28,12 @@ pub fn get_2d_partition(id_hi: u64, id_low: u64, workers: usize, num_servers: us
     server_id * workers as u64 + worker_id
 }
 
-fn create_array_data(headers: &[(String, DataType)]) -> Vec<ArrayData> {
+fn create_array_data(headers: &[(String, DataType)]) -> Vec<ColumnData> {
     let mut array_datas = vec![];
     for (_, data_type) in headers {
         match data_type {
-            DataType::Int32 => array_datas.push(ArrayData::Int32Array(vec![])),
-            DataType::UInt64 => array_datas.push(ArrayData::Uint64Array(vec![])),
+            DataType::Int32 => array_datas.push(ColumnData::Int32Array(vec![])),
+            DataType::UInt64 => array_datas.push(ColumnData::UInt64Array(vec![])),
             _ => panic!("Unsupport data type"),
         }
     }
@@ -42,7 +41,8 @@ fn create_array_data(headers: &[(String, DataType)]) -> Vec<ArrayData> {
 }
 
 pub fn parse_vertex_file(
-    input_dir: &String, filenames: Vec<String>, skip_header: bool, delim: u8, parser: LDBCVertexParser<usize>, id: u32, parallel: u32,
+    input_dir: &String, filenames: Vec<String>, skip_header: bool, delim: u8,
+    parser: LDBCVertexParser<usize>, id: u32, parallel: u32,
 ) -> Vec<u64> {
     let input_dir = PathBuf::from(input_dir);
     let path_list = bmcsr::graph_loader::get_files_list(&input_dir, &filenames);

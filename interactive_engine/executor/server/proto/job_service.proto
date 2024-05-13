@@ -18,52 +18,12 @@ package protocol;
 option java_package = "com.alibaba.graphscope.ldbc.workload.proto";
 option java_outer_classname = "BiClient";
 
-message Argument {
-  string param_name = 1;
-  string value = 2;
-}
+message DataFrame {
+  message Column {
+    string column_name = 1;
+  }
 
-message BIJobRequest {
-  string job_name = 1;
-  repeated Argument arguments   = 2;
-}
-
-message BIJobResponse {
-  uint64 job_index = 1;
-  bytes  resp   = 2;
-}
-
-message BatchUpdateRequest {
-  string data_root = 1;
-  string request_json = 2;		
-}
-
-message BatchUpdateResponse {
-  bool is_success = 1;
-}
-
-message PrecomputeRequest {
-}
-
-message PrecomputeResponse {
-  bool is_success = 1;
-}
-
-message DeleteGenerationRequest {
-  string raw_data_root = 1;
-  string batch_id = 2;
-}
-
-message DeleteGenerationResponse {
-  bool is_success = 1;
-}
-
-message TraverseRequest {
-  string output_dir = 1;
-}
-
-message TraverseResponse {
-  bool is_success = 1;
+  repeated Column columns = 1;
 }
 
 message CallRequest {
@@ -77,17 +37,5 @@ message CallResponse {
 }
 
 service BIJobService {
-  rpc Submit(BIJobRequest) returns(stream BIJobResponse) {}
-
-  rpc SubmitBatchInsert(BatchUpdateRequest) returns(BatchUpdateResponse) {}
-
-  rpc SubmitBatchDelete(BatchUpdateRequest) returns(BatchUpdateResponse) {}
-
-  rpc SubmitPrecompute(PrecomputeRequest) returns(PrecomputeResponse) {}
-
-  rpc SubmitDeleteGeneration(DeleteGenerationRequest) returns(DeleteGenerationResponse) {}
-
-  rpc SubmitTraverse(TraverseRequest) returns(TraverseResponse) {}
-
   rpc SubmitCall(CallRequest) returns(CallResponse) {}
 }

@@ -5,8 +5,9 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
+use std::ptr::write;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use std::{env, fs};
@@ -19,7 +20,7 @@ use bmcsr::schema::InputSchema;
 use bmcsr::traverse::traverse;
 use dlopen::wrapper::{Container, WrapperApi};
 use futures::Stream;
-use graph_index::types::{ArrayData, DataType, Item, WriteOp};
+use graph_index::types::*;
 use graph_index::GraphIndex;
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
@@ -36,7 +37,7 @@ use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
 use crate::generated::protocol as pb;
-use crate::queries::register::{QueryRegister, ReadQueryApi, WriteQueryApi};
+use crate::queries::register::QueryRegister;
 use crate::queries::write_graph;
 
 pub struct StandaloneServiceListener;
@@ -50,64 +51,6 @@ impl StandaloneServiceListener {
     fn on_server_start(&mut self, server_id: u64, addr: SocketAddr) -> std::io::Result<()> {
         info!("compute server[{}] start on {}", server_id, addr);
         Ok(())
-    }
-}
-
-pub struct RpcSink {
-    pub job_id: u64,
-    had_error: Arc<AtomicBool>,
-    peers: Arc<AtomicUsize>,
-    tx: UnboundedSender<Result<pb::BiJobResponse, Status>>,
-}
-
-impl RpcSink {
-    pub fn new(job_id: u64, tx: UnboundedSender<Result<pb::BiJobResponse, Status>>) -> Self {
-        RpcSink {
-            tx,
-            had_error: Arc::new(AtomicBool::new(false)),
-            peers: Arc::new(AtomicUsize::new(1)),
-            job_id,
-        }
-    }
-}
-
-impl FromStream<Vec<u8>> for RpcSink {
-    fn on_next(&mut self, resp: Vec<u8>) -> FnResult<()> {
-        // todo: use bytes to alleviate copy & allocate cost;
-        let res = pb::BiJobResponse { job_index: self.job_id, resp };
-        self.tx.send(Ok(res)).ok();
-        Ok(())
-    }
-}
-
-impl Clone for RpcSink {
-    fn clone(&self) -> Self {
-        self.peers.fetch_add(1, Ordering::SeqCst);
-        RpcSink {
-            job_id: self.job_id,
-            had_error: self.had_error.clone(),
-            peers: self.peers.clone(),
-            tx: self.tx.clone(),
-        }
-    }
-}
-
-impl FromStreamExt<Vec<u8>> for RpcSink {
-    fn on_error(&mut self, error: Box<dyn Error + Send>) {
-        self.had_error.store(true, Ordering::SeqCst);
-        let status = Status::unknown(format!("execution_error: {}", error));
-        self.tx.send(Err(status)).ok();
-    }
-}
-
-impl Drop for RpcSink {
-    fn drop(&mut self) {
-        let before_sub = self.peers.fetch_sub(1, Ordering::SeqCst);
-        if before_sub == 1 {
-            if !self.had_error.load(Ordering::SeqCst) {
-                self.tx.send(Err(Status::ok("ok"))).ok();
-            }
-        }
     }
 }
 
@@ -256,122 +199,6 @@ pub struct JobServiceImpl {
 
 #[tonic::async_trait]
 impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
-    type SubmitStream = UnboundedReceiverStream<Result<pb::BiJobResponse, Status>>;
-
-    async fn submit(&self, req: Request<pb::BiJobRequest>) -> Result<Response<Self::SubmitStream>, Status> {
-        debug!("accept new request from {:?};", req.remote_addr());
-        let pb::BiJobRequest { job_name, arguments } = req.into_inner();
-
-        let mut conf = JobConf::new(job_name.clone().to_owned());
-        conf.set_workers(self.workers);
-        conf.reset_servers(ServerConf::Partial(self.servers.clone()));
-        let job_id = conf.job_id;
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let rpc_sink = RpcSink::new(job_id, tx);
-        let sink = ResultSink::<Vec<u8>>::with(rpc_sink);
-
-        let mut input_params = HashMap::new();
-        for i in arguments {
-            input_params.insert(i.param_name, i.value);
-        }
-
-        let graph = self.graph_db.read().unwrap();
-        let graph_index = self.graph_index.read().unwrap();
-
-        if let Some(libc) = self.query_register.get_read_query(&job_name) {
-            let conf_temp = conf.clone();
-            if let Err(e) = pegasus::run_opt(conf, sink, |worker| {
-                worker.dataflow(libc.Query(conf_temp.clone(), &graph, &graph_index, input_params.clone()))
-            }) {
-                error!("submit job {} failure: {:?}", job_id, e);
-                Err(Status::unknown(format!("submit job error {}", e)))
-            } else {
-                Ok(Response::new(UnboundedReceiverStream::new(rx)))
-            }
-        } else {
-            Err(Status::unknown(format!("query not found, job name {}", job_name)))
-        }
-    }
-
-    async fn submit_batch_insert(
-        &self, req: Request<pb::BatchUpdateRequest>,
-    ) -> Result<Response<pb::BatchUpdateResponse>, Status> {
-        let pb::BatchUpdateRequest { data_root, request_json } = req.into_inner();
-        let data_root_path = PathBuf::from(data_root);
-
-        let mut graph_modifier = GraphModifier::new(&data_root_path);
-
-        graph_modifier.skip_header();
-        graph_modifier.parallel(self.workers);
-        let mut graph = self.graph_db.write().unwrap();
-        let insert_schema = InputSchema::from_string(request_json, &graph.graph_schema).unwrap();
-        graph_modifier
-            .insert(&mut graph, &insert_schema)
-            .unwrap();
-
-        let reply = pb::BatchUpdateResponse { is_success: true };
-        Ok(Response::new(reply))
-    }
-
-    async fn submit_batch_delete(
-        &self, req: Request<pb::BatchUpdateRequest>,
-    ) -> Result<Response<pb::BatchUpdateResponse>, Status> {
-        let pb::BatchUpdateRequest { data_root, request_json } = req.into_inner();
-        let data_root_path = PathBuf::from(data_root);
-
-        let mut graph_modifier = GraphModifier::new(&data_root_path);
-
-        graph_modifier.skip_header();
-        graph_modifier.parallel(self.workers);
-        let mut graph = self.graph_db.write().unwrap();
-        let delete_schema = InputSchema::from_string(request_json, &graph.graph_schema).unwrap();
-        graph_modifier
-            .delete(&mut graph, &delete_schema)
-            .unwrap();
-
-        let reply = pb::BatchUpdateResponse { is_success: true };
-        Ok(Response::new(reply))
-    }
-
-    async fn submit_delete_generation(
-        &self, req: Request<pb::DeleteGenerationRequest>,
-    ) -> Result<Response<pb::DeleteGenerationResponse>, Status> {
-        let pb::DeleteGenerationRequest { raw_data_root, batch_id } = req.into_inner();
-
-        let graph = self.graph_db.read().unwrap();
-        let raw_data_root = PathBuf::from(raw_data_root);
-        let mut delete_generator = DeleteGenerator::new(&raw_data_root);
-        delete_generator.skip_header();
-        delete_generator.generate(&graph, batch_id.as_str());
-
-        let reply = pb::DeleteGenerationResponse { is_success: true };
-        Ok(Response::new(reply))
-    }
-
-    async fn submit_precompute(
-        &self, req: Request<pb::PrecomputeRequest>,
-    ) -> Result<Response<pb::PrecomputeResponse>, Status> {
-        let graph = self.graph_db.read().unwrap();
-        let mut graph_index = self.graph_index.write().unwrap();
-        self.query_register
-            .run_precomputes(&graph, &mut graph_index, self.workers);
-
-        let reply = pb::PrecomputeResponse { is_success: true };
-        Ok(Response::new(reply))
-    }
-
-    async fn submit_traverse(
-        &self, req: Request<pb::TraverseRequest>,
-    ) -> Result<Response<pb::TraverseResponse>, Status> {
-        let pb::TraverseRequest { output_dir } = req.into_inner();
-        std::fs::create_dir_all(&output_dir).unwrap();
-        let graph = self.graph_db.read().unwrap();
-        traverse(&graph, &output_dir);
-
-        let reply = pb::TraverseResponse { is_success: true };
-        Ok(Response::new(reply))
-    }
-
     async fn submit_call(
         &self, req: Request<pb::CallRequest>,
     ) -> Result<Response<pb::CallResponse>, Status> {
@@ -521,25 +348,6 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         "{}/benchmark/{}/target/release/lib{}.so",
                         gie_dir_str, query_name, query_name
                     );
-                    if mode == "read" {
-                        let libc: Container<ReadQueryApi> = unsafe { Container::load(dylib_path) }.unwrap();
-                        self.query_register.register_read_query(
-                            query_name,
-                            libc,
-                            inputs_info,
-                            outputs_info,
-                            description,
-                        );
-                    } else if mode == "write" {
-                        let libc: Container<WriteQueryApi> =
-                            unsafe { Container::load(dylib_path) }.unwrap();
-                        self.query_register.register_write_query(
-                            query_name,
-                            libc,
-                            inputs_info,
-                            description,
-                        );
-                    }
                 } else {
                     let reply = pb::CallResponse {
                         is_success: false,
@@ -774,371 +582,160 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                         .captures(&function_name)
                         .expect("Fail to match query name");
                     let query_name = cap[1].to_string();
-                    if let Some((label_id, vertex_precompute_info)) = self
-                        .query_register
-                        .get_precompute_vertex(&query_name)
-                    {
-                        println!("{} is a vertex precompute", query_name);
-                        let query = self
+                    if let Some(queries) = self.query_register.get_new_query(&query_name) {
+                        // Run queries
+                        if let Some(inputs_info) = self
                             .query_register
-                            .get_read_query(&query_name)
-                            .expect("Failed to get procedure of precompute");
-                        let mut conf = JobConf::new(query_name.clone().to_owned());
-                        conf.set_workers(self.workers);
-                        conf.reset_servers(ServerConf::Partial(self.servers.clone()));
-                        let graph = self.graph_db.read().unwrap();
-                        let graph_index = self.graph_index.read().unwrap();
-                        let results = {
-                            pegasus::run(conf.clone(), || {
-                                query.Query(conf.clone(), &graph, &graph_index, HashMap::new())
-                            })
-                            .expect("submit query failure")
-                        };
-                        let mut id_index = 0;
-                        let mut data_list = vec![];
-                        for index in 0..vertex_precompute_info.len() {
-                            println!("Header {}", vertex_precompute_info[index].0);
-                            if vertex_precompute_info[index].0 == "id" {
-                                data_list.push(ArrayData::Int32Array(vec![]));
-                                id_index = index;
-                            } else {
-                                match vertex_precompute_info[index].1 {
-                                    DataType::Int32 => data_list.push(ArrayData::Int32Array(vec![])),
-                                    DataType::UInt64 => data_list.push(ArrayData::Uint64Array(vec![])),
-                                    _ => panic!("Unsupport data type"),
-                                };
-                            }
-                        }
-                        let mut index_vec = vec![];
-                        for result in results {
-                            let result_str = String::from_utf8(result.unwrap()).unwrap();
-                            let result = result_str.split("|").collect::<Vec<&str>>();
-                            for i in 0..vertex_precompute_info.len() {
-                                if i == id_index {
-                                    let original_id = result[i].parse::<usize>().unwrap();
-                                    let global_id =
-                                        LDBCVertexParser::<usize>::to_global_id(original_id, label_id);
-                                    let internal_id = graph.get_internal_id(global_id);
-                                    index_vec.push(internal_id);
-                                } else {
-                                    match data_list.get_mut(i).unwrap() {
-                                        ArrayData::Int32Array(ref mut data) => {
-                                            data.push(result[i].parse::<i32>().unwrap())
-                                        }
-                                        ArrayData::Uint64Array(ref mut data) => {
-                                            data.push(result[i].parse::<u64>().unwrap())
-                                        }
-                                        _ => panic!("Unsupport data type"),
-                                    }
+                            .get_query_inputs_info(&query_name)
+                        {
+                            let mut parameters_map = HashMap::<String, String>::new();
+                            let parameter_re = Regex::new(r#""([^"]*)"(?:,|$)"#).unwrap();
+                            let mut input_index = 0;
+                            for caps in parameter_re.captures_iter(&parameters) {
+                                if let Some(matched) = caps.get(1) {
+                                    parameters_map.insert(
+                                        inputs_info[input_index].0.clone(),
+                                        matched.as_str().to_string(),
+                                    );
+                                    input_index += 1;
                                 }
                             }
-                        }
-                        drop(graph_index);
-                        {
-                            let mut graph_index = self.graph_index.write().unwrap();
-                            for i in 0..vertex_precompute_info.len() {
-                                if vertex_precompute_info[i].0 != "id" {
-                                    graph_index
-                                        .add_vertex_index_batch(
-                                            label_id,
-                                            &vertex_precompute_info[i].0,
-                                            &index_vec,
-                                            data_list[i].as_ref(),
+
+                            let mut index = 0;
+                            // let mut query_results = vec![];
+                            for query in queries.iter() {
+                                let mut conf = JobConf::new(format!("{}_{}", query_name, index));
+                                conf.set_workers(self.workers);
+                                conf.reset_servers(ServerConf::Partial(self.servers.clone()));
+                                let graph = self.graph_db.read().unwrap();
+                                let graph_index = self.graph_index.read().unwrap();
+                                let results = {
+                                    pegasus::run(conf.clone(), || {
+                                        query.Query(
+                                            conf.clone(),
+                                            &graph,
+                                            &graph_index,
+                                            parameters_map.clone(),
+                                            None,
                                         )
-                                        .unwrap();
-                                }
-                            }
-                        }
-                        let reply =
-                            pb::CallResponse { is_success: true, results: vec![], reason: format!("") };
-                        return Ok(Response::new(reply));
-                    } else if let Some((precompute_setting, precompute)) = self
-                        .query_register
-                        .get_precompute_vertex(&query_name)
-                    {
-                        info!("222");
-                    } else if let Some(query) = self.query_register.get_read_query(&query_name) {
-                        if let Some(inputs_info) = self
-                            .query_register
-                            .get_query_inputs_info(&query_name)
-                        {
-                            let mut parameters_map = HashMap::<String, String>::new();
-                            let parameter_re = Regex::new(r#""([^"]*)"(?:,|$)"#).unwrap();
-                            let mut input_index = 0;
-                            for caps in parameter_re.captures_iter(&parameters) {
-                                if let Some(matched) = caps.get(1) {
-                                    parameters_map.insert(
-                                        inputs_info[input_index].0.clone(),
-                                        matched.as_str().to_string(),
-                                    );
-                                    input_index += 1;
-                                }
-                            }
-                            let mut conf = JobConf::new(query_name.clone().to_owned());
-                            conf.set_workers(self.workers);
-                            conf.reset_servers(ServerConf::Partial(self.servers.clone()));
-                            let graph = self.graph_db.read().unwrap();
-                            let graph_index = self.graph_index.read().unwrap();
-                            let results = {
-                                pegasus::run(conf.clone(), || {
-                                    query.Query(conf.clone(), &graph, &graph_index, parameters_map.clone())
-                                })
-                                .expect("submit query failure")
-                            };
-                            let mut query_results = vec![];
-                            for result in results {
-                                query_results.push(String::from_utf8(result.unwrap()).unwrap());
-                            }
-                            let reply = pb::CallResponse {
-                                is_success: true,
-                                results: query_results,
-                                reason: format!(""),
-                            };
-                            return Ok(Response::new(reply));
-                        } else {
-                            let reply = pb::CallResponse {
-                                is_success: false,
-                                results: vec![],
-                                reason: format!("Failed to get inputs info of query: {}", function_name),
-                            };
-                            return Ok(Response::new(reply));
-                        }
-                    } else if let Some(query) = self.query_register.get_write_query(&query_name) {
-                        // Run write query
-                        if let Some(inputs_info) = self
-                            .query_register
-                            .get_query_inputs_info(&query_name)
-                        {
-                            let mut parameters_map = HashMap::<String, String>::new();
-                            let parameter_re = Regex::new(r#""([^"]*)"(?:,|$)"#).unwrap();
-                            let mut input_index = 0;
-                            for caps in parameter_re.captures_iter(&parameters) {
-                                if let Some(matched) = caps.get(1) {
-                                    parameters_map.insert(
-                                        inputs_info[input_index].0.clone(),
-                                        matched.as_str().to_string(),
-                                    );
-                                    input_index += 1;
-                                }
-                            }
-                            let mut conf = JobConf::new(query_name.clone().to_owned());
-                            conf.set_workers(self.workers);
-                            conf.reset_servers(ServerConf::Partial(self.servers.clone()));
-                            let graph = self.graph_db.read().unwrap();
-                            let graph_index = self.graph_index.read().unwrap();
-                            let results = {
-                                pegasus::run(conf.clone(), || {
-                                    query.Query(conf.clone(), &graph, &graph_index, parameters_map.clone())
-                                })
-                                .expect("submit query failure")
-                            };
-                            let mut query_results = vec![];
-                            for result in results {
-                                if let Ok(result) = result {
-                                    for op in result {
-                                        query_results.push(op);
-                                    }
-                                }
-                            }
-                            drop(graph);
-                            let mut graph = self.graph_db.write().unwrap();
-                            for write_op in query_results.drain(..) {
-                                match write_op {
-                                    WriteOp::InsertVertices { label, global_ids, properties } => {
-                                        write_graph::insert_vertices(
-                                            &mut graph, label, global_ids, properties,
-                                        );
-                                    }
-                                    WriteOp::InsertEdges {
-                                        src_label,
-                                        edge_label,
-                                        dst_label,
-                                        edges,
-                                        properties,
-                                    } => write_graph::insert_edges(
-                                        &mut graph,
-                                        src_label,
-                                        edge_label,
-                                        dst_label,
-                                        edges,
-                                        properties,
-                                        self.workers,
-                                    ),
-                                    WriteOp::InsertVerticesBySchema {
-                                        label,
-                                        input_dir,
-                                        filenames,
-                                        id_col,
-                                        mappings,
-                                    } => {
-                                        write_graph::insert_vertices_by_schema(
-                                            &mut graph,
-                                            label,
-                                            input_dir,
-                                            &filenames,
-                                            id_col,
-                                            &mappings,
-                                            self.workers,
-                                        );
-                                    }
-                                    WriteOp::InsertEdgesBySchema {
-                                        src_label,
-                                        edge_label,
-                                        dst_label,
-                                        input_dir,
-                                        filenames,
-                                        src_id_col,
-                                        dst_id_col,
-                                        mappings,
-                                    } => {
-                                        write_graph::insert_edges_by_schema(
-                                            &mut graph,
-                                            src_label,
-                                            edge_label,
-                                            dst_label,
-                                            input_dir,
-                                            &filenames,
-                                            src_id_col,
-                                            dst_id_col,
-                                            &mappings,
-                                            self.workers,
-                                        );
-                                    }
-                                    WriteOp::DeleteVertices { label, global_ids } => {
-                                        write_graph::delete_vertices(
-                                            &mut graph,
-                                            label,
-                                            global_ids,
-                                            self.workers,
-                                        );
-                                    }
-                                    WriteOp::DeleteEdges { src_label, edge_label, dst_label, lids } => {
-                                        write_graph::delete_edges::<usize, usize>(
-                                            &mut graph,
-                                            src_label,
-                                            edge_label,
-                                            dst_label,
-                                            lids,
-                                            self.workers,
-                                        );
-                                    }
-                                    WriteOp::DeleteVerticesBySchema {
-                                        label,
-                                        input_dir,
-                                        filenames,
-                                        id_col,
-                                    } => {
-                                        write_graph::delete_vertices_by_schema(
-                                            &mut graph,
-                                            label,
-                                            input_dir,
-                                            &filenames,
-                                            id_col,
-                                            self.workers,
-                                        );
-                                    }
-                                    WriteOp::DeleteEdgesBySchema {
-                                        src_label,
-                                        edge_label,
-                                        dst_label,
-                                        input_dir,
-                                        filenames,
-                                        src_id_col,
-                                        dst_id_col,
-                                    } => {}
-                                    WriteOp::SetVertices { label, global_ids, properties } => {
-                                        // Set vertices properties
-                                        let mut graph_index = self.graph_index.write().unwrap();
-                                        let property_size = graph.get_vertices_num(label);
-                                        for (property_name, data) in properties.iter() {
-                                            let data_type = data.get_type();
-                                            graph_index.init_vertex_index(
-                                                property_name.clone(),
-                                                label,
-                                                data_type,
-                                                Some(property_size),
-                                                Some(Item::Int32(0)),
-                                            );
-                                            graph_index
-                                                .add_vertex_index_batch(
-                                                    label,
-                                                    property_name,
-                                                    &global_ids,
-                                                    data.as_ref(),
-                                                )
-                                                .unwrap();
-                                        }
-                                    }
-                                    WriteOp::SetEdges {
-                                        src_label,
-                                        edge_label,
-                                        dst_label,
-                                        src_offset,
-                                        dst_offset,
-                                        src_properties,
-                                        dst_properties,
-                                    } => {
-                                        // Set edge properties here
-                                        let mut graph_index = self.graph_index.write().unwrap();
-                                        let oe_property_size = graph.get_max_edge_offset(
-                                            src_label,
-                                            edge_label,
-                                            dst_label,
-                                            Direction::Outgoing,
-                                        );
-                                        let ie_property_size = graph.get_max_edge_offset(
-                                            src_label,
-                                            edge_label,
-                                            dst_label,
-                                            Direction::Incoming,
-                                        );
-                                        for (property_name, data) in src_properties.iter() {
-                                            let data_type = data.get_type();
-                                            graph_index.init_outgoing_edge_index(
-                                                property_name.clone(),
-                                                src_label,
-                                                dst_label,
-                                                edge_label,
-                                                data_type,
-                                                Some(oe_property_size),
-                                                Some(Item::Int32(0)),
-                                            );
-                                            graph_index
-                                                .add_outgoing_edge_index_batch(
-                                                    src_label,
-                                                    edge_label,
-                                                    dst_label,
-                                                    property_name,
-                                                    &src_offset,
-                                                    data.as_ref(),
-                                                )
-                                                .unwrap();
-                                        }
-                                        for (property_name, data) in dst_properties.iter() {
-                                            let data_type = data.get_type();
-                                            graph_index.init_incoming_edge_index(
-                                                property_name.clone(),
-                                                src_label,
-                                                dst_label,
-                                                edge_label,
-                                                data_type,
-                                                Some(ie_property_size),
-                                                Some(Item::Int32(0)),
-                                            );
-                                            graph_index
-                                                .add_incoming_edge_index_batch(
-                                                    src_label,
-                                                    edge_label,
-                                                    dst_label,
-                                                    property_name,
-                                                    &dst_offset,
-                                                    data.as_ref(),
-                                                )
-                                                .unwrap();
-                                        }
-                                    }
-                                    _ => todo!(),
+                                    })
+                                    .expect("submit query failure")
                                 };
+                                let mut write_operations = vec![];
+                                for result in results {
+                                    if let Ok((worker_id, alias_datas, write_ops, query_result)) = result {
+                                        for write_op in write_ops {
+                                            write_operations.push(write_op);
+                                        }
+                                    }
+                                }
+                                drop(graph);
+                                let mut graph = self.graph_db.write().unwrap();
+                                let mut graph_index = self.graph_index.write().unwrap();
+                                for mut write_ops in write_operations.drain(..) {
+                                    for  write_op in write_ops.drain(..) {
+                                        match write_op.write_type() {
+                                            WriteType::Insert => {
+                                                if let Some(vertex_mappings) = write_op.vertex_mappings() {
+                                                    let vertex_label = vertex_mappings.vertex_label();
+                                                    let inputs = vertex_mappings.inputs();
+                                                    let column_mappings = vertex_mappings.column_mappings();
+                                                    for input in inputs.iter() {
+                                                        write_graph::insert_vertices(
+                                                            &mut graph,
+                                                            vertex_label,
+                                                            input,
+                                                            column_mappings,
+                                                            self.workers,
+                                                        );
+                                                    }
+                                                }
+                                                if let Some(edge_mappings) = write_op.edge_mappings() {
+                                                    let src_label = edge_mappings.src_label();
+                                                    let edge_label = edge_mappings.edge_label();
+                                                    let dst_label = edge_mappings.dst_label();
+                                                    let inputs = edge_mappings.inputs();
+                                                    let src_column_mappings =
+                                                        edge_mappings.src_column_mappings();
+                                                    let dst_column_mappings =
+                                                        edge_mappings.dst_column_mappings();
+                                                    let column_mappings = edge_mappings.column_mappings();
+                                                    for input in inputs.iter() {
+                                                        write_graph::insert_edges(
+                                                            &mut graph,
+                                                            src_label,
+                                                            edge_label,
+                                                            dst_label,
+                                                            input,
+                                                            src_column_mappings,
+                                                            dst_column_mappings,
+                                                            column_mappings,
+                                                            self.workers,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            WriteType::Delete => {
+                                                if let Some(vertex_mappings) = write_op.vertex_mappings() {
+                                                    let vertex_label = vertex_mappings.vertex_label();
+                                                    let inputs = vertex_mappings.inputs();
+                                                    let column_mappings = vertex_mappings.column_mappings();
+                                                    for input in inputs.iter() {
+                                                        write_graph::delete_vertices(
+                                                            &mut graph,
+                                                            vertex_label,
+                                                            input,
+                                                            column_mappings,
+                                                            self.workers,
+                                                        );
+                                                    }
+                                                }
+                                                if let Some(edge_mappings) = write_op.edge_mappings() {
+                                                    let src_label = edge_mappings.src_label();
+                                                    let edge_label = edge_mappings.edge_label();
+                                                    let dst_label = edge_mappings.dst_label();
+                                                    let inputs = edge_mappings.inputs();
+                                                    let src_column_mappings =
+                                                        edge_mappings.src_column_mappings();
+                                                    let dst_column_mappings =
+                                                        edge_mappings.dst_column_mappings();
+                                                    let column_mappings = edge_mappings.column_mappings();
+                                                    for input in inputs.iter() {
+                                                        write_graph::delete_edges(
+                                                            &mut graph,
+                                                            src_label,
+                                                            edge_label,
+                                                            dst_label,
+                                                            input,
+                                                            src_column_mappings,
+                                                            dst_column_mappings,
+                                                            column_mappings,
+                                                            self.workers,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            WriteType::Set => {
+                                                if let Some(vertex_mappings) = write_op.vertex_mappings() {
+                                                    let vertex_label = vertex_mappings.vertex_label();
+                                                    let inputs = vertex_mappings.inputs();
+                                                    let column_mappings = vertex_mappings.column_mappings();
+                                                    for input in inputs.iter() {
+                                                        write_graph::set_vertices(
+                                                            &mut graph,
+                                                            &mut graph_index,
+                                                            vertex_label,
+                                                            input,
+                                                            column_mappings,
+                                                            self.workers,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        };
+                                    }
+                                }
+                                index += 1;
                             }
                             let reply =
                                 pb::CallResponse { is_success: true, results: vec![], reason: format!("") };

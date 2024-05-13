@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Write};
@@ -684,7 +683,7 @@ impl GraphModifier {
         results
     }
 
-    fn set_csr<G, I>(&self, graph: &mut GraphDB<G, I>, mut reps: CsrRep<I>)
+    fn set_csr<G, I>(&self, graph: &mut GraphDB<G, I>, reps: CsrRep<I>)
         where
             I: Send + Sync + IndexType,
             G: FromStr + Send + Sync + IndexType + Eq,
@@ -859,7 +858,7 @@ impl GraphModifier {
     }
 
     pub fn apply_vertices_delete_with_filename<G, I>(
-        &mut self, graph: &mut GraphDB<G, I>, label: LabelId, filenames: &Vec<String>, id_col: i32, parallel: u32,
+        &mut self, graph: &mut GraphDB<G, I>, label: LabelId, filenames: &Vec<String>, id_col: i32,
     ) -> GDBResult<()>
         where
             G: FromStr + Send + Sync + IndexType + Eq,
@@ -924,7 +923,7 @@ impl GraphModifier {
 
     pub fn apply_edges_delete_with_filename<G, I>
     (
-        &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32, parallel: u32,
+        &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32,
     ) -> GDBResult<()>
         where
             G: FromStr + Send + Sync + IndexType + Eq,
@@ -932,7 +931,7 @@ impl GraphModifier {
     {
         let mut input_resp = self.take_csr(graph, src_label, dst_label, edge_label);
         let input_header: Vec<(String, DataType)> = vec![];
-        let mut delete_sets = vec![HashSet::new(); graph.vertex_label_num as usize];
+        let delete_sets = vec![HashSet::new(); graph.vertex_label_num as usize];
         self.parallel_delete_rep(
             &mut input_resp,
             graph,
@@ -1335,7 +1334,6 @@ impl GraphModifier {
     pub fn apply_edges_insert_with_filename<G, I>
     (
         &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32, mappings: &Vec<i32>,
-        parallel: u32,
     ) -> GDBResult<()>
         where
             I: Send + Sync + IndexType,
@@ -1417,13 +1415,13 @@ impl GraphModifier {
                 &parsed_edges,
                 &prop_table,
                 false,
-                parallel,
+                self.parallel,
                 old_table,
             ))
         } else {
             input_reps
                 .oe_csr
-                .insert_edges(new_src_num, &parsed_edges, false, parallel);
+                .insert_edges(new_src_num, &parsed_edges, false, self.parallel);
             None
         };
 
@@ -1434,13 +1432,13 @@ impl GraphModifier {
                 &parsed_edges,
                 &prop_table,
                 true,
-                parallel,
+                self.parallel,
                 old_table,
             ))
         } else {
             input_reps
                 .ie_csr
-                .insert_edges(new_dst_num, &parsed_edges, true, parallel);
+                .insert_edges(new_dst_num, &parsed_edges, true, self.parallel);
             None
         };
         self.set_csr(graph, input_reps);
