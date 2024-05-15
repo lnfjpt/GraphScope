@@ -615,15 +615,19 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 let graph = self.graph_db.read().unwrap();
                                 let graph_index = self.graph_index.read().unwrap();
                                 let results = {
-                                    pegasus::run(conf.clone(), || {
-                                        query.Query(
-                                            conf.clone(),
-                                            &graph,
-                                            &graph_index,
-                                            parameters_map.clone(),
-                                            None,
-                                        )
-                                    })
+                                    pegasus::run_with_resource_map(
+                                        conf.clone(),
+                                        Some(resource_maps.clone()),
+                                        || {
+                                            query.Query(
+                                                conf.clone(),
+                                                &graph,
+                                                &graph_index,
+                                                parameters_map.clone(),
+                                                None,
+                                            )
+                                        },
+                                    )
                                     .expect("submit query failure")
                                 };
                                 let mut write_operations = vec![];
@@ -742,6 +746,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 }
                                 index += 1;
                             }
+                            drop(resource_maps);
                             let reply =
                                 pb::CallResponse { is_success: true, results: vec![], reason: format!("") };
                             return Ok(Response::new(reply));
