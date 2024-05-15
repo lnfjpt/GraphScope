@@ -21,13 +21,13 @@ pub enum WriteType {
 }
 
 #[derive(Clone)]
-pub struct Column {
+pub struct ColumnInfo {
     index: i32,
     name: String,
     data_type: DataType,
 }
 
-impl Column {
+impl ColumnInfo {
     pub fn index(&self) -> i32 {
         self.index
     }
@@ -43,7 +43,7 @@ impl Column {
 
 #[derive(Clone)]
 pub struct ColumnMappings {
-    column: Column,
+    column: ColumnInfo,
     property_name: String,
 }
 
@@ -63,12 +63,12 @@ impl Decode for ColumnMappings {
         let name = String::read_from(reader)?;
         let data_type = DataType::read_from(reader)?;
         let property_name = String::read_from(reader)?;
-        Ok(ColumnMappings { column: Column { index, name, data_type }, property_name })
+        Ok(ColumnMappings { column: ColumnInfo { index, name, data_type }, property_name })
     }
 }
 
 impl ColumnMappings {
-    pub fn column(&self) -> &Column {
+    pub fn column(&self) -> &ColumnInfo {
         &self.column
     }
 
@@ -133,41 +133,66 @@ impl Decode for FileInput {
 }
 
 #[derive(Clone)]
+pub struct Column {
+    data: ColumnData,
+    column_name: String,
+    data_type: DataType,
+}
+
+impl Encode for Column {
+    fn write_to<W: WriteExt>(&self, writer: &mut W) -> io::Result<()> {
+        self.data.write_to(writer)?;
+        self.column_name.write_to(writer)?;
+        self.data_type.write_to(writer)?;
+        Ok(())
+    }
+}
+
+impl Decode for Column {
+    fn read_from<R: ReadExt>(reader: &mut R) -> io::Result<Self> {
+        let data = ColumnData::read_from(reader)?;
+        let column_name = String::read_from(reader)?;
+        let data_type = DataType::read_from(reader)?;
+        Ok(Column { data, column_name, data_type })
+    }
+}
+
+impl Column {
+    pub fn data(&self) -> &ColumnData {
+        &self.data
+    }
+
+    pub fn column_name(&self) -> String {
+        self.column_name.clone()
+    }
+
+    pub fn data_type(&self) -> DataType {
+        self.data_type
+    }
+}
+
+#[derive(Clone)]
 pub struct DataFrame {
-    columns: Vec<ColumnData>,
-    column_names: Vec<String>,
-    data_types: Vec<DataType>,
+    columns: Vec<Column>,
 }
 
 impl Encode for DataFrame {
     fn write_to<W: WriteExt>(&self, writer: &mut W) -> io::Result<()> {
         self.columns.write_to(writer)?;
-        self.column_names.write_to(writer)?;
-        self.data_types.write_to(writer)?;
         Ok(())
     }
 }
 
 impl Decode for DataFrame {
     fn read_from<R: ReadExt>(reader: &mut R) -> io::Result<Self> {
-        let columns = Vec::<ColumnData>::read_from(reader)?;
-        let column_names = Vec::<String>::read_from(reader)?;
-        let data_types = Vec::<DataType>::read_from(reader)?;
-        Ok(DataFrame { columns, column_names, data_types })
+        let columns = Vec::<Column>::read_from(reader)?;
+        Ok(DataFrame { columns })
     }
 }
 
 impl DataFrame {
-    pub fn columns(&self) -> &Vec<ColumnData> {
+    pub fn columns(&self) -> &Vec<Column> {
         &self.columns
-    }
-
-    pub fn column_names(&self) -> &Vec<String> {
-        &self.column_names
-    }
-
-    pub fn data_types(&self) -> &Vec<DataType> {
-        &self.data_types
     }
 }
 

@@ -15,6 +15,7 @@ use bmcsr::schema::{CsrGraphSchema, InputSchema, Schema};
 use bmcsr::types::{DefaultId, LabelId};
 use graph_index::types::{ColumnData, ColumnDataRef, ColumnMappings, DataSource, Input};
 use graph_index::GraphIndex;
+use num::complex::ComplexFloat;
 
 fn properties_to_items<G, I>(properties: Vec<ColumnData>) -> Vec<Vec<Item>>
 where
@@ -183,6 +184,18 @@ pub fn insert_vertices<G, I>(
     I: Send + Sync + IndexType,
     G: FromStr + Send + Sync + IndexType + Eq,
 {
+    let mut column_map = HashMap::new();
+    for column_mapping in column_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        column_map.insert(property_name.clone(), (column_index, data_type));
+    }
+    let mut id_col = -1;
+    if let Some((column_index, _)) = column_map.get("id") {
+        id_col = *column_index;
+    }
     match input.data_source() {
         DataSource::File => {
             if let Some(file_input) = input.file_input() {
@@ -206,18 +219,6 @@ pub fn insert_vertices<G, I>(
                     modifier.skip_header();
                 }
                 modifier.parallel(parallel);
-                let mut column_map = HashMap::new();
-                for column_mapping in column_mappings {
-                    let column = column_mapping.column();
-                    let column_index = column.index();
-                    let data_type = column.data_type();
-                    let property_name = column_mapping.property_name();
-                    column_map.insert(property_name.clone(), (column_index, data_type));
-                }
-                let mut id_col = -1;
-                if let Some((column_index, _)) = column_map.get("id") {
-                    id_col = *column_index;
-                }
                 let mut mappings = vec![-1; column_mappings.len()];
                 if let Some(vertex_header) = graph
                     .graph_schema
@@ -252,6 +253,40 @@ pub fn insert_edges<G, I>(
     I: Send + Sync + IndexType,
     G: FromStr + Send + Sync + IndexType + Eq,
 {
+    let mut column_map = HashMap::new();
+    for column_mapping in src_vertex_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        if property_name == "src_id" {
+            column_map.insert(property_name.clone(), (column_index, data_type));
+        }
+    }
+    for column_mapping in dst_vertex_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        if property_name == "dst_id" {
+            column_map.insert(property_name.clone(), (column_index, data_type));
+        }
+    }
+    for column_mapping in column_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        column_map.insert(property_name.clone(), (column_index, data_type));
+    }
+    let mut src_id_col = -1;
+    let mut dst_id_col = -1;
+    if let Some((column_index, _)) = column_map.get("src_id") {
+        src_id_col = *column_index;
+    }
+    if let Some((column_index, _)) = column_map.get("dst_id") {
+        dst_id_col = *column_index;
+    }
     match input.data_source() {
         DataSource::File => {
             if let Some(file_input) = input.file_input() {
@@ -275,40 +310,6 @@ pub fn insert_edges<G, I>(
                     modifier.skip_header();
                 }
                 modifier.parallel(parallel);
-                let mut column_map = HashMap::new();
-                for column_mapping in src_vertex_mappings {
-                    let column = column_mapping.column();
-                    let column_index = column.index();
-                    let data_type = column.data_type();
-                    let property_name = column_mapping.property_name();
-                    if property_name == "src_id" {
-                        column_map.insert(property_name.clone(), (column_index, data_type));
-                    }
-                }
-                for column_mapping in dst_vertex_mappings {
-                    let column = column_mapping.column();
-                    let column_index = column.index();
-                    let data_type = column.data_type();
-                    let property_name = column_mapping.property_name();
-                    if property_name == "dst_id" {
-                        column_map.insert(property_name.clone(), (column_index, data_type));
-                    }
-                }
-                for column_mapping in column_mappings {
-                    let column = column_mapping.column();
-                    let column_index = column.index();
-                    let data_type = column.data_type();
-                    let property_name = column_mapping.property_name();
-                    column_map.insert(property_name.clone(), (column_index, data_type));
-                }
-                let mut src_id_col = -1;
-                let mut dst_id_col = -1;
-                if let Some((column_index, _)) = column_map.get("src_id") {
-                    src_id_col = *column_index;
-                }
-                if let Some((column_index, _)) = column_map.get("dst_id") {
-                    dst_id_col = *column_index;
-                }
                 let mut mappings = vec![-1; column_mappings.len()];
                 if let Some(edge_header) = graph
                     .graph_schema
@@ -385,10 +386,10 @@ pub fn delete_vertices(
         DataSource::Memory => {
             if let Some(memory_data) = input.memory_data() {
                 let data = memory_data.columns();
-                let vertex_id_data = data
+                let vertex_id_column = data
                     .get(id_col as usize)
                     .expect("Failed to get id column");
-                if let ColumnDataRef::VertexIdArray(data) = vertex_id_data.as_ref() {
+                if let ColumnDataRef::VertexIdArray(data) = vertex_id_column.data().as_ref() {
                     delete_vertices_by_ids(graph, vertex_label, data, parallel);
                 }
             }
@@ -567,63 +568,61 @@ pub fn set_vertices(
     column_mappings: &Vec<ColumnMappings>, parallel: u32,
 ) {
     let property_size = graph.get_vertices_num(vertex_label);
+    let mut column_map = HashMap::new();
+    for column_mapping in column_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        column_map.insert(property_name.clone(), (column_index, data_type));
+    }
+    let mut id_col = -1;
+    if let Some((column_index, _)) = column_map.get("id") {
+        id_col = *column_index;
+    }
     match input.data_source() {
         DataSource::File => {
-            if let Some(file_input) = input.file_input() {
-                let file_location = &file_input.location;
-                let path = Path::new(file_location);
-                let input_dir = path
-                    .parent()
-                    .unwrap_or(Path::new(""))
-                    .to_str()
-                    .unwrap()
-                    .to_string();
-                let filename = path
-                    .file_name()
-                    .expect("Can not find filename")
-                    .to_str()
-                    .unwrap_or("")
-                    .to_string();
-                let filenames = vec![filename];
-                let mut modifier = GraphModifier::new(input_dir);
-                if file_input.header_row {
-                    modifier.skip_header();
-                }
-                modifier.parallel(parallel);
-                let mut column_map = HashMap::new();
-                for column_mapping in column_mappings {
-                    let column = column_mapping.column();
-                    let column_index = column.index();
-                    let data_type = column.data_type();
-                    let property_name = column_mapping.property_name();
-                    column_map.insert(property_name.clone(), (column_index, data_type));
-                }
-                let mut id_col = -1;
-                if let Some((column_index, _)) = column_map.get("id") {
-                    id_col = *column_index;
-                }
-                let mut mappings = vec![-1; column_mappings.len()];
-                if let Some(vertex_header) = graph
-                    .graph_schema
-                    .get_vertex_header(vertex_label)
-                {
-                    for (i, (property_name, data_type)) in vertex_header.iter().enumerate() {
-                        if let Some((column_index, column_data_type)) = column_map.get(property_name) {
-                            mappings[*column_index as usize] = i as i32;
-                        }
-                    }
-                } else {
-                    panic!("vertex label {} not found", vertex_label)
-                }
-                modifier
-                    .apply_vertices_insert_with_filename(graph, vertex_label, &filenames, id_col, &mappings)
-                    .unwrap();
-            }
+            todo!()
         }
         DataSource::Memory => {
             if let Some(memory_data) = input.memory_data() {
-                todo!()
+                let column_data = memory_data.columns();
+                let id_column = column_data
+                    .get(id_col as usize)
+                    .expect("Failed to find id column");
+                let global_ids = if let ColumnDataRef::VertexIdArray(data) = id_column.data().as_ref() {
+                    data
+                } else {
+                    panic!("DataType of id col is not VertexId")
+                };
+                for (k, v) in column_map.iter() {
+                    if k == "id" {
+                        continue;
+                    }
+                    let column_index = v.0;
+                    let column_data_type = v.1;
+                    graph_index.init_vertex_index(
+                        k.clone(),
+                        vertex_label,
+                        column_data_type,
+                        Some(property_size),
+                        None,
+                    );
+                    let column = column_data
+                        .get(column_index as usize)
+                        .expect("Failed to find column");
+                    graph_index
+                        .add_vertex_index_batch(vertex_label, k, global_ids, column.data().as_ref())
+                        .unwrap();
+                }
             }
         }
     }
+}
+
+pub fn set_edges(
+    graph: &mut GraphDB<usize, usize>, graph_index: &mut GraphIndex, src_label: LabelId,
+    edge_label: LabelId, dst_label: LabelId, input: &Input, column_mappings: &Vec<ColumnMappings>,
+    parallel: u32,
+) {
 }

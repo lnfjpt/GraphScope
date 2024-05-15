@@ -26,6 +26,7 @@ use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
 use pegasus::api::function::FnResult;
 use pegasus::api::FromStream;
+use pegasus::resource::DistributedParResourceMaps;
 use pegasus::result::{FromStreamExt, ResultSink};
 use pegasus::{Configuration, JobConf, ServerConf};
 use pegasus_network::config::ServerAddr;
@@ -603,6 +604,10 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
 
                             let mut index = 0;
                             // let mut query_results = vec![];
+                            let resource_maps = DistributedParResourceMaps::default(
+                                ServerConf::Partial(self.servers.clone()),
+                                self.workers,
+                            );
                             for query in queries.iter() {
                                 let mut conf = JobConf::new(format!("{}_{}", query_name, index));
                                 conf.set_workers(self.workers);
@@ -624,116 +629,116 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 let mut write_operations = vec![];
                                 for result in results {
                                     if let Ok((worker_id, alias_datas, write_ops, query_result)) = result {
-                                        for write_op in write_ops {
-                                            write_operations.push(write_op);
+                                        if let Some(write_ops) = write_ops {
+                                            for write_op in write_ops {
+                                                write_operations.push(write_op);
+                                            }
                                         }
                                     }
                                 }
                                 drop(graph);
                                 let mut graph = self.graph_db.write().unwrap();
                                 let mut graph_index = self.graph_index.write().unwrap();
-                                for mut write_ops in write_operations.drain(..) {
-                                    for  write_op in write_ops.drain(..) {
-                                        match write_op.write_type() {
-                                            WriteType::Insert => {
-                                                if let Some(vertex_mappings) = write_op.vertex_mappings() {
-                                                    let vertex_label = vertex_mappings.vertex_label();
-                                                    let inputs = vertex_mappings.inputs();
-                                                    let column_mappings = vertex_mappings.column_mappings();
-                                                    for input in inputs.iter() {
-                                                        write_graph::insert_vertices(
-                                                            &mut graph,
-                                                            vertex_label,
-                                                            input,
-                                                            column_mappings,
-                                                            self.workers,
-                                                        );
-                                                    }
-                                                }
-                                                if let Some(edge_mappings) = write_op.edge_mappings() {
-                                                    let src_label = edge_mappings.src_label();
-                                                    let edge_label = edge_mappings.edge_label();
-                                                    let dst_label = edge_mappings.dst_label();
-                                                    let inputs = edge_mappings.inputs();
-                                                    let src_column_mappings =
-                                                        edge_mappings.src_column_mappings();
-                                                    let dst_column_mappings =
-                                                        edge_mappings.dst_column_mappings();
-                                                    let column_mappings = edge_mappings.column_mappings();
-                                                    for input in inputs.iter() {
-                                                        write_graph::insert_edges(
-                                                            &mut graph,
-                                                            src_label,
-                                                            edge_label,
-                                                            dst_label,
-                                                            input,
-                                                            src_column_mappings,
-                                                            dst_column_mappings,
-                                                            column_mappings,
-                                                            self.workers,
-                                                        );
-                                                    }
+                                for write_op in write_operations.drain(..) {
+                                    match write_op.write_type() {
+                                        WriteType::Insert => {
+                                            if let Some(vertex_mappings) = write_op.vertex_mappings() {
+                                                let vertex_label = vertex_mappings.vertex_label();
+                                                let inputs = vertex_mappings.inputs();
+                                                let column_mappings = vertex_mappings.column_mappings();
+                                                for input in inputs.iter() {
+                                                    write_graph::insert_vertices(
+                                                        &mut graph,
+                                                        vertex_label,
+                                                        input,
+                                                        column_mappings,
+                                                        self.workers,
+                                                    );
                                                 }
                                             }
-                                            WriteType::Delete => {
-                                                if let Some(vertex_mappings) = write_op.vertex_mappings() {
-                                                    let vertex_label = vertex_mappings.vertex_label();
-                                                    let inputs = vertex_mappings.inputs();
-                                                    let column_mappings = vertex_mappings.column_mappings();
-                                                    for input in inputs.iter() {
-                                                        write_graph::delete_vertices(
-                                                            &mut graph,
-                                                            vertex_label,
-                                                            input,
-                                                            column_mappings,
-                                                            self.workers,
-                                                        );
-                                                    }
-                                                }
-                                                if let Some(edge_mappings) = write_op.edge_mappings() {
-                                                    let src_label = edge_mappings.src_label();
-                                                    let edge_label = edge_mappings.edge_label();
-                                                    let dst_label = edge_mappings.dst_label();
-                                                    let inputs = edge_mappings.inputs();
-                                                    let src_column_mappings =
-                                                        edge_mappings.src_column_mappings();
-                                                    let dst_column_mappings =
-                                                        edge_mappings.dst_column_mappings();
-                                                    let column_mappings = edge_mappings.column_mappings();
-                                                    for input in inputs.iter() {
-                                                        write_graph::delete_edges(
-                                                            &mut graph,
-                                                            src_label,
-                                                            edge_label,
-                                                            dst_label,
-                                                            input,
-                                                            src_column_mappings,
-                                                            dst_column_mappings,
-                                                            column_mappings,
-                                                            self.workers,
-                                                        );
-                                                    }
+                                            if let Some(edge_mappings) = write_op.edge_mappings() {
+                                                let src_label = edge_mappings.src_label();
+                                                let edge_label = edge_mappings.edge_label();
+                                                let dst_label = edge_mappings.dst_label();
+                                                let inputs = edge_mappings.inputs();
+                                                let src_column_mappings =
+                                                    edge_mappings.src_column_mappings();
+                                                let dst_column_mappings =
+                                                    edge_mappings.dst_column_mappings();
+                                                let column_mappings = edge_mappings.column_mappings();
+                                                for input in inputs.iter() {
+                                                    write_graph::insert_edges(
+                                                        &mut graph,
+                                                        src_label,
+                                                        edge_label,
+                                                        dst_label,
+                                                        input,
+                                                        src_column_mappings,
+                                                        dst_column_mappings,
+                                                        column_mappings,
+                                                        self.workers,
+                                                    );
                                                 }
                                             }
-                                            WriteType::Set => {
-                                                if let Some(vertex_mappings) = write_op.vertex_mappings() {
-                                                    let vertex_label = vertex_mappings.vertex_label();
-                                                    let inputs = vertex_mappings.inputs();
-                                                    let column_mappings = vertex_mappings.column_mappings();
-                                                    for input in inputs.iter() {
-                                                        write_graph::set_vertices(
-                                                            &mut graph,
-                                                            &mut graph_index,
-                                                            vertex_label,
-                                                            input,
-                                                            column_mappings,
-                                                            self.workers,
-                                                        );
-                                                    }
+                                        }
+                                        WriteType::Delete => {
+                                            if let Some(vertex_mappings) = write_op.vertex_mappings() {
+                                                let vertex_label = vertex_mappings.vertex_label();
+                                                let inputs = vertex_mappings.inputs();
+                                                let column_mappings = vertex_mappings.column_mappings();
+                                                for input in inputs.iter() {
+                                                    write_graph::delete_vertices(
+                                                        &mut graph,
+                                                        vertex_label,
+                                                        input,
+                                                        column_mappings,
+                                                        self.workers,
+                                                    );
                                                 }
                                             }
-                                        };
-                                    }
+                                            if let Some(edge_mappings) = write_op.edge_mappings() {
+                                                let src_label = edge_mappings.src_label();
+                                                let edge_label = edge_mappings.edge_label();
+                                                let dst_label = edge_mappings.dst_label();
+                                                let inputs = edge_mappings.inputs();
+                                                let src_column_mappings =
+                                                    edge_mappings.src_column_mappings();
+                                                let dst_column_mappings =
+                                                    edge_mappings.dst_column_mappings();
+                                                let column_mappings = edge_mappings.column_mappings();
+                                                for input in inputs.iter() {
+                                                    write_graph::delete_edges(
+                                                        &mut graph,
+                                                        src_label,
+                                                        edge_label,
+                                                        dst_label,
+                                                        input,
+                                                        src_column_mappings,
+                                                        dst_column_mappings,
+                                                        column_mappings,
+                                                        self.workers,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        WriteType::Set => {
+                                            if let Some(vertex_mappings) = write_op.vertex_mappings() {
+                                                let vertex_label = vertex_mappings.vertex_label();
+                                                let inputs = vertex_mappings.inputs();
+                                                let column_mappings = vertex_mappings.column_mappings();
+                                                for input in inputs.iter() {
+                                                    write_graph::set_vertices(
+                                                        &mut graph,
+                                                        &mut graph_index,
+                                                        vertex_label,
+                                                        input,
+                                                        column_mappings,
+                                                        self.workers,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    };
                                 }
                                 index += 1;
                             }

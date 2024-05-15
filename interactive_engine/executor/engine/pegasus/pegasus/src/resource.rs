@@ -540,6 +540,7 @@ impl<T: Send + Sync + 'static> PartitionedKeydResource for DistributedParKeyedRe
     }
 }
 
+#[derive(Clone)]
 pub struct DistributedParResourceMaps {
     resource_maps: Vec<Option<Arc<Mutex<ResourceMap>>>>,
     keyed_resource_maps: Vec<Option<Arc<Mutex<KeyedResources>>>>,
@@ -572,6 +573,42 @@ impl DistributedParResourceMaps {
             }
         }
         DistributedParResourceMaps { resource_maps, keyed_resource_maps, start_index }
+    }
+
+    pub fn default(server_conf: ServerConf, workers: u32) -> DistributedParResourceMaps {
+        let servers = match server_conf {
+            ServerConf::Local => vec![0],
+            ServerConf::Partial(ids) => ids.clone(),
+            ServerConf::All => crate::get_servers(),
+        };
+        let mut start_index = 0 as usize;
+        if !servers.is_empty() && (servers.len() > 1) {
+            if let Some(my_id) = crate::server_id() {
+                let mut my_index = -1;
+                for (index, id) in servers.iter().enumerate() {
+                    if *id == my_id {
+                        my_index = index as i64;
+                    }
+                }
+                if my_index >= 0 {
+                    start_index = (workers * (my_index as u32)) as usize;
+                }
+            }
+        }
+        let resource_size = workers as usize;
+        let mut resource_maps = Vec::with_capacity(resource_size);
+        for _ in 0..resource_size {
+            resource_maps.push(Some(Arc::new(Mutex::new(ResourceMap::default()))));
+        }
+        let mut keyed_resource_maps = Vec::with_capacity(resource_size);
+        for _ in 0..resource_size {
+            keyed_resource_maps.push(Some(Arc::new(Mutex::new(KeyedResources::default()))));
+        }
+        DistributedParResourceMaps {
+            resource_maps,
+            keyed_resource_maps,
+            start_index,
+        }
     }
 
     pub fn get_resource(&self, par: usize) -> Option<&Arc<Mutex<ResourceMap>>> {
