@@ -50,11 +50,11 @@ pub struct QueryApi {
         graph: &GraphDB<usize, usize>,
         graph_index: &GraphIndex,
         input_params: HashMap<String, String>,
-        alias_data: Option<Arc<Mutex<HashMap<i32, Vec<AliasData>>>>>,
+        alias_data: Option<Arc<Mutex<HashMap<u32, Vec<AliasData>>>>>,
     ) -> Box<
         dyn Fn(
             &mut Source<i32>,
-            ResultSink<(i32, Option<Vec<AliasData>>, Option<Vec<WriteOperation>>, Vec<u8>)>,
+            ResultSink<(u32, Option<Vec<AliasData>>, Option<Vec<WriteOperation>>, Vec<u8>)>,
         ) -> Result<(), BuildJobError>,
     >,
 }

@@ -608,6 +608,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                 ServerConf::Partial(self.servers.clone()),
                                 self.workers,
                             );
+                            let alias_data = Arc::new(Mutex::new(HashMap::new()));
                             for query in queries.iter() {
                                 let mut conf = JobConf::new(format!("{}_{}", query_name, index));
                                 conf.set_workers(self.workers);
@@ -624,15 +625,22 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                                 &graph,
                                                 &graph_index,
                                                 parameters_map.clone(),
-                                                None,
+                                                Some(alias_data.clone()),
                                             )
                                         },
                                     )
                                     .expect("submit query failure")
                                 };
                                 let mut write_operations = vec![];
+                                let mut alias_data_write = alias_data
+                                    .lock()
+                                    .expect("Mutex of alias data poisoned");
+                                alias_data_write.clear();
                                 for result in results {
                                     if let Ok((worker_id, alias_datas, write_ops, query_result)) = result {
+                                        if let Some(alias_datas) = alias_datas {
+                                            alias_data_write.insert(worker_id, alias_datas);
+                                        }
                                         if let Some(write_ops) = write_ops {
                                             for write_op in write_ops {
                                                 write_operations.push(write_op);
@@ -640,6 +648,7 @@ impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
                                         }
                                     }
                                 }
+                                drop(alias_data_write);
                                 drop(graph);
                                 let mut graph = self.graph_db.write().unwrap();
                                 let mut graph_index = self.graph_index.write().unwrap();
