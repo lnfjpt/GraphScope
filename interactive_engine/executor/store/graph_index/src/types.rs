@@ -47,6 +47,15 @@ pub struct ColumnMappings {
     property_name: String,
 }
 
+impl ColumnMappings {
+    pub fn new(index: i32, name: String, data_type: DataType, property_name: String) -> Self {
+        ColumnMappings {
+            column: ColumnInfo { index, name, data_type },
+            property_name,
+        }
+    }
+}
+
 impl Encode for ColumnMappings {
     fn write_to<W: WriteExt>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_i32(self.column.index);
@@ -129,6 +138,21 @@ impl Decode for FileInput {
             block_size,
             location,
         })
+    }
+}
+
+impl FileInput {
+    pub fn new(delimiter: String, header_row: bool, location: String) -> Self {
+        FileInput {
+            delimiter,
+            header_row,
+            quoting: true,
+            quote_char: "'".to_string(),
+            double_quote: true,
+            escape_char: "".to_string(),
+            block_size: "4Mb".to_string(),
+            location,
+        }
     }
 }
 
@@ -240,6 +264,14 @@ impl Input {
     pub fn memory_data(&self) -> Option<&DataFrame> {
         self.memory_data.as_ref()
     }
+
+    pub fn file(file: FileInput) -> Self {
+        Input {
+            data_source: DataSource::File,
+            file_input: Some(file),
+            memory_data: None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -268,6 +300,10 @@ impl Decode for VertexMappings {
 }
 
 impl VertexMappings {
+    pub fn new(label_id: LabelId, inputs: Vec<Input>,column_mappings:Vec<ColumnMappings>) ->  Self{
+        VertexMappings {label_id, inputs, column_mappings}
+    }
+
     pub fn vertex_label(&self) -> LabelId {
         self.label_id
     }
@@ -398,6 +434,10 @@ impl Decode for WriteOperation {
 }
 
 impl WriteOperation {
+    pub fn insert_vertices(vertex_mappings: VertexMappings) -> Self{
+        WriteOperation { write_type:WriteType::Insert, vertex_mappings: Some(vertex_mappings), edge_mappings:None}
+    }
+
     pub fn write_type(&self) -> WriteType {
         self.write_type
     }

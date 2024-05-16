@@ -133,7 +133,7 @@ pub struct QueriesConfig {
 pub struct QueryRegister {
     read_query_map: RwLock<HashMap<String, Arc<Container<ReadQueryApi>>>>,
     write_query_map: RwLock<HashMap<String, Arc<Container<WriteQueryApi>>>>,
-    new_query_map: RwLock<HashMap<String, Vec<Arc<Container<QueryApi>>>>>,
+    query_map: RwLock<HashMap<String, Vec<Arc<Container<QueryApi>>>>>,
     query_inputs: RwLock<HashMap<String, Vec<(String, String)>>>,
     query_outputs: RwLock<HashMap<String, HashMap<String, String>>>,
     query_description: RwLock<HashMap<String, String>>,
@@ -147,7 +147,7 @@ impl QueryRegister {
         Self {
             read_query_map: RwLock::new(HashMap::new()),
             write_query_map: RwLock::new(HashMap::new()),
-            new_query_map: RwLock::new(HashMap::new()),
+            query_map: RwLock::new(HashMap::new()),
             query_inputs: RwLock::new(HashMap::new()),
             query_outputs: RwLock::new(HashMap::new()),
             query_description: RwLock::new(HashMap::new()),
@@ -223,15 +223,15 @@ impl QueryRegister {
         inputs_info: Vec<(String, String)>, description: String,
     ) {
         {
-            let mut new_query_map = self
-                .new_query_map
+            let mut query_map = self
+                .query_map
                 .write()
                 .expect("read_query_map poisoned");
             let mut arc_query_libs = vec![];
             for query_lib in query_libs {
                 arc_query_libs.push(Arc::new(query_lib));
             }
-            new_query_map.insert(query_name.clone(), arc_query_libs);
+            query_map.insert(query_name.clone(), arc_query_libs);
         }
         {
             let mut query_inputs = self
@@ -354,11 +354,11 @@ impl QueryRegister {
     }
 
     pub fn get_new_query(&self, query_name: &String) -> Option<Vec<Arc<Container<QueryApi>>>> {
-        let new_query_map = self
-            .new_query_map
+        let query_map = self
+            .query_map
             .read()
-            .expect("new_query_map poisoned");
-        if let Some(query) = new_query_map.get(query_name) {
+            .expect("query_map poisoned");
+        if let Some(query) = query_map.get(query_name) {
             Some(query.clone())
         } else {
             None
