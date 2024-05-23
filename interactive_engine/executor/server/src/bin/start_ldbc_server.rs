@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut query_register = QueryRegister::new();
     println!("Start load lib");
-    query_register.load(&PathBuf::from(config.queries_config));
+    //query_register.load(&PathBuf::from(config.queries_config));
     println!("Finished load libs");
 
     let rpc_config = servers_conf
@@ -97,6 +97,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         shared_graph_index,
     )
     .await?;
-
     Ok(())
 }

@@ -254,7 +254,7 @@ impl Decode for Input {
 
 impl Input {
     pub fn data_source(&self) -> DataSource {
-        self.data_source()
+        self.data_source
     }
 
     pub fn file_input(&self) -> Option<&FileInput> {

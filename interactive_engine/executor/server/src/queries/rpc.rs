@@ -55,12 +55,12 @@ impl StandaloneServiceListener {
     }
 }
 
-pub struct RPCJobServer<S: pb::bi_job_service_server::BiJobService> {
+pub struct RPCJobServer<S: pb::job_service_server::JobService> {
     service: S,
     rpc_config: RPCServerConfig,
 }
 
-impl<S: pb::bi_job_service_server::BiJobService> RPCJobServer<S> {
+impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     pub fn new(rpc_config: RPCServerConfig, service: S) -> Self {
         RPCJobServer { service, rpc_config }
     }
@@ -99,7 +99,7 @@ where {
             builder = builder.http2_keepalive_timeout(Some(Duration::from_millis(dur)));
         }
 
-        let service = builder.add_service(pb::bi_job_service_server::BiJobServiceServer::new(service));
+        let service = builder.add_service(pb::job_service_server::JobServiceServer::new(service));
 
         let rpc_host = rpc_config
             .rpc_host
@@ -199,7 +199,7 @@ pub struct JobServiceImpl {
 }
 
 #[tonic::async_trait]
-impl pb::bi_job_service_server::BiJobService for JobServiceImpl {
+impl pb::job_service_server::JobService for JobServiceImpl {
     async fn submit_call(
         &self, req: Request<pb::CallRequest>,
     ) -> Result<Response<pb::CallResponse>, Status> {

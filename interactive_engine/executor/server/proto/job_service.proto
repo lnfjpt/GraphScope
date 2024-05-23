@@ -36,6 +36,6 @@ message CallResponse {
   string reason = 3;
 }
 
-service BIJobService {
+service JobService {
   rpc SubmitCall(CallRequest) returns(CallResponse) {}
 }

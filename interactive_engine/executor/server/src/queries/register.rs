@@ -53,8 +53,8 @@ pub struct QueryApi {
         alias_data: Option<Arc<Mutex<HashMap<u32, Vec<AliasData>>>>>,
     ) -> Box<
         dyn Fn(
-            &mut Source<i32>,
-            ResultSink<(u32, Option<Vec<AliasData>>, Option<Vec<WriteOperation>>, Vec<u8>)>,
+            &mut Source<Vec<AliasData>>,
+            ResultSink<(u32, Option<Vec<AliasData>>, Option<Vec<WriteOperation>>, Option<Vec<u8>>)>,
         ) -> Result<(), BuildJobError>,
     >,
 }
