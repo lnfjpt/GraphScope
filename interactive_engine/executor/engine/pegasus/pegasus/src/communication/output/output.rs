@@ -15,7 +15,6 @@
 
 use std::cell::RefMut;
 use std::collections::VecDeque;
-use std::time::Instant;
 
 use pegasus_common::buffer::ReadBuffer;
 
@@ -51,14 +50,6 @@ pub struct OutputHandle<D: Data> {
     is_closed: bool,
     current_skips: TidyTagMap<()>,
     parent_skips: TidyTagMap<()>,
-
-    count_0: u128,
-
-    count_3: u128,
-    count_4: u128,
-    count_5: u128,
-
-    count_6: u128,
 }
 
 impl<D: Data> OutputHandle<D> {
@@ -85,14 +76,6 @@ impl<D: Data> OutputHandle<D> {
             is_closed: false,
             current_skips: TidyTagMap::new(scope_level),
             parent_skips: TidyTagMap::new(parent_level),
-
-            count_0: 0,
-
-            count_3: 0,
-            count_4: 0,
-            count_5: 0,
-
-            count_6: 0,
         }
     }
 
@@ -103,12 +86,8 @@ impl<D: Data> OutputHandle<D> {
             return Ok(());
         }
 
-        let start = Instant::now();
         match self.try_push_iter_inner(tag, &mut iter) {
-            Ok(None) => {
-                self.count_0 += start.elapsed().as_micros();
-                Ok(())
-            }
+            Ok(None) => Ok(()),
             Ok(Some(item)) => {
                 trace_worker!("output[{:?}] blocked on push iterator of {:?} ;", self.port, tag);
                 self.block_entries
@@ -386,20 +365,15 @@ impl<D: Data> OutputHandle<D> {
                 tag
             );
         }
-        let start = Instant::now();
         match self.tee.push(batch) {
             Err(e) => {
                 if e.is_would_block() {
                     trace_worker!("output[{:?}] been blocked when sending batch of {:?};", self.port, tag);
                     self.blocks.push_back(BlockScope::new(tag));
                 }
-                self.count_6 += start.elapsed().as_micros();
                 Err(e)
             }
-            _ => {
-                self.count_6 += start.elapsed().as_micros();
-                Ok(())
-            }
+            _ => Ok(()),
         }
     }
 
@@ -431,19 +405,14 @@ impl<D: Data> OutputHandle<D> {
     ) -> IOResult<Option<D>> {
         //self.buf_pool.pin(tag);
         loop {
-            let start = Instant::now();
             match self.buf_pool.push_iter(tag, iter) {
                 Ok(Some(buf)) => {
-                    self.count_3 += start.elapsed().as_micros();
-                    let send_start = Instant::now();
                     let batch = MicroBatch::new(tag.clone(), self.src, buf);
                     self.send_batch(batch)?;
-                    self.count_4 += send_start.elapsed().as_micros();
                 }
                 Ok(None) => {
                     // all data in iter should be send;
                     debug_assert!(iter.next().is_none());
-                    self.count_5 += start.elapsed().as_micros();
                     break;
                 }
                 Err(e) => return if let Some(item) = e.0 { Ok(Some(item)) } else { would_block!("") },
@@ -627,16 +596,6 @@ impl<D: Data> ScopeStreamPush<D> for OutputHandle<D> {
         self.flush()?;
         self.is_closed = true;
         trace_worker!("output[{:?}] closing ...;", self.port);
-        println!(
-            "output handle: {}-{:?}: {}, {}, {}, {}, {}",
-            self.src,
-            self.port,
-            self.count_0 as f64 / 1e6,
-            self.count_3 as f64 / 1e6,
-            self.count_4 as f64 / 1e6,
-            self.count_5 as f64 / 1e6,
-            self.count_6 as f64 / 1e6
-        );
         self.tee.close()
     }
 }

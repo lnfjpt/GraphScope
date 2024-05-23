@@ -192,7 +192,7 @@ impl Default for JobConf {
             workers: 1,
             time_limit: !0,
             batch_size: 1024,
-            batch_capacity: 32,
+            batch_capacity: 64,
             memory_limit: !0u32,
             plan_print,
             servers: ServerConf::Local,

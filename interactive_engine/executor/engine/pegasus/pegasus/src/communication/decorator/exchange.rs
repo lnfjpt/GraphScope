@@ -14,7 +14,6 @@
 //! limitations under the License.
 
 use std::collections::VecDeque;
-use std::time::Instant;
 
 use pegasus_common::buffer::ReadBuffer;
 
@@ -69,8 +68,6 @@ pub(crate) struct ExchangeByDataPush<D: Data> {
     route: Exchange<D>,
     blocks: TidyTagMap<VecDeque<BlockEntry<D>>>,
     cancel_handle: MultiConsCancelPtr,
-
-    count_0: u128,
 }
 
 impl<D: Data> ExchangeByDataPush<D> {
@@ -91,7 +88,6 @@ impl<D: Data> ExchangeByDataPush<D> {
             route: Exchange::new(len, router),
             blocks: TidyTagMap::new(info.scope_level),
             cancel_handle,
-            count_0: 0,
         }
     }
 
@@ -233,7 +229,6 @@ impl<D: Data> ExchangeByDataPush<D> {
     fn push_inner(&mut self, mut batch: MicroBatch<D>) -> IOResult<()> {
         let mut has_block = false;
         let tag = batch.tag().clone();
-        let start = Instant::now();
         let mut buffers: Vec<BufSlotPtr<D>> = vec![];
         for buf in self.buffers.iter_mut() {
             buffers.push(buf.fetch_slot_ptr(&tag));
@@ -242,10 +237,6 @@ impl<D: Data> ExchangeByDataPush<D> {
 
         for item in batch.drain() {
             let target = self.route.route(&item)? as usize;
-            // if buffers[target].is_none() {
-            //     buffers[target] = Some(self.buffers[target].fetch_slot_ptr(&tag));
-            // }
-            // match buffers[target].as_mut().unwrap().push(item) {
             // match self.buffers[target].push(&tag, item) {
             match buffers[target].push(item) {
                 Ok(Some(buf)) => {
@@ -264,7 +255,6 @@ impl<D: Data> ExchangeByDataPush<D> {
                 _ => (),
             }
         }
-        self.count_0 += start.elapsed().as_micros();
 
         if has_block {
             if !batch.is_empty() || batch.is_last() {
@@ -551,7 +541,6 @@ impl<D: Data> Push<MicroBatch<D>> for ExchangeByDataPush<D> {
         for p in self.pushes.iter_mut() {
             p.close()?;
         }
-        println!("output[{:?}] push data cost: {:?}", self.port, self.count_0 as f64 / 1e6,);
         Ok(())
     }
 }
