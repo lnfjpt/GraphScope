@@ -1037,7 +1037,7 @@ impl ColumnData {
             ColumnData::UInt64Array(data) => GraphItem::UInt64(data[index]),
             ColumnData::Float32Array(data) => GraphItem::Float(data[index]),
             ColumnData::Float64Array(data) => GraphItem::Double(data[index]),
-            ColumnData::VertexIdArray(data) => GraphItem::VertexId(data[index] as u64),
+            ColumnData::VertexIdArray(data) => GraphItem::VertexId(data[index]),
             _ => todo!(),
         }
     }

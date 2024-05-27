@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::date::Date;
 use crate::date_time::DateTime;
+use crate::types::DefaultId;
 
 #[cfg(feature = "hugepage_table")]
 use huge_container::HugeVec;
@@ -131,7 +132,7 @@ pub enum Item {
     String(String),
     Date(Date),
     DateTime(DateTime),
-    VertexId(u64),
+    VertexId(usize),
     EdgeId((u64, u64)),
     Null,
 }
@@ -147,7 +148,7 @@ pub enum RefItem<'a> {
     Double(&'a f64),
     Date(&'a Date),
     DateTime(&'a DateTime),
-    VertexId(&'a u64),
+    VertexId(&'a usize),
     EdgeId((&'a u64, &'a u64)),
     String(&'a String),
     Null,
@@ -884,7 +885,7 @@ impl Column for IDColumn {
         let row_num = reader.read_u64::<LittleEndian>()? as usize;
         let mut data = ColumnContainer::<DefaultId>::with_capacity(row_num);
         for _ in 0..row_num {
-            data.push(reader.read_u64::<LittleEndian>()?);
+            data.push(reader.read_u64::<LittleEndian>()? as DefaultId);
         }
         self.data = data;
         Ok(())

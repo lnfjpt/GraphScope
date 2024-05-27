@@ -353,6 +353,18 @@ impl QueryRegister {
         }
     }
 
+    pub fn get_query(&self, query_name: &String) -> Option<Arc<Container<ReadQueryApi>>> {
+        let query_map = self
+            .read_query_map
+            .read()
+            .expect("query_map poisoned");
+        if let Some(query) = query_map.get(query_name) {
+            Some(query.clone())
+        } else {
+            None
+        }
+    }
+
     pub fn get_new_query(&self, query_name: &String) -> Option<Vec<Arc<Container<QueryApi>>>> {
         let query_map = self
             .query_map
@@ -469,7 +481,7 @@ impl QueryRegister {
                         conf.clone(),
                         graph,
                         graph_index,
-                        &properties_info,
+                     //   &properties_info,
                         true,
                         label,
                         src_label,
@@ -565,7 +577,7 @@ impl QueryRegister {
                         conf.clone(),
                         graph,
                         graph_index,
-                        &properties_info,
+                //        &properties_info,
                         true,
                         label,
                         src_label,
