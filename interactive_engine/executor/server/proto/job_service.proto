@@ -18,13 +18,62 @@ package protocol;
 option java_package = "com.alibaba.graphscope.ldbc.workload.proto";
 option java_outer_classname = "BiClient";
 
-message DataFrame {
-  message Column {
-    string column_name = 1;
-  }
+message Empty { }
 
-  repeated Column columns = 1;
+message Name {
+  string name = 1;
 }
+
+message BinaryResource {
+  string name = 1;
+  bytes resource = 2;
+}
+
+message ServerList {
+  repeated uint64 servers  = 1;
+}
+
+message JobConfig {
+  uint64 job_id             = 1;
+  string job_name           = 2;
+  uint32 workers            = 3;
+  uint64 time_limit         = 4;
+  uint32 batch_size         = 5;
+  uint32 batch_capacity     = 6;
+  uint32 memory_limit       = 7;
+  bool trace_enable         = 8;
+  oneof servers {
+    Empty local             = 9;
+    ServerList part         = 10;
+    Empty all               = 11;
+  }
+}
+
+message JobRequest {
+  JobConfig conf          = 1;
+  bytes source   = 2;
+  bytes plan     = 3;
+  bytes resource = 4;
+}
+
+message JobResponse {
+  uint64 job_id       = 1;
+  bytes  resp  = 2;
+}
+
+message RegisterRequest {
+  string name = 1;
+  string query = 2;
+  string type = 3;
+  string description = 4;
+}
+
+message RegisterResponse {
+  string procedure_id = 1;
+  string config_path = 2;
+}
+
+
 
 message CallRequest {
   string query = 1;
@@ -37,5 +86,7 @@ message CallResponse {
 }
 
 service JobService {
+  rpc Submit(JobRequest) returns(stream JobResponse) {}
+
   rpc SubmitCall(CallRequest) returns(CallResponse) {}
 }

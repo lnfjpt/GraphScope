@@ -539,30 +539,6 @@ pub fn delete_edges_by_schema<G, I>(
         .unwrap();
 }
 
-// fn set_csrs<G, I>(graph: &mut GraphDB<G, I>, mut reps: Vec<CsrRep<I>>)
-//     where
-//         I: Send + Sync + IndexType,
-//         G: FromStr + Send + Sync + IndexType + Eq,
-// {
-//     for result in reps.drain(..) {
-//         let index = graph.edge_label_to_index(
-//             result.src_label,
-//             result.dst_label,
-//             result.edge_label,
-//             Direction::Outgoing,
-//         );
-//
-//         graph.ie[index] = result.ie_csr;
-//         if let Some(table) = result.ie_prop {
-//             graph.ie_edge_prop_table.insert(index, table);
-//         }
-//         graph.oe[index] = result.oe_csr;
-//         if let Some(table) = result.oe_prop {
-//             graph.oe_edge_prop_table.insert(index, table);
-//         }
-//     }
-// }
-
 pub fn set_vertices(
     graph: &mut GraphDB<usize, usize>, graph_index: &mut GraphIndex, vertex_label: LabelId, input: &Input,
     column_mappings: &Vec<ColumnMappings>, parallel: u32,
@@ -618,11 +594,4 @@ pub fn set_vertices(
             }
         }
     }
-}
-
-pub fn set_edges(
-    graph: &mut GraphDB<usize, usize>, graph_index: &mut GraphIndex, src_label: LabelId,
-    edge_label: LabelId, dst_label: LabelId, input: &Input, column_mappings: &Vec<ColumnMappings>,
-    parallel: u32,
-) {
 }

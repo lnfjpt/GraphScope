@@ -49,10 +49,7 @@ pub struct ColumnMappings {
 
 impl ColumnMappings {
     pub fn new(index: i32, name: String, data_type: DataType, property_name: String) -> Self {
-        ColumnMappings {
-            column: ColumnInfo { index, name, data_type },
-            property_name,
-        }
+        ColumnMappings { column: ColumnInfo { index, name, data_type }, property_name }
     }
 }
 
@@ -266,11 +263,7 @@ impl Input {
     }
 
     pub fn file(file: FileInput) -> Self {
-        Input {
-            data_source: DataSource::File,
-            file_input: Some(file),
-            memory_data: None,
-        }
+        Input { data_source: DataSource::File, file_input: Some(file), memory_data: None }
     }
 }
 
@@ -300,8 +293,8 @@ impl Decode for VertexMappings {
 }
 
 impl VertexMappings {
-    pub fn new(label_id: LabelId, inputs: Vec<Input>,column_mappings:Vec<ColumnMappings>) ->  Self{
-        VertexMappings {label_id, inputs, column_mappings}
+    pub fn new(label_id: LabelId, inputs: Vec<Input>, column_mappings: Vec<ColumnMappings>) -> Self {
+        VertexMappings { label_id, inputs, column_mappings }
     }
 
     pub fn vertex_label(&self) -> LabelId {
@@ -363,6 +356,22 @@ impl Decode for EdgeMappings {
 }
 
 impl EdgeMappings {
+    pub fn new(
+        src_label: LabelId, edge_label: LabelId, dst_label: LabelId, inputs: Vec<Input>,
+        src_column_mappings: Vec<ColumnMappings>, dst_column_mappings: Vec<ColumnMappings>,
+        column_mappings: Vec<ColumnMappings>,
+    ) -> Self {
+        EdgeMappings {
+            src_label,
+            edge_label,
+            dst_label,
+            inputs,
+            src_column_mappings,
+            dst_column_mappings,
+            column_mappings,
+        }
+    }
+
     pub fn src_label(&self) -> LabelId {
         self.src_label
     }
@@ -391,7 +400,6 @@ impl EdgeMappings {
         &self.column_mappings
     }
 }
-
 
 #[derive(Clone)]
 pub struct WriteOperation {
@@ -434,8 +442,28 @@ impl Decode for WriteOperation {
 }
 
 impl WriteOperation {
-    pub fn insert_vertices(vertex_mappings: VertexMappings) -> Self{
-        WriteOperation { write_type:WriteType::Insert, vertex_mappings: Some(vertex_mappings), edge_mappings:None}
+    pub fn insert_vertices(vertex_mappings: VertexMappings) -> Self {
+        WriteOperation {
+            write_type: WriteType::Insert,
+            vertex_mappings: Some(vertex_mappings),
+            edge_mappings: None,
+        }
+    }
+
+    pub fn insert_edges(edge_mappings: EdgeMappings) -> Self {
+        WriteOperation {
+            write_type: WriteType::Insert,
+            vertex_mappings: None,
+            edge_mappings: Some(edge_mappings),
+        }
+    }
+
+    pub fn delete_edges(edge_mappings: EdgeMappings) -> Self {
+        WriteOperation {
+            write_type: WriteType::Delete,
+            vertex_mappings: None,
+            edge_mappings: Some(edge_mappings),
+        }
     }
 
     pub fn write_type(&self) -> WriteType {

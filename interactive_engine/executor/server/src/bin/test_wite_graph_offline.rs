@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex, RwLock};
 use bmcsr::graph_db::GraphDB;
 use dlopen::wrapper::{Container, WrapperApi};
 use dlopen_derive::WrapperApi;
+use graph_index::types::WriteType;
 use graph_index::GraphIndex;
+#[cfg(feature = "use_mimalloc")]
+use mimalloc::MiMalloc;
 use pegasus::api::Source;
 use pegasus::resource::{DistributedParResourceMaps, KeyedResources, ResourceMap};
 use pegasus::result::ResultSink;
@@ -16,17 +19,20 @@ use pegasus::JobConf;
 use pegasus::{Configuration, ServerConf};
 use rpc_server::queries;
 use rpc_server::queries::rpc::RPCServerConfig;
+use rpc_server::queries::{register, write_graph};
 use serde::Deserialize;
 use structopt::StructOpt;
 
-#[derive(WrapperApi)]
-pub struct ReadQueryApi {
-    Query: fn(
-        conf: JobConf,
-        graph: &Arc<RwLock<GraphDB<usize, usize>>>,
-        input_params: HashMap<String, String>,
-    ) -> Box<dyn Fn(&mut Source<i32>, ResultSink<Vec<u8>>) -> Result<(), BuildJobError>>,
-}
+#[cfg(feature = "use_mimalloc")]
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
+#[cfg(feature = "use_mimalloc_rust")]
+use mimalloc_rust::*;
+
+#[cfg(feature = "use_mimalloc_rust")]
+#[global_allocator]
+static GLOBAL_MIMALLOC: GlobalMiMalloc = GlobalMiMalloc;
 
 #[derive(Debug, Clone, StructOpt, Default)]
 pub struct Config {
@@ -34,6 +40,8 @@ pub struct Config {
     graph_data: PathBuf,
     #[structopt(short = "s", long = "servers_config")]
     servers_config: PathBuf,
+    #[structopt(short = "l", long = "lib_path")]
+    lib_path: String,
     #[structopt(short = "q", long = "query")]
     query_path: String,
 }
@@ -50,13 +58,10 @@ pub struct ServerConfig {
     pub pegasus_config: Option<PegasusConfig>,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     pegasus_common::logs::init_log();
     let config: Config = Config::from_args();
-
     let graph_data_str = config.graph_data.to_str().unwrap();
-
     let shared_graph =
         Arc::new(RwLock::new(GraphDB::<usize, usize>::deserialize(graph_data_str, 0, None).unwrap()));
     let shared_graph_index = Arc::new(RwLock::new(GraphIndex::new(0)));
@@ -81,6 +86,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let mut register = register::QueryRegister::new();
+
+    let lib_config_path = config.lib_path;
+    let lib_config_file = File::open(lib_config_path).unwrap();
+    let lines = io::BufReader::new(lib_config_file).lines();
+    for line in lines {
+        let line = line.unwrap();
+        let mut split = line.trim().split("|").collect::<Vec<&str>>();
+        let lib_name = split[0].to_string();
+        let lib_path = split[1].to_string();
+        let libc: Container<register::QueryApi> = unsafe { Container::load(lib_path) }.unwrap();
+        register.register_new_query(lib_name, vec![libc], vec![], "".to_string());
+    }
+
     let query_path = config.query_path;
     let mut queries = vec![];
     let file = File::open(query_path).unwrap();
@@ -98,18 +117,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         queries.push(line.unwrap());
     }
 
-    let lib_path = "xxxx/xxxx";
-    let libc: Container<ReadQueryApi> = unsafe { Container::load(lib_path) }.unwrap();
-
     let mut index = 0i32;
     for query in queries {
         let mut params = HashMap::new();
         let mut split = query.trim().split("|").collect::<Vec<&str>>();
-        let query_name = split[0].clone();
+        let query_name = split[0].to_string();
         for (i, param) in split.drain(1..).enumerate() {
             params.insert(header[i].clone(), param.to_string());
         }
-        let mut conf = JobConf::new(query_name.clone().to_owned() + "-" + &index.to_string());
+        let mut conf = JobConf::new(query_name.clone() + "-" + &index.to_string());
         conf.set_workers(workers);
         conf.reset_servers(ServerConf::Partial(vec![0]));
 
@@ -120,24 +136,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             keyed_resource_map.push(Some(Arc::new(Mutex::new(KeyedResources::default()))));
         }
         let mut resource_maps = DistributedParResourceMaps::new(&conf, resource_map, keyed_resource_map);
-        match split[0] {
-            "bi9" => {
-                println!("Start run query \"BI 9\"");
-                let result = {
-                    pegasus::run_with_resource_map(conf.clone(), Some(resource_maps), || {
-                        libc.Query(conf.clone(), &shared_graph, HashMap::new())
+        if let Some(queries) = register.get_new_query(&query_name) {
+            for query in queries {
+                let graph = shared_graph.read().unwrap();
+                let graph_index = shared_graph_index.read().unwrap();
+                let results = {
+                    pegasus::run_with_resource_map(conf.clone(), Some(resource_maps.clone()), || {
+                        query.Query(conf.clone(), &graph, &graph_index, HashMap::new(), None)
                     })
-                        .expect("submit query failure")
+                    .expect("submit query failure")
                 };
-                let mut result_list = vec![];
-                for x in result {
-                    let ret = x.unwrap();
-                    result_list.push(String::from_utf8(ret).unwrap());
+                let mut write_operations = vec![];
+                for result in results {
+                    if let Ok((worker_id, alias_datas, write_ops, query_result)) = result {
+                        if let Some(write_ops) = write_ops {
+                            for write_op in write_ops {
+                                write_operations.push(write_op);
+                            }
+                        }
+                    }
                 }
-                println!("{:?}", result_list);
-                ()
+                drop(graph);
+                let mut graph = shared_graph.write().unwrap();
+                let mut graph_index = shared_graph_index.write().unwrap();
+                for write_op in write_operations.drain(..) {
+                    match write_op.write_type() {
+                        WriteType::Insert => {
+                            if let Some(vertex_mappings) = write_op.vertex_mappings() {
+                                let vertex_label = vertex_mappings.vertex_label();
+                                let inputs = vertex_mappings.inputs();
+                                let column_mappings = vertex_mappings.column_mappings();
+                                for input in inputs.iter() {
+                                    write_graph::insert_vertices(
+                                        &mut graph,
+                                        vertex_label,
+                                        input,
+                                        column_mappings,
+                                        8,
+                                    );
+                                }
+                            }
+                        }
+                        _ => todo!(),
+                    }
+                }
             }
-            _ => println!("Unknown query"),
         }
     }
     Ok(())

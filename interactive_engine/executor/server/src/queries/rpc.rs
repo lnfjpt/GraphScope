@@ -26,6 +26,7 @@ use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
 use pegasus::api::function::FnResult;
 use pegasus::api::FromStream;
+use pegasus::errors::{ErrorKind, JobExecError};
 use pegasus::resource::DistributedParResourceMaps;
 use pegasus::result::{FromStreamExt, ResultSink};
 use pegasus::{Configuration, JobConf, ServerConf};
@@ -42,6 +43,84 @@ use crate::queries::register::QueryRegister;
 use crate::queries::write_graph;
 
 pub struct StandaloneServiceListener;
+
+pub struct RpcSink {
+    pub job_id: u64,
+    had_error: Arc<AtomicBool>,
+    peers: Arc<AtomicUsize>,
+    tx: UnboundedSender<Result<pb::JobResponse, Status>>,
+}
+
+impl RpcSink {
+    pub fn new(job_id: u64, tx: UnboundedSender<Result<pb::JobResponse, Status>>) -> Self {
+        RpcSink {
+            tx,
+            had_error: Arc::new(AtomicBool::new(false)),
+            peers: Arc::new(AtomicUsize::new(1)),
+            job_id,
+        }
+    }
+}
+
+impl FromStream<Vec<u8>> for RpcSink {
+    fn on_next(&mut self, resp: Vec<u8>) -> FnResult<()> {
+        // todo: use bytes to alleviate copy & allocate cost;
+        let res = pb::JobResponse { job_id: self.job_id, resp };
+        self.tx.send(Ok(res)).ok();
+        Ok(())
+    }
+}
+
+impl Clone for RpcSink {
+    fn clone(&self) -> Self {
+        self.peers.fetch_add(1, Ordering::SeqCst);
+        RpcSink {
+            job_id: self.job_id,
+            had_error: self.had_error.clone(),
+            peers: self.peers.clone(),
+            tx: self.tx.clone(),
+        }
+    }
+}
+
+impl FromStreamExt<Vec<u8>> for RpcSink {
+    fn on_error(&mut self, error: Box<dyn Error + Send>) {
+        self.had_error.store(true, Ordering::SeqCst);
+        let status = if let Some(e) = error.downcast_ref::<JobExecError>() {
+            match e.kind {
+                ErrorKind::WouldBlock(_) => {
+                    Status::internal(format!("[Execution Error] WouldBlock: {}", error))
+                }
+                ErrorKind::Interrupted => {
+                    Status::internal(format!("[Execution Error] Interrupted: {}", error))
+                }
+                ErrorKind::IOError => Status::internal(format!("[Execution Error] IOError: {}", error)),
+                ErrorKind::IllegalScopeInput => {
+                    Status::internal(format!("[Execution Error] IllegalScopeInput: {}", error))
+                }
+                ErrorKind::Canceled => {
+                    Status::deadline_exceeded(format!("[Execution Error] Canceled: {}", error))
+                }
+                _ => Status::unknown(format!("[Execution Error]: {}", error)),
+            }
+        } else {
+            Status::unknown(format!("[Unknown Error]: {}", error))
+        };
+
+        self.tx.send(Err(status)).ok();
+    }
+}
+
+impl Drop for RpcSink {
+    fn drop(&mut self) {
+        let before_sub = self.peers.fetch_sub(1, Ordering::SeqCst);
+        if before_sub == 1 {
+            if !self.had_error.load(Ordering::SeqCst) {
+                self.tx.send(Err(Status::ok("ok"))).ok();
+            }
+        }
+    }
+}
 
 impl StandaloneServiceListener {
     fn on_rpc_start(&mut self, server_id: u64, addr: SocketAddr) -> std::io::Result<()> {
@@ -200,6 +279,12 @@ pub struct JobServiceImpl {
 
 #[tonic::async_trait]
 impl pb::job_service_server::JobService for JobServiceImpl {
+    type SubmitStream = UnboundedReceiverStream<Result<pb::JobResponse, Status>>;
+
+    async fn submit(&self, req: Request<pb::JobRequest>) -> Result<Response<Self::SubmitStream>, Status> {
+        Err(Status::unknown(format!("submit job error")))
+    }
+
     async fn submit_call(
         &self, req: Request<pb::CallRequest>,
     ) -> Result<Response<pb::CallResponse>, Status> {
@@ -357,222 +442,6 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                             "Fail to parse parameters for procedure: gs.flex.custom.asProcedure"
                         ),
                     };
-                }
-            }
-            "gs.flex.custom.defPrecompute" => {
-                let parameters_re = Regex::new(
-                    r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*$"
-                ).unwrap();
-                if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re
-                        .captures(&parameters)
-                        .expect("Match defPrecompute parameters error");
-                    let query_name = cap[1].to_string();
-                    let target = cap[2].to_string();
-                    let mappings = cap[3].to_string();
-                    let mut mappings_list = vec![];
-                    let mappings_re = Regex::new(r"\['([^']*)',\s*'([^']*)',\s*'([^']*)'\]").unwrap();
-                    for cap in mappings_re.captures_iter(&mappings) {
-                        mappings_list.push((cap[1].to_string(), cap[2].to_string(), cap[3].to_string()));
-                    }
-                    if let Some(outputs_info) = self
-                        .query_register
-                        .get_query_outputs_info(&query_name)
-                    {
-                        let vertex_re = Regex::new(r"^\s*\((\w+)\s*:\s*(\w+)\)\s*$").unwrap();
-                        let edge_re = Regex::new(
-                            r"\((\w+):\s*(\w+)\)((-|<-\[|\]-\])(\w+):(\w+)(\]|->|-\]))\((\w+): (\w+)\)",
-                        )
-                        .unwrap();
-                        if vertex_re.is_match(&target) {
-                            let cap = vertex_re
-                                .captures(&target)
-                                .expect("Failed to parse target");
-                            let alias = cap[1].to_string();
-                            let label_name = cap[2].to_string();
-                            let (label_id, property_size) = {
-                                let graph = self.graph_db.read().unwrap();
-                                if let Some(label_id) = graph
-                                    .graph_schema
-                                    .vertex_type_to_id
-                                    .get(&label_name)
-                                {
-                                    let property_size = graph.get_vertices_num(*label_id);
-                                    (*label_id, property_size)
-                                } else {
-                                    let reply = pb::CallResponse {
-                                        is_success: false,
-                                        results: vec![],
-                                        reason: format!("Invalid vertex label name: {}", label_name),
-                                    };
-                                    return Ok(Response::new(reply));
-                                }
-                            };
-                            let mut precompute_info = vec![];
-                            for i in mappings_list {
-                                let precompute_name = i.0.split('.').collect::<Vec<&str>>()[1].to_string();
-                                if let Some(info) = outputs_info.get(&i.1) {
-                                    let data_type = graph_index::types::str_to_data_type(info);
-                                    let default_value =
-                                        graph_index::types::str_to_default_value(&i.2, data_type);
-                                    if precompute_name != "id" {
-                                        let mut graph_index = self
-                                            .graph_index
-                                            .write()
-                                            .expect("Graph index poisoned");
-                                        graph_index.init_vertex_index(
-                                            precompute_name.clone(),
-                                            label_id,
-                                            data_type,
-                                            Some(property_size),
-                                            Some(default_value),
-                                        );
-                                    }
-                                    precompute_info.push((precompute_name, data_type));
-                                } else {
-                                    let reply = pb::CallResponse {
-                                        is_success: false,
-                                        results: vec![],
-                                        reason: format!("Unknown results in outputs"),
-                                    };
-                                    return Ok(Response::new(reply));
-                                }
-                            }
-                            self.query_register.register_vertex_precompute(
-                                query_name,
-                                label_id,
-                                precompute_info,
-                            );
-                        } else if edge_re.is_match(&target) {
-                        } else {
-                        }
-                    } else {
-                    }
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!(
-                            "Fail to parse parameters for procedure: gs.flex.custom.defPrecompute"
-                        ),
-                    };
-                    return Ok(Response::new(reply));
-                }
-            }
-            "gs.flex.CSRStore.batch_insert_edges" => {
-                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
-                if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re
-                        .captures(&parameters)
-                        .expect("Match batch insert edges error");
-                    let label = cap[1].to_string();
-                    let filename = cap[2].to_string();
-                    let properties = cap[3].to_string();
-                    let data_root = "";
-                    let data_root_path = PathBuf::from(data_root);
-
-                    let mut graph_modifier = GraphModifier::new(&data_root_path);
-
-                    graph_modifier.skip_header();
-                    graph_modifier.parallel(self.workers);
-                    let mut graph = self.graph_db.write().unwrap();
-                    println!(
-                        "insert edges: label: {}, filename: {}, properties: {}",
-                        label, filename, properties
-                    );
-                    // graph_modifier
-                    //     .apply_edges_insert_with_filename(&mut graph, &label, &filename, &properties)
-                    //     .unwrap();
-                    let reply =
-                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
-                    return Ok(Response::new(reply));
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!(
-                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_insert_edges"
-                        ),
-                    };
-                    return Ok(Response::new(reply));
-                }
-            }
-            "gs.flex.CSRStore.batch_delete_vertices" => {
-                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
-                if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re
-                        .captures(&parameters)
-                        .expect("Match batch delete vertices error");
-                    let label = cap[1].to_string();
-                    let filename = cap[2].to_string();
-                    let properties = cap[3].to_string();
-                    let data_root = "";
-                    let data_root_path = PathBuf::from(data_root);
-
-                    let mut graph_modifier = GraphModifier::new(&data_root_path);
-
-                    graph_modifier.skip_header();
-                    graph_modifier.parallel(self.workers);
-                    let mut graph = self.graph_db.write().unwrap();
-                    println!(
-                        "delete vertices: label: {}, filename: {}, properties: {}",
-                        label, filename, properties
-                    );
-                    // graph_modifier
-                    //     .apply_vertices_delete_with_filename(&mut graph, &label, &filename, &properties)
-                    //     .unwrap();
-
-                    let reply =
-                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
-                    return Ok(Response::new(reply));
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!(
-                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_delete_vertices"
-                        ),
-                    };
-                    return Ok(Response::new(reply));
-                }
-            }
-            "gs.flex.CSRStore.batch_delete_edges" => {
-                let parameters_re = Regex::new(r#""([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)""#).unwrap();
-                if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re
-                        .captures(&parameters)
-                        .expect("Match batch delete edges error");
-                    let label = cap[1].to_string();
-                    let filename = cap[2].to_string();
-                    let properties = cap[3].to_string();
-                    let data_root = "";
-                    let data_root_path = PathBuf::from(data_root);
-
-                    let mut graph_modifier = GraphModifier::new(&data_root_path);
-
-                    graph_modifier.skip_header();
-                    graph_modifier.parallel(self.workers);
-                    let mut graph = self.graph_db.write().unwrap();
-                    println!(
-                        "delete edges: label: {}, filename: {}, properties: {}",
-                        label, filename, properties
-                    );
-                    // graph_modifier
-                    //     .apply_edges_delete_with_filename(&mut graph, &label, &filename, &properties)
-                    //     .unwrap();
-
-                    let reply =
-                        pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
-                    return Ok(Response::new(reply));
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!(
-                            "Fail to parse parameters for procedure: gs.flex.CSRStore.batch_delete_edges"
-                        ),
-                    };
-                    return Ok(Response::new(reply));
                 }
             }
             _ => {
