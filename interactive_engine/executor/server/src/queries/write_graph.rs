@@ -15,6 +15,7 @@ use bmcsr::schema::{CsrGraphSchema, InputSchema, Schema};
 use bmcsr::types::{DefaultId, LabelId};
 use graph_index::types::{ColumnData, ColumnDataRef, ColumnMappings, DataSource, Input};
 use graph_index::GraphIndex;
+use itertools::max;
 use num::complex::ComplexFloat;
 
 fn properties_to_items<G, I>(properties: Vec<ColumnData>) -> Vec<Vec<Item>>
@@ -185,12 +186,16 @@ pub fn insert_vertices<G, I>(
     G: FromStr + Send + Sync + IndexType + Eq,
 {
     let mut column_map = HashMap::new();
+    let mut max_col = 0;
     for column_mapping in column_mappings {
         let column = column_mapping.column();
         let column_index = column.index();
         let data_type = column.data_type();
         let property_name = column_mapping.property_name();
         column_map.insert(property_name.clone(), (column_index, data_type));
+        if column_index >= max_col {
+            max_col = column_index + 1;
+        }
     }
     let mut id_col = -1;
     if let Some((column_index, _)) = column_map.get("id") {
@@ -219,7 +224,7 @@ pub fn insert_vertices<G, I>(
                     modifier.skip_header();
                 }
                 modifier.parallel(parallel);
-                let mut mappings = vec![-1; column_mappings.len()];
+                let mut mappings = vec![-1; max_col as usize];
                 if let Some(vertex_header) = graph
                     .graph_schema
                     .get_vertex_header(vertex_label)
@@ -254,13 +259,17 @@ pub fn insert_edges<G, I>(
     G: FromStr + Send + Sync + IndexType + Eq,
 {
     let mut column_map = HashMap::new();
+    let mut max_col = 0;
     for column_mapping in src_vertex_mappings {
         let column = column_mapping.column();
         let column_index = column.index();
         let data_type = column.data_type();
         let property_name = column_mapping.property_name();
-        if property_name == "src_id" {
-            column_map.insert(property_name.clone(), (column_index, data_type));
+        if property_name == "id" {
+            column_map.insert("src_id".to_string(), (column_index, data_type));
+        }
+        if column_index >= max_col {
+            max_col = column_index + 1;
         }
     }
     for column_mapping in dst_vertex_mappings {
@@ -268,8 +277,11 @@ pub fn insert_edges<G, I>(
         let column_index = column.index();
         let data_type = column.data_type();
         let property_name = column_mapping.property_name();
-        if property_name == "dst_id" {
-            column_map.insert(property_name.clone(), (column_index, data_type));
+        if property_name == "id" {
+            column_map.insert("dst_id".to_string(), (column_index, data_type));
+        }
+        if column_index >= max_col {
+            max_col = column_index + 1;
         }
     }
     for column_mapping in column_mappings {
@@ -278,6 +290,9 @@ pub fn insert_edges<G, I>(
         let data_type = column.data_type();
         let property_name = column_mapping.property_name();
         column_map.insert(property_name.clone(), (column_index, data_type));
+        if column_index >= max_col {
+            max_col = column_index + 1;
+        }
     }
     let mut src_id_col = -1;
     let mut dst_id_col = -1;
@@ -310,7 +325,7 @@ pub fn insert_edges<G, I>(
                     modifier.skip_header();
                 }
                 modifier.parallel(parallel);
-                let mut mappings = vec![-1; column_mappings.len()];
+                let mut mappings = vec![-1; max_col as usize];
                 if let Some(edge_header) = graph
                     .graph_schema
                     .get_edge_header(src_label, edge_label, dst_label)
