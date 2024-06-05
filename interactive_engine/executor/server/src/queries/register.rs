@@ -562,17 +562,9 @@ impl QueryRegister {
             }
             let result = {
                 pegasus::run(conf.clone(), || {
-                    libc.Precompute(
-                        conf.clone(),
-                        graph,
-                        graph_index,
-                        true,
-                        label,
-                        src_label,
-                        dst_label,
-                    )
+                    libc.Precompute(conf.clone(), graph, graph_index, true, label, src_label, dst_label)
                 })
-                    .expect("submit precompute failure")
+                .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {
@@ -654,17 +646,9 @@ impl QueryRegister {
             }
             let result = {
                 pegasus::run(conf.clone(), || {
-                    libc.Precompute(
-                        conf.clone(),
-                        graph,
-                        graph_index,
-                        true,
-                        label,
-                        src_label,
-                        dst_label,
-                    )
+                    libc.Precompute(conf.clone(), graph, graph_index, true, label, src_label, dst_label)
                 })
-                    .expect("submit precompute failure")
+                .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {

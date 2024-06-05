@@ -118,7 +118,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lib_config_path = config.lib_path;
     let lib_config_file = File::open(lib_config_path).unwrap();
 
-    let queries_config: QueriesConfig = serde_yaml::from_reader(lib_config_file).expect("Could not read values");
+    let queries_config: QueriesConfig =
+        serde_yaml::from_reader(lib_config_file).expect("Could not read values");
 
     if let Some(queries) = queries_config.queries {
         for query in queries {
@@ -131,8 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     inputs.push((param.name, param.data_type));
                 }
             }
-            let libc: Vec<Container<QueryApi>> =
-                vec![unsafe { Container::load(lib_path) }.unwrap()];
+            let libc: Vec<Container<QueryApi>> = vec![unsafe { Container::load(lib_path) }.unwrap()];
             register.register_new_query(query_name, libc, inputs, description);
         }
     }
@@ -174,7 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     pegasus::run_with_resource_map(conf.clone(), Some(resource_maps.clone()), || {
                         query.Query(conf.clone(), &graph, &graph_index, params.clone(), None)
                     })
-                        .expect("submit query failure")
+                    .expect("submit query failure")
                 };
                 let mut write_operations = vec![];
                 for result in results {

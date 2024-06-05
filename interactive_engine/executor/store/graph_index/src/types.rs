@@ -179,6 +179,10 @@ impl Decode for Column {
 }
 
 impl Column {
+    pub fn new(data: ColumnData, column_name: String, data_type: DataType) -> Self {
+        Column { data, column_name, data_type }
+    }
+
     pub fn data(&self) -> &ColumnData {
         &self.data
     }
@@ -212,6 +216,11 @@ impl Decode for DataFrame {
 }
 
 impl DataFrame {
+    pub fn new_vertices_ids(ids: Vec<u64>) -> Self {
+        let columns = vec![Column::new(ColumnData::UInt64Array(ids), "id".to_string(), DataType::VertexId)];
+        DataFrame { columns }
+    }
+
     pub fn columns(&self) -> &Vec<Column> {
         &self.columns
     }
@@ -264,6 +273,10 @@ impl Input {
 
     pub fn file(file: FileInput) -> Self {
         Input { data_source: DataSource::File, file_input: Some(file), memory_data: None }
+    }
+
+    pub fn memory(memory_data: DataFrame) -> Self {
+        Input { data_source: DataSource::Memory, file_input: None, memory_data: Some(memory_data) }
     }
 }
 
@@ -455,6 +468,14 @@ impl WriteOperation {
             write_type: WriteType::Insert,
             vertex_mappings: None,
             edge_mappings: Some(edge_mappings),
+        }
+    }
+
+    pub fn delete_vertices(vertex_mappings: VertexMappings) -> Self {
+        WriteOperation {
+            write_type: WriteType::Delete,
+            vertex_mappings: Some(vertex_mappings),
+            edge_mappings: None,
         }
     }
 
