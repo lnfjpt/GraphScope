@@ -187,6 +187,10 @@ impl Column {
         &self.data
     }
 
+    pub fn take_data(&mut self) -> ColumnData {
+        std::mem::replace(&mut self.data, ColumnData::NullArray)
+    }
+
     pub fn column_name(&self) -> String {
         self.column_name.clone()
     }
@@ -221,8 +225,21 @@ impl DataFrame {
         DataFrame { columns }
     }
 
+    pub fn new_edges_ids(ids: Vec<usize>) -> Self {
+        let columns = vec![Column::new(ColumnData::VertexIdArray(ids), "id".to_string(), DataType::VertexId)];
+        DataFrame { columns }
+    }
+
+    pub fn add_column(&mut self, column: Column) {
+        self.columns.push(column);
+    }
+
     pub fn columns(&self) -> &Vec<Column> {
         &self.columns
+    }
+
+    pub fn take_columns(&mut self) -> Vec<Column> {
+        std::mem::replace(&mut self.columns, Vec::new())
     }
 }
 
@@ -271,6 +288,10 @@ impl Input {
         self.memory_data.as_ref()
     }
 
+    pub fn take_memory_data(&mut self) -> Option<DataFrame> {
+        self.memory_data.take()
+    }
+
     pub fn file(file: FileInput) -> Self {
         Input { data_source: DataSource::File, file_input: Some(file), memory_data: None }
     }
@@ -316,6 +337,10 @@ impl VertexMappings {
 
     pub fn inputs(&self) -> &Vec<Input> {
         &self.inputs
+    }
+
+    pub fn take_inputs(&mut self) -> Vec<Input> {
+        std::mem::replace(&mut self.inputs, Vec::new())
     }
 
     pub fn column_mappings(&self) -> &Vec<ColumnMappings> {
@@ -399,6 +424,10 @@ impl EdgeMappings {
 
     pub fn inputs(&self) -> &Vec<Input> {
         &self.inputs
+    }
+
+    pub fn take_inputs(&mut self) -> Vec<Input> {
+        std::mem::replace(&mut self.inputs, Vec::new())
     }
 
     pub fn src_column_mappings(&self) -> &Vec<ColumnMappings> {
@@ -487,16 +516,48 @@ impl WriteOperation {
         }
     }
 
+    pub fn set_vertices(vertex_mappings: VertexMappings) -> Self {
+        WriteOperation {
+            write_type: WriteType::Set,
+            vertex_mappings: Some(vertex_mappings),
+            edge_mappings: None,
+        }
+    }
+
+    pub fn set_edges(edge_mappings: EdgeMappings) -> Self {
+        WriteOperation {
+            write_type: WriteType::Set,
+            vertex_mappings: None,
+            edge_mappings: Some(edge_mappings),
+        }
+    }
+
     pub fn write_type(&self) -> WriteType {
         self.write_type
+    }
+
+    pub fn has_vertex_mappings(&self) -> bool {
+        self.vertex_mappings.is_some()
     }
 
     pub fn vertex_mappings(&self) -> Option<&VertexMappings> {
         self.vertex_mappings.as_ref()
     }
 
+    pub fn take_vertex_mappings(&mut self) -> Option<VertexMappings> {
+        self.vertex_mappings.take()
+    }
+
+    pub fn has_edge_mappings(&self) -> bool {
+        self.edge_mappings.is_some()
+    }
+
     pub fn edge_mappings(&self) -> Option<&EdgeMappings> {
         self.edge_mappings.as_ref()
+    }
+
+    pub fn take_edge_mappings(&mut self) -> Option<EdgeMappings> {
+        self.edge_mappings.take()
     }
 }
 
@@ -759,6 +820,7 @@ pub enum ColumnData {
     StringArray(Vec<String>),
     DateArray(Vec<i32>),
     TimestampArray(Vec<i64>),
+    NullArray
 }
 
 impl Debug for ColumnData {

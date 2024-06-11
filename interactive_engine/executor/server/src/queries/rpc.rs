@@ -31,13 +31,17 @@ use pegasus::resource::DistributedParResourceMaps;
 use pegasus::result::{FromStreamExt, ResultSink};
 use pegasus::{Configuration, JobConf, ServerConf};
 use pegasus_network::config::ServerAddr;
+use prost::Message;
 use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio_stream::iter;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
+use crate::generated::common;
+use crate::generated::procedure;
 use crate::generated::protocol as pb;
 use crate::queries::register::QueryRegister;
 use crate::queries::write_graph;
@@ -147,7 +151,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error>>
-where {
+        where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -282,7 +286,226 @@ impl pb::job_service_server::JobService for JobServiceImpl {
     type SubmitStream = UnboundedReceiverStream<Result<pb::JobResponse, Status>>;
 
     async fn submit(&self, req: Request<pb::JobRequest>) -> Result<Response<Self::SubmitStream>, Status> {
-        Err(Status::unknown(format!("submit job error")))
+        let pb::JobRequest { conf, source, plan, resource } = req.into_inner();
+        let conf = conf.unwrap();
+        let job_id = conf.job_id;
+        if let Ok(query) = procedure::Query::decode(&*plan) {
+            if let Some(query_name) = query.query_name {
+                let query_name = match query_name.item {
+                    Some(common::name_or_id::Item::Name(name)) => name,
+                    _ => "unknown".to_string(),
+                };
+                let mut params = HashMap::<String, String>::new();
+                for argument in query.arguments {
+                    let name = argument.param_name;
+                    let value = match argument.value.unwrap().item {
+                        Some(common::value::Item::Str(value)) => value,
+                        _ => panic!("Unsupport value type"),
+                    };
+                    params.insert(name, value);
+                }
+                if let Some(queries) = self.query_register.get_new_query(&query_name) {
+                    let resource_maps = DistributedParResourceMaps::default(
+                        ServerConf::Partial(self.servers.clone()),
+                        self.workers,
+                    );
+                    let mut conf = parse_conf_req(conf);
+                    conf.reset_servers(ServerConf::Partial(self.servers.clone()));
+                    let alias_data = Arc::new(Mutex::new(HashMap::new()));
+                    for query in queries.iter() {
+                        let graph = self.graph_db.read().unwrap();
+                        let graph_index = self.graph_index.read().unwrap();
+                        let results = {
+                            pegasus::run_with_resource_map(
+                                conf.clone(),
+                                Some(resource_maps.clone()),
+                                || {
+                                    query.Query(
+                                        conf.clone(),
+                                        &graph,
+                                        &graph_index,
+                                        params.clone(),
+                                        Some(alias_data.clone()),
+                                    )
+                                },
+                            )
+                                .expect("submit query failure")
+                        };
+                        let mut write_operations = vec![];
+                        let mut bytes_result = vec![];
+                        let mut alias_data_write = alias_data
+                            .lock()
+                            .expect("Mutex of alias data poisoned");
+                        alias_data_write.clear();
+                        for result in results {
+                            if let Ok((worker_id, alias_datas, write_ops, mut query_result)) = result {
+                                if let Some(alias_datas) = alias_datas {
+                                    alias_data_write.insert(worker_id, alias_datas);
+                                }
+                                if let Some(write_ops) = write_ops {
+                                    for write_op in write_ops {
+                                        write_operations.push(write_op);
+                                    }
+                                }
+                                if let Some(mut query_result) = query_result {
+                                    let len = query_result.len();
+                                    bytes_result.append(&mut len.to_le_bytes().to_vec());
+                                    bytes_result.append(&mut query_result);
+                                }
+                            }
+                        }
+                        drop(alias_data_write);
+                        drop(graph);
+                        let mut graph = self.graph_db.write().unwrap();
+                        let mut graph_index = self.graph_index.write().unwrap();
+                        for mut write_op in write_operations.drain(..) {
+                            match write_op.write_type() {
+                                WriteType::Insert => {
+                                    if let Some(mut vertex_mappings) = write_op.take_vertex_mappings() {
+                                        let vertex_label = vertex_mappings.vertex_label();
+                                        let inputs = vertex_mappings.inputs();
+                                        let column_mappings = vertex_mappings.column_mappings();
+                                        for input in inputs.iter() {
+                                            write_graph::insert_vertices(
+                                                &mut graph,
+                                                vertex_label,
+                                                input,
+                                                column_mappings,
+                                                self.workers,
+                                            );
+                                        }
+                                    }
+                                    if let Some(edge_mappings) = write_op.take_edge_mappings() {
+                                        let src_label = edge_mappings.src_label();
+                                        let edge_label = edge_mappings.edge_label();
+                                        let dst_label = edge_mappings.dst_label();
+                                        let inputs = edge_mappings.inputs();
+                                        let src_column_mappings = edge_mappings.src_column_mappings();
+                                        let dst_column_mappings = edge_mappings.dst_column_mappings();
+                                        let column_mappings = edge_mappings.column_mappings();
+                                        for input in inputs.iter() {
+                                            write_graph::insert_edges(
+                                                &mut graph,
+                                                src_label,
+                                                edge_label,
+                                                dst_label,
+                                                input,
+                                                src_column_mappings,
+                                                dst_column_mappings,
+                                                column_mappings,
+                                                self.workers,
+                                            );
+                                        }
+                                    }
+                                }
+                                WriteType::Delete => {
+                                    if let Some(vertex_mappings) = write_op.take_vertex_mappings() {
+                                        let vertex_label = vertex_mappings.vertex_label();
+                                        let inputs = vertex_mappings.inputs();
+                                        let column_mappings = vertex_mappings.column_mappings();
+                                        for input in inputs.iter() {
+                                            write_graph::delete_vertices(
+                                                &mut graph,
+                                                vertex_label,
+                                                input,
+                                                column_mappings,
+                                                self.workers,
+                                            );
+                                        }
+                                    }
+                                    if let Some(edge_mappings) = write_op.take_edge_mappings() {
+                                        let src_label = edge_mappings.src_label();
+                                        let edge_label = edge_mappings.edge_label();
+                                        let dst_label = edge_mappings.dst_label();
+                                        let inputs = edge_mappings.inputs();
+                                        let src_column_mappings = edge_mappings.src_column_mappings();
+                                        let dst_column_mappings = edge_mappings.dst_column_mappings();
+                                        let column_mappings = edge_mappings.column_mappings();
+                                        for input in inputs.iter() {
+                                            write_graph::delete_edges(
+                                                &mut graph,
+                                                src_label,
+                                                edge_label,
+                                                dst_label,
+                                                input,
+                                                src_column_mappings,
+                                                dst_column_mappings,
+                                                column_mappings,
+                                                self.workers,
+                                            );
+                                        }
+                                    }
+                                }
+                                WriteType::Set => {
+                                    if let Some(mut vertex_mappings) = write_op.take_vertex_mappings() {
+                                        let vertex_label = vertex_mappings.vertex_label();
+                                        let mut inputs = vertex_mappings.take_inputs();
+                                        let column_mappings = vertex_mappings.column_mappings();
+                                        for mut input in inputs.drain(..) {
+                                            write_graph::set_vertices(
+                                                &mut graph,
+                                                &mut graph_index,
+                                                vertex_label,
+                                                input,
+                                                column_mappings,
+                                                self.workers,
+                                            );
+                                        }
+                                    }
+                                    if let Some(mut edge_mappings) = write_op.take_edge_mappings() {
+                                        let src_label = edge_mappings.src_label();
+                                        let edge_label = edge_mappings.edge_label();
+                                        let dst_label = edge_mappings.dst_label();
+                                        let mut inputs = edge_mappings.take_inputs();
+                                        let src_column_mappings = edge_mappings.src_column_mappings();
+                                        let dst_column_mappings = edge_mappings.dst_column_mappings();
+                                        let column_mappings = edge_mappings.column_mappings();
+                                        for mut input in inputs.drain(..) {
+                                            write_graph::set_edges(
+                                                &mut graph,
+                                                &mut graph_index,
+                                                src_label,
+                                                edge_label,
+                                                dst_label,
+                                                input,
+                                                src_column_mappings,
+                                                dst_column_mappings,
+                                                column_mappings,
+                                                self.workers,
+                                            );
+                                        }
+                                    }
+                                }
+                            };
+                        }
+                        if !bytes_result.is_empty() {
+                            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                            let response = pb::JobResponse {
+                                job_id,
+                                resp: bytes_result,
+                            };
+                            match tx.send(Ok(response)) {
+                                Ok(_) => println!("Response sent successfully."),
+                                Err(e) => eprintln!("Failed to send response: {}", e),
+                            }
+                            return Ok(Response::new(UnboundedReceiverStream::new(rx)));
+                        }
+                    }
+                    drop(resource_maps);
+                }
+            };
+        }
+        let bytes_result = vec![];
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let response = pb::JobResponse {
+            job_id,
+            resp: bytes_result,
+        };
+        match tx.send(Ok(response)) {
+            Ok(_) => println!("Response sent successfully."),
+            Err(e) => eprintln!("Failed to send response: {}", e),
+        }
+        Ok(Response::new(UnboundedReceiverStream::new(rx)))
     }
 
     async fn submit_call(
@@ -498,7 +721,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                                             )
                                         },
                                     )
-                                    .expect("submit query failure")
+                                        .expect("submit query failure")
                                 };
                                 let mut write_operations = vec![];
                                 let mut alias_data_write = alias_data
@@ -519,109 +742,6 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                                 }
                                 drop(alias_data_write);
                                 drop(graph);
-                                let mut graph = self.graph_db.write().unwrap();
-                                let mut graph_index = self.graph_index.write().unwrap();
-                                for write_op in write_operations.drain(..) {
-                                    match write_op.write_type() {
-                                        WriteType::Insert => {
-                                            if let Some(vertex_mappings) = write_op.vertex_mappings() {
-                                                let vertex_label = vertex_mappings.vertex_label();
-                                                let inputs = vertex_mappings.inputs();
-                                                let column_mappings = vertex_mappings.column_mappings();
-                                                for input in inputs.iter() {
-                                                    write_graph::insert_vertices(
-                                                        &mut graph,
-                                                        vertex_label,
-                                                        input,
-                                                        column_mappings,
-                                                        self.workers,
-                                                    );
-                                                }
-                                            }
-                                            if let Some(edge_mappings) = write_op.edge_mappings() {
-                                                let src_label = edge_mappings.src_label();
-                                                let edge_label = edge_mappings.edge_label();
-                                                let dst_label = edge_mappings.dst_label();
-                                                let inputs = edge_mappings.inputs();
-                                                let src_column_mappings =
-                                                    edge_mappings.src_column_mappings();
-                                                let dst_column_mappings =
-                                                    edge_mappings.dst_column_mappings();
-                                                let column_mappings = edge_mappings.column_mappings();
-                                                for input in inputs.iter() {
-                                                    write_graph::insert_edges(
-                                                        &mut graph,
-                                                        src_label,
-                                                        edge_label,
-                                                        dst_label,
-                                                        input,
-                                                        src_column_mappings,
-                                                        dst_column_mappings,
-                                                        column_mappings,
-                                                        self.workers,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                        WriteType::Delete => {
-                                            if let Some(vertex_mappings) = write_op.vertex_mappings() {
-                                                let vertex_label = vertex_mappings.vertex_label();
-                                                let inputs = vertex_mappings.inputs();
-                                                let column_mappings = vertex_mappings.column_mappings();
-                                                for input in inputs.iter() {
-                                                    write_graph::delete_vertices(
-                                                        &mut graph,
-                                                        vertex_label,
-                                                        input,
-                                                        column_mappings,
-                                                        self.workers,
-                                                    );
-                                                }
-                                            }
-                                            if let Some(edge_mappings) = write_op.edge_mappings() {
-                                                let src_label = edge_mappings.src_label();
-                                                let edge_label = edge_mappings.edge_label();
-                                                let dst_label = edge_mappings.dst_label();
-                                                let inputs = edge_mappings.inputs();
-                                                let src_column_mappings =
-                                                    edge_mappings.src_column_mappings();
-                                                let dst_column_mappings =
-                                                    edge_mappings.dst_column_mappings();
-                                                let column_mappings = edge_mappings.column_mappings();
-                                                for input in inputs.iter() {
-                                                    write_graph::delete_edges(
-                                                        &mut graph,
-                                                        src_label,
-                                                        edge_label,
-                                                        dst_label,
-                                                        input,
-                                                        src_column_mappings,
-                                                        dst_column_mappings,
-                                                        column_mappings,
-                                                        self.workers,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                        WriteType::Set => {
-                                            if let Some(vertex_mappings) = write_op.vertex_mappings() {
-                                                let vertex_label = vertex_mappings.vertex_label();
-                                                let inputs = vertex_mappings.inputs();
-                                                let column_mappings = vertex_mappings.column_mappings();
-                                                for input in inputs.iter() {
-                                                    write_graph::set_vertices(
-                                                        &mut graph,
-                                                        &mut graph_index,
-                                                        vertex_label,
-                                                        input,
-                                                        column_mappings,
-                                                        self.workers,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    };
-                                }
                                 index += 1;
                             }
                             drop(resource_maps);
@@ -671,4 +791,34 @@ impl Stream for TcpIncoming {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.inner).poll_accept(cx)
     }
+}
+
+fn parse_conf_req(mut req: pb::JobConfig) -> JobConf {
+    let mut conf = JobConf::new(req.job_name);
+    if req.job_id != 0 {
+        conf.job_id = req.job_id;
+    }
+
+    if req.workers != 0 {
+        conf.workers = req.workers;
+    }
+
+    if req.time_limit != 0 {
+        conf.time_limit = req.time_limit;
+    }
+
+    if req.batch_size != 0 {
+        conf.batch_size = req.batch_size;
+    }
+
+    if req.batch_capacity != 0 {
+        conf.batch_capacity = req.batch_capacity;
+    }
+
+    if req.trace_enable {
+        conf.trace_enable = true;
+        conf.plan_print = true;
+    }
+
+    conf
 }
