@@ -46,7 +46,9 @@ pub fn delete_vertices_by_ids<G, I>(
         if v.index() as u64 == u64::MAX {
             continue;
         }
-        lids.insert(graph.get_internal_id(*v));
+        if let Some(internal_id) = graph.vertex_map.get_internal_id(*v) {
+            lids.insert(internal_id.1);
+        }
     }
     let vertex_label_num = graph.vertex_label_num;
     let edge_label_num = graph.edge_label_num;
@@ -407,8 +409,9 @@ pub fn delete_vertices(
                 let vertex_id_column = data
                     .get(id_col as usize)
                     .expect("Failed to get id column");
-                if let ColumnDataRef::VertexIdArray(data) = vertex_id_column.data().as_ref() {
-                    delete_vertices_by_ids(graph, vertex_label, data, parallel);
+                if let ColumnDataRef::UInt64Array(data) = vertex_id_column.data().as_ref() {
+                    let data = data.iter().map(|&x| x as usize).collect();
+                    delete_vertices_by_ids(graph, vertex_label, &data, parallel);
                 }
             }
         }
@@ -426,8 +429,8 @@ pub fn delete_edges(
         let column_index = column.index();
         let data_type = column.data_type();
         let property_name = column_mapping.property_name();
-        if property_name == "src_id" {
-            column_map.insert(property_name.clone(), (column_index, data_type));
+        if property_name == "id" {
+            column_map.insert("src_id".to_string(), (column_index, data_type));
         }
     }
     for column_mapping in dst_vertex_mappings {
@@ -435,8 +438,8 @@ pub fn delete_edges(
         let column_index = column.index();
         let data_type = column.data_type();
         let property_name = column_mapping.property_name();
-        if property_name == "dst_id" {
-            column_map.insert(property_name.clone(), (column_index, data_type));
+        if property_name == "id" {
+            column_map.insert("dst_id".to_string(), (column_index, data_type));
         }
     }
     for column_mapping in column_mappings {
@@ -478,23 +481,9 @@ pub fn delete_edges(
                 }
                 modifier.parallel(parallel);
 
-                let mut mappings = vec![-1; column_mappings.len()];
-                if let Some(edge_header) = graph
-                    .graph_schema
-                    .get_edge_header(src_label, edge_label, dst_label)
-                {
-                    for (i, (property_name, _)) in edge_header.iter().enumerate() {
-                        if let Some((column_index, _)) = column_map.get(property_name) {
-                            mappings[*column_index as usize] = i as i32;
-                        }
-                    }
-                } else {
-                    panic!("edge label {}_{}_{} not found", src_label, edge_label, dst_label)
-                }
                 modifier
-                    .apply_edges_insert_with_filename(
+                    .apply_edges_delete_with_filename(
                         graph, src_label, edge_label, dst_label, &filenames, src_id_col, dst_id_col,
-                        &mappings,
                     )
                     .unwrap();
             }
@@ -601,13 +590,15 @@ pub fn set_vertices(
                     }
                     let column_index = v.0;
                     let column_data_type = v.1;
-                    graph_index.init_vertex_index(
-                        k.clone(),
-                        vertex_label,
-                        column_data_type,
-                        Some(property_size),
-                        None,
-                    );
+                    if !graph_index.has_vertex_index(k.clone(), vertex_label) {
+                        graph_index.init_vertex_index(
+                            k.clone(),
+                            vertex_label,
+                            column_data_type,
+                            Some(property_size),
+                            Some(graph_index::types::Item::Int32(0)),
+                        );
+                    }
                     let column = column_data
                         .get(column_index as usize)
                         .expect("Failed to find column");
@@ -660,17 +651,19 @@ pub fn set_edges(
                             dst_label,
                             Direction::Outgoing,
                         );
-                        graph_index
-                            .init_outgoing_edge_index(
-                                k.clone(),
-                                src_label,
-                                dst_label,
-                                edge_label,
-                                column_data_type,
-                                Some(oe_property_size),
-                                Some(graph_index::types::Item::Int32(0)),
-                            )
-                            .unwrap();
+                        if !graph_index.has_outgoing_edge_index(k.clone(), src_label, edge_label, dst_label) {
+                            graph_index
+                                .init_outgoing_edge_index(
+                                    k.clone(),
+                                    src_label,
+                                    dst_label,
+                                    edge_label,
+                                    column_data_type,
+                                    Some(oe_property_size),
+                                    Some(graph_index::types::Item::Int32(0)),
+                                )
+                                .unwrap();
+                        }
                         let column = column_data
                             .get(column_index as usize)
                             .expect("Failed to find column");
@@ -680,7 +673,7 @@ pub fn set_edges(
                     }
                 }
                 if !dst_vertex_mappings.is_empty() {
-                    let offset_col_id = src_vertex_mappings[0].column().index();
+                    let offset_col_id = dst_vertex_mappings[0].column().index();
                     let offset_column = column_data
                         .get_mut(offset_col_id as usize)
                         .expect("Failed to find id column");
@@ -699,17 +692,19 @@ pub fn set_edges(
                             dst_label,
                             Direction::Incoming,
                         );
-                        graph_index
-                            .init_incoming_edge_index(
-                                k.clone(),
-                                src_label,
-                                dst_label,
-                                edge_label,
-                                column_data_type,
-                                Some(ie_property_size),
-                                Some(graph_index::types::Item::Int32(0)),
-                            )
-                            .unwrap();
+                        if !graph_index.has_incoming_edge_index(k.clone(), src_label, edge_label, dst_label) {
+                            graph_index
+                                .init_incoming_edge_index(
+                                    k.clone(),
+                                    src_label,
+                                    dst_label,
+                                    edge_label,
+                                    column_data_type,
+                                    Some(ie_property_size),
+                                    Some(graph_index::types::Item::Int32(0)),
+                                )
+                                .unwrap();
+                        }
                         let column = column_data
                             .get(column_index as usize)
                             .expect("Failed to find column");

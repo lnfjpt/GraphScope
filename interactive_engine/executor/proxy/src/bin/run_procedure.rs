@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, BufRead};
+use std::fs::OpenOptions;
+use std::io::{self, BufRead, Write};
 
 use rpc_proxy::request::JobClient;
 use serde::{Deserialize, Serialize};
@@ -43,7 +44,7 @@ pub struct QueriesConfig {
     pub queries: Option<Vec<QueryConfig>>,
 }
 
-fn run_batch_update(client: &mut JobClient, start_index: &mut u64, raw_data_path: &String, batch_id: String) {
+async fn run_batch_update(client: &mut JobClient, start_index: &mut u64, raw_data_path: &String, batch_id: String) {
     let write_queries = [
         ("insert_comment", "Comment"),
         ("insert_forum", "Forum"),
@@ -96,12 +97,15 @@ fn run_batch_update(client: &mut JobClient, start_index: &mut u64, raw_data_path
         };
         let mut params = HashMap::new();
         params.insert("csv_path".to_string(), csv_path);
-        client.submitProcedure(*start_index, query_name, params);
+        let status = client.submitProcedure(*start_index, query_name, params).await;
+        if !status.is_ok() {
+            break;
+        }
         *start_index += 1;
     }
 }
 
-fn run_precompute(client: &mut JobClient, start_index: &mut u64) {
+async fn run_precompute(client: &mut JobClient, start_index: &mut u64) {
     let precompute_queries = [
         "bi4_precompute",
         "bi6_precompute",
@@ -112,12 +116,12 @@ fn run_precompute(client: &mut JobClient, start_index: &mut u64) {
     for query_name in precompute_queries {
         let query_name = query_name.to_string();
         let mut params = HashMap::new();
-        client.submitProcedure(*start_index, query_name, params);
+        client.submitProcedure(*start_index, query_name, params).await;
         *start_index += 1;
     }
 }
 
-fn run_queries(client: &mut JobClient, start_index: &mut u64, input_dir: &String, inputs_info: &HashMap<String, Vec<String>>) {
+async fn run_queries(client: &mut JobClient, start_index: &mut u64, input_dir: &String, inputs_info: &HashMap<String, Vec<String>>) {
     let precompute_queries = [
         ("bi1", "bi-1"),
         ("bi2", "bi-2a"),
@@ -153,7 +157,12 @@ fn run_queries(client: &mut JobClient, start_index: &mut u64, input_dir: &String
         let query_path = format!("{}/{}.csv", input_dir, input_file.to_string());
         let file = File::open(query_path).unwrap();
         let lines = io::BufReader::new(file).lines();
+        let mut count = 0;
         for line in lines {
+            if count == 0 {
+                count +=1;
+                continue;
+            }
             let line = line.unwrap();
             let mut params = HashMap::new();
             let mut split = line.trim().split("|").collect::<Vec<&str>>();
@@ -162,8 +171,12 @@ fn run_queries(client: &mut JobClient, start_index: &mut u64, input_dir: &String
                     params.insert(name.clone(), split[index].to_string());
                 }
             }
-            client.submitProcedure(*start_index, query_name.clone(), params);
+            client.submitProcedure(*start_index, query_name.clone(), params).await;
             *start_index += 1;
+            count+=1;
+            if count > 30 {
+                break;
+            }
         }
     }
 }
@@ -227,12 +240,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "2012-12-30",
         "2012-12-31",
     ];
+    let batches = ["2012-11-29"];
 
     let mut index = 0;
     for batch_id in batches {
-        run_batch_update(&mut rpc_client, &mut index, &config.raw_data_path, batch_id.to_string());
-        run_precompute(&mut rpc_client, &mut index);
-        run_queries(&mut rpc_client, &mut index, &config.input_dir, &input_info);
+        println!("Start update batch {}", batch_id);
+        run_batch_update(&mut rpc_client, &mut index, &config.raw_data_path, batch_id.to_string()).await;
+        run_precompute(&mut rpc_client, &mut index).await;
+        run_queries(&mut rpc_client, &mut index, &config.input_dir, &input_info).await;
     }
     Ok(())
 }

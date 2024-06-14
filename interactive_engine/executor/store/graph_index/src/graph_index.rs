@@ -39,6 +39,14 @@ impl GraphIndex {
         }
     }
 
+    pub fn has_vertex_index(&self, index_name: String, vertex_label: LabelId) -> bool {
+        if self.index_schema.get_vertex_index(vertex_label, &index_name) == None {
+            false
+        } else {
+            true
+        }
+    }
+
     pub fn init_vertex_index(
         &mut self, index_name: String, vertex_label: LabelId, data_type: DataType,
         use_internal: Option<usize>, default: Option<Item>,
@@ -63,6 +71,22 @@ impl GraphIndex {
         }
     }
 
+    pub fn has_incoming_edge_index(&self, index_name: String, src_label: LabelId,
+                                   edge_label: LabelId, dst_label: LabelId) -> bool {
+        if let Some(index_label) = self
+            .index_schema
+            .get_edge_index(edge_label, src_label, dst_label, &index_name) {
+            let edge_index_id = encode_edge_index(src_label, edge_label, dst_label, index_label);
+            if self.incoming_edge_index.contains_key(&edge_index_id) {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     pub fn init_incoming_edge_index(
         &mut self, index_name: String, src_label: LabelId, dst_label: LabelId, edge_label: LabelId,
         data_type: DataType, use_internal: Option<usize>, default: Option<Item>,
@@ -82,6 +106,22 @@ impl GraphIndex {
             Some(index_label)
         } else {
             None
+        }
+    }
+
+    pub fn has_outgoing_edge_index(&self, index_name: String, src_label: LabelId,
+                                   edge_label: LabelId, dst_label: LabelId) -> bool {
+        if let Some(index_label) = self
+            .index_schema
+            .get_edge_index(edge_label, src_label, dst_label, &index_name) {
+            let edge_index_id = encode_edge_index(src_label, edge_label, dst_label, index_label);
+            if self.outgoing_edge_index.contains_key(&edge_index_id) {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
         }
     }
 

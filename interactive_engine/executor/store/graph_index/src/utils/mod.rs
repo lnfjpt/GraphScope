@@ -63,7 +63,7 @@ pub fn parse_vertex_id_from_file(
         for file in files.iter() {
             if let Some(path_str) = file.clone().to_str() {
                 if path_str.ends_with(".csv.gz") {
-                    if let Ok(gz_reader) = GzReader::from_path(&path) {
+                    if let Ok(gz_reader) = GzReader::from_path(&path_str) {
                         let mut rdr = ReaderBuilder::new()
                             .delimiter(delim)
                             .buffer_capacity(4096)
@@ -81,7 +81,7 @@ pub fn parse_vertex_id_from_file(
                         }
                     }
                 } else if file.ends_with(".csv") {
-                    if let Ok(file) = File::open(&path) {
+                    if let Ok(file) = File::open(&file) {
                         let reader = BufReader::new(file);
                         let mut rdr = ReaderBuilder::new()
                             .delimiter(delim)

@@ -32,7 +32,6 @@ use pegasus::result::{FromStreamExt, ResultSink};
 use pegasus::{Configuration, JobConf, ServerConf};
 use pegasus_network::config::ServerAddr;
 use prost::Message;
-use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::iter;
@@ -311,7 +310,6 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     );
                     let mut conf = parse_conf_req(conf);
                     conf.reset_servers(ServerConf::Partial(self.servers.clone()));
-                    let alias_data = Arc::new(Mutex::new(HashMap::new()));
                     for query in queries.iter() {
                         let graph = self.graph_db.read().unwrap();
                         let graph_index = self.graph_index.read().unwrap();
@@ -325,7 +323,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                                         &graph,
                                         &graph_index,
                                         params.clone(),
-                                        Some(alias_data.clone()),
+                                        None,
                                     )
                                 },
                             )
@@ -333,15 +331,8 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                         };
                         let mut write_operations = vec![];
                         let mut bytes_result = vec![];
-                        let mut alias_data_write = alias_data
-                            .lock()
-                            .expect("Mutex of alias data poisoned");
-                        alias_data_write.clear();
                         for result in results {
                             if let Ok((worker_id, alias_datas, write_ops, mut query_result)) = result {
-                                if let Some(alias_datas) = alias_datas {
-                                    alias_data_write.insert(worker_id, alias_datas);
-                                }
                                 if let Some(write_ops) = write_ops {
                                     for write_op in write_ops {
                                         write_operations.push(write_op);
@@ -354,8 +345,8 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                                 }
                             }
                         }
-                        drop(alias_data_write);
                         drop(graph);
+                        drop(graph_index);
                         let mut graph = self.graph_db.write().unwrap();
                         let mut graph_index = self.graph_index.write().unwrap();
                         for mut write_op in write_operations.drain(..) {
@@ -512,261 +503,6 @@ impl pb::job_service_server::JobService for JobServiceImpl {
         &self, req: Request<pb::CallRequest>,
     ) -> Result<Response<pb::CallResponse>, Status> {
         let pb::CallRequest { query } = req.into_inner();
-        let function_name_re = Regex::new(r"^CALL ([^\(]*)\(([\s\S]*?)\)$").unwrap();
-        let (function_name, parameters) = if function_name_re.is_match(&query) {
-            let capture = function_name_re
-                .captures(&query)
-                .expect("Capture function_name error");
-            println!("function_name: {}, parameters: {}", capture[1].to_string(), capture[2].to_string());
-            (capture[1].to_string(), capture[2].to_string())
-        } else {
-            let reply = pb::CallResponse { is_success: false, results: vec![], reason: "".to_string() };
-            return Ok(Response::new(reply));
-        };
-        match function_name.as_str() {
-            "gs.flex.custom.asProcedure" => {
-                let parameters_re = Regex::new(r"^\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*\[((?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*)\]\s*,\s*(\[(?:\['[^']*'(?:,\s*'[^']*')*\](?:,\s*)?)*\])\s*,\s*'([^']*)'\s*$").unwrap();
-                if parameters_re.is_match(&parameters) {
-                    let cap = parameters_re
-                        .captures(&parameters)
-                        .expect("Match asProcedure parameters error");
-                    let query_name = cap[1].to_string();
-                    let query = cap[2].to_string();
-                    let mode = cap[3].to_string();
-                    let outputs = cap[4].to_string();
-                    let inputs = cap[5].to_string();
-                    let description = cap[6].to_string();
-                    let mut inputs_info = vec![];
-                    let mut outputs_info = HashMap::new();
-                    let input_re = Regex::new(r"\['([^']*)',\s*'([^']*)'\]").unwrap();
-                    for cap in input_re.captures_iter(&inputs) {
-                        inputs_info.push((cap[1].to_string(), cap[2].to_string()));
-                    }
-                    let output_re = Regex::new(r"\['([^']*)',\s*'([^']*)'\]").unwrap();
-                    for cap in output_re.captures_iter(&outputs) {
-                        outputs_info.insert(cap[1].to_string(), cap[2].to_string());
-                    }
-                    let exe_path = env::current_exe()?;
-                    let exe_dir = exe_path
-                        .parent()
-                        .unwrap_or_else(|| {
-                            panic!("无法获取可执行文件的目录");
-                        })
-                        .to_path_buf();
-                    let gie_dir = exe_path
-                        .parent()
-                        .and_then(|p| p.parent())
-                        .and_then(|p| p.parent())
-                        .and_then(|p| p.parent())
-                        .and_then(|p| p.parent())
-                        .and_then(|p| p.parent())
-                        .and_then(|p| p.parent())
-                        .unwrap_or_else(|| panic!("Failed to find path to gie-codegen"));
-                    let temp_dir = env::var(CODEGEN_TMP_DIR).unwrap_or_else(|_| format!("/tmp"));
-                    let cypher_path = format!("{}/{}.cypher", temp_dir, query_name);
-                    let mut cypher_file = match std::fs::File::create(&Path::new(cypher_path.as_str())) {
-                        Err(reason) => panic!("Failed to create file {}: {}", cypher_path, reason),
-                        Ok(file) => file,
-                    };
-                    cypher_file
-                        .write_all(query.as_bytes())
-                        .expect("Failed to write query to file");
-                    let plan_path = format!("{}/{}.plan", temp_dir, query_name);
-                    let config_path = format!("{}/{}.yaml", temp_dir, query_name);
-                    let gie_dir_str = gie_dir.to_str().unwrap();
-
-                    // Run compiler
-                    let compiler_status = Command::new("java")
-                        .arg("-cp")
-                        .arg(format!("{}/GraphScope/interactive_engine/compiler/target/compiler-0.0.1-SNAPSHOT-shade.jar", gie_dir_str))
-                        .arg("-Djna.library.path=".to_owned() + gie_dir_str + "/GraphScope/interactive_engine/executor/ir/target/release/")
-                        .arg("com.alibaba.graphscope.common.ir.tools.GraphPlanner")
-                        .arg(format!("{}/GraphScope/interactive_engine/compiler/conf/ir.compiler.properties", gie_dir_str))
-                        .arg(cypher_path)
-                        .arg(plan_path)
-                        .arg(config_path)
-                        .arg(format!("name:{}", query_name)).status();
-                    match compiler_status {
-                        Ok(status) => {
-                            println!("Finished generate plan for query {}", query_name);
-                        }
-                        Err(e) => {
-                            // 处理运行命令的错误
-                            eprintln!("Error executing command: {}", e);
-                        }
-                    }
-
-                    // Run codegen
-                    let codegen_status =
-                        Command::new(format!("{}/build/gen_pegasus_from_plan", gie_dir_str))
-                            .arg("-i")
-                            .arg(format!("{}/{}.plan", temp_dir, query_name))
-                            .arg("-n")
-                            .arg(query_name.as_str())
-                            .arg("-t")
-                            .arg("plan")
-                            .arg("-s")
-                            .arg(format!(
-                                "{}/GraphScope/interactive_engine/executor/store/bmcsr/schema.json",
-                                gie_dir_str
-                            ))
-                            .arg("-r")
-                            .arg("single_machine")
-                            .status();
-                    match codegen_status {
-                        Ok(status) => {
-                            println!("Finished codegen for query {}", query_name);
-                        }
-                        Err(e) => {
-                            // 处理运行命令的错误
-                            eprintln!("Error executing command: {}", e);
-                        }
-                    }
-
-                    // Build so
-                    let query_project = format!("{}/benchmark/{}/src", gie_dir_str, query_name);
-                    let query_project_path = Path::new(query_project.as_str());
-                    if !query_project_path.exists() {
-                        fs::create_dir_all(&query_project_path).expect("Failed to create project dir");
-                    }
-                    let codegen_path = format!("{}/{}.rs", temp_dir, query_name);
-                    let lib_path = format!("{}/lib.rs", query_project);
-                    fs::copy(codegen_path, lib_path).expect("Failed to copy rust code");
-
-                    let cargo_template_path = format!("{}/benchmark/Cargo.toml.template", gie_dir_str);
-                    let mut cargo_toml_contents = fs::read_to_string(cargo_template_path)?;
-                    cargo_toml_contents = cargo_toml_contents.replace("${query_name}", query_name.as_str());
-                    let cargo_toml_path = format!("{}/benchmark/{}/Cargo.toml", gie_dir_str, query_name);
-                    fs::write(cargo_toml_path, cargo_toml_contents).expect("Failed to write cargo file");
-
-                    let build_status = Command::new("cargo")
-                        .arg("build")
-                        .arg("--release")
-                        .current_dir(format!("{}/benchmark/{}", gie_dir_str, query_name))
-                        .status();
-                    match build_status {
-                        Ok(status) => {
-                            println!("Finished build dylib for query {}", query_name);
-                        }
-                        Err(e) => {
-                            // 处理运行命令的错误
-                            eprintln!("Error executing command: {}", e);
-                        }
-                    }
-                    let dylib_path = format!(
-                        "{}/benchmark/{}/target/release/lib{}.so",
-                        gie_dir_str, query_name, query_name
-                    );
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!(
-                            "Fail to parse parameters for procedure: gs.flex.custom.asProcedure"
-                        ),
-                    };
-                }
-            }
-            _ => {
-                let query_name_re = Regex::new(r"custom.(\S*)").unwrap();
-                if query_name_re.is_match(&function_name) {
-                    println!("Start to run query {}", function_name);
-                    let cap = query_name_re
-                        .captures(&function_name)
-                        .expect("Fail to match query name");
-                    let query_name = cap[1].to_string();
-                    if let Some(queries) = self.query_register.get_new_query(&query_name) {
-                        // Run queries
-                        if let Some(inputs_info) = self
-                            .query_register
-                            .get_query_inputs_info(&query_name)
-                        {
-                            let mut parameters_map = HashMap::<String, String>::new();
-                            let parameter_re = Regex::new(r#""([^"]*)"(?:,|$)"#).unwrap();
-                            let mut input_index = 0;
-                            for caps in parameter_re.captures_iter(&parameters) {
-                                if let Some(matched) = caps.get(1) {
-                                    parameters_map.insert(
-                                        inputs_info[input_index].0.clone(),
-                                        matched.as_str().to_string(),
-                                    );
-                                    input_index += 1;
-                                }
-                            }
-
-                            let mut index = 0;
-                            // let mut query_results = vec![];
-                            let resource_maps = DistributedParResourceMaps::default(
-                                ServerConf::Partial(self.servers.clone()),
-                                self.workers,
-                            );
-                            let alias_data = Arc::new(Mutex::new(HashMap::new()));
-                            for query in queries.iter() {
-                                let mut conf = JobConf::new(format!("{}_{}", query_name, index));
-                                conf.set_workers(self.workers);
-                                conf.reset_servers(ServerConf::Partial(self.servers.clone()));
-                                let graph = self.graph_db.read().unwrap();
-                                let graph_index = self.graph_index.read().unwrap();
-                                let results = {
-                                    pegasus::run_with_resource_map(
-                                        conf.clone(),
-                                        Some(resource_maps.clone()),
-                                        || {
-                                            query.Query(
-                                                conf.clone(),
-                                                &graph,
-                                                &graph_index,
-                                                parameters_map.clone(),
-                                                Some(alias_data.clone()),
-                                            )
-                                        },
-                                    )
-                                        .expect("submit query failure")
-                                };
-                                let mut write_operations = vec![];
-                                let mut alias_data_write = alias_data
-                                    .lock()
-                                    .expect("Mutex of alias data poisoned");
-                                alias_data_write.clear();
-                                for result in results {
-                                    if let Ok((worker_id, alias_datas, write_ops, query_result)) = result {
-                                        if let Some(alias_datas) = alias_datas {
-                                            alias_data_write.insert(worker_id, alias_datas);
-                                        }
-                                        if let Some(write_ops) = write_ops {
-                                            for write_op in write_ops {
-                                                write_operations.push(write_op);
-                                            }
-                                        }
-                                    }
-                                }
-                                drop(alias_data_write);
-                                drop(graph);
-                                index += 1;
-                            }
-                            drop(resource_maps);
-                            let reply =
-                                pb::CallResponse { is_success: true, results: vec![], reason: format!("") };
-                            return Ok(Response::new(reply));
-                        } else {
-                            let reply = pb::CallResponse {
-                                is_success: false,
-                                results: vec![],
-                                reason: format!("Failed to get inputs info of query: {}", function_name),
-                            };
-                            return Ok(Response::new(reply));
-                        }
-                    }
-                } else {
-                    let reply = pb::CallResponse {
-                        is_success: false,
-                        results: vec![],
-                        reason: format!("Unknown procedure name: {}", function_name),
-                    };
-                    return Ok(Response::new(reply));
-                }
-            }
-        }
         let reply = pb::CallResponse { is_success: true, results: vec![], reason: "".to_string() };
         Ok(Response::new(reply))
     }

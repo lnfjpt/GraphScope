@@ -174,7 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     pegasus::run_with_resource_map(conf.clone(), Some(resource_maps.clone()), || {
                         query.Query(conf.clone(), &graph, &graph_index, params.clone(), None)
                     })
-                    .expect("submit query failure")
+                        .expect("submit query failure")
                 };
                 let mut write_operations = vec![];
                 for result in results {
@@ -190,7 +190,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 drop(graph_index);
                 let mut graph = shared_graph.write().unwrap();
                 let mut graph_index = shared_graph_index.write().unwrap();
-                for write_op in write_operations.drain(..) {
+                for mut write_op in write_operations.drain(..) {
                     match write_op.write_type() {
                         WriteType::Insert => {
                             if let Some(vertex_mappings) = write_op.vertex_mappings() {
@@ -229,12 +229,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
+                        WriteType::Delete => {
+                            if let Some(vertex_mappings) = write_op.take_vertex_mappings() {
+                                let vertex_label = vertex_mappings.vertex_label();
+                                let inputs = vertex_mappings.inputs();
+                                let column_mappings = vertex_mappings.column_mappings();
+                                for input in inputs.iter() {
+                                    write_graph::delete_vertices(
+                                        &mut graph,
+                                        vertex_label,
+                                        input,
+                                        column_mappings,
+                                        8,
+                                    );
+                                }
+                            }
+                            if let Some(edge_mappings) = write_op.take_edge_mappings() {
+                                let src_label = edge_mappings.src_label();
+                                let edge_label = edge_mappings.edge_label();
+                                let dst_label = edge_mappings.dst_label();
+                                let inputs = edge_mappings.inputs();
+                                let src_column_mappings = edge_mappings.src_column_mappings();
+                                let dst_column_mappings = edge_mappings.dst_column_mappings();
+                                let column_mappings = edge_mappings.column_mappings();
+                                for input in inputs.iter() {
+                                    write_graph::delete_edges(
+                                        &mut graph,
+                                        src_label,
+                                        edge_label,
+                                        dst_label,
+                                        input,
+                                        src_column_mappings,
+                                        dst_column_mappings,
+                                        column_mappings,
+                                        8,
+                                    );
+                                }
+                            }
+                        }
                         _ => todo!(),
                     }
                 }
             }
         }
     }
+    println!("Start traverse");
     let mut graph = shared_graph.read().unwrap();
     let output_dir = config.output_dir;
     std::fs::create_dir_all(&output_dir).unwrap();

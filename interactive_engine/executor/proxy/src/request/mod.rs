@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::env;
 use std::io;
+use std::fs::OpenOptions;
+use std::io::Write;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use lazy_static::lazy_static;
@@ -16,9 +18,6 @@ use crate::generated::common;
 use crate::generated::procedure;
 use crate::generated::protocol as pb;
 
-lazy_static! {
-    static ref ENDPOINT: String = env::var("ENDPOINT").unwrap_or_else(|_| "".to_string());
-}
 pub struct JobClient {
     client: JobServiceClient<Channel>,
     workers: u32,
@@ -37,6 +36,7 @@ impl JobClient {
     pub async fn submitProcedure(
         &mut self, job_id: u64, query_name: String, arguments: HashMap<String, String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Try to submit query {}", query_name);
         let mut index = 0;
         let mut inputs = vec![];
         for (param_name, value) in arguments {
@@ -61,7 +61,7 @@ impl JobClient {
 
         let job_config = pb::JobConfig {
             job_id,
-            job_name: query_name,
+            job_name: query_name.clone(),
             workers: self.workers,
             time_limit: 0,
             batch_size: 0,
@@ -72,6 +72,13 @@ impl JobClient {
         };
         let job_request = pb::JobRequest { conf: Some(job_config), source: vec![], plan, resource: vec![] };
 
+        let file_path = "query_result.csv";
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .create(true)
+            .open(file_path)?;
+        writeln!(file, "{}", query_name)?;
         if let Ok(response) = self.client.submit(job_request).await {
             let mut stream = response.into_inner();
             while let Some(message) = stream.next().await {
@@ -80,12 +87,11 @@ impl JobClient {
                         let job_id: u64 = job_response.job_id;
                         let resp_bytes: Vec<u8> = job_response.resp;
                         let mut reader = io::Cursor::new(resp_bytes);
-                        let mut buf = [0u8; 8]; // 用于存储u64长度的缓冲区
+                        let mut buf = [0u8; 8];
                         while reader.read_exact(&mut buf).await.is_ok() {
                             let mut cursor = io::Cursor::new(buf);
                             let length = ReadBytesExt::read_u64::<LittleEndian>(&mut cursor).unwrap();
                             let mut buffer = vec![0; length as usize];
-                            // 读取指定长度的字节
                             if reader.read_exact(&mut buffer).await.is_err() {
                                 break;
                             }
@@ -95,13 +101,12 @@ impl JobClient {
                                     panic!("Invalid result")
                                 }
                             };
-                            println!("{}\n", result);
+                            writeln!(file, "{}", result)?;
                         }
                     }
                     Err(e) => {
-                        // 发生错误
                         eprintln!("Stream error: {}", e);
-                        break;
+                        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "oh no!")));
                     }
                 }
             }
