@@ -150,7 +150,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error>>
-        where {
+where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -317,17 +317,9 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                             pegasus::run_with_resource_map(
                                 conf.clone(),
                                 Some(resource_maps.clone()),
-                                || {
-                                    query.Query(
-                                        conf.clone(),
-                                        &graph,
-                                        &graph_index,
-                                        params.clone(),
-                                        None,
-                                    )
-                                },
+                                || query.Query(conf.clone(), &graph, &graph_index, params.clone(), None),
                             )
-                                .expect("submit query failure")
+                            .expect("submit query failure")
                         };
                         let mut write_operations = vec![];
                         let mut bytes_result = vec![];
@@ -471,10 +463,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                         }
                         if !bytes_result.is_empty() {
                             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                            let response = pb::JobResponse {
-                                job_id,
-                                resp: bytes_result,
-                            };
+                            let response = pb::JobResponse { job_id, resp: bytes_result };
                             match tx.send(Ok(response)) {
                                 Ok(_) => println!("Response sent successfully."),
                                 Err(e) => eprintln!("Failed to send response: {}", e),
@@ -488,10 +477,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
         }
         let bytes_result = vec![];
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let response = pb::JobResponse {
-            job_id,
-            resp: bytes_result,
-        };
+        let response = pb::JobResponse { job_id, resp: bytes_result };
         match tx.send(Ok(response)) {
             Ok(_) => println!("Response sent successfully."),
             Err(e) => eprintln!("Failed to send response: {}", e),

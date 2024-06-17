@@ -39,11 +39,20 @@ impl GraphIndex {
         }
     }
 
-    pub fn has_vertex_index(&self, index_name: String, vertex_label: LabelId) -> bool {
-        if self.index_schema.get_vertex_index(vertex_label, &index_name) == None {
-            false
+    pub fn has_vertex_index(&self, index_name: String, vertex_label: LabelId, property_size: usize) -> bool {
+        if let Some(index_label) = self.index_schema.get_vertex_index(vertex_label, &index_name) {
+            let vertex_index_id = encode_vertex_index(vertex_label, index_label);
+            if let Some(vertex_index) = self.vertex_index.get(&vertex_index_id) {
+                if vertex_index.len() == property_size {
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
         } else {
-            true
+            false
         }
     }
 
@@ -72,13 +81,17 @@ impl GraphIndex {
     }
 
     pub fn has_incoming_edge_index(&self, index_name: String, src_label: LabelId,
-                                   edge_label: LabelId, dst_label: LabelId) -> bool {
+                                   edge_label: LabelId, dst_label: LabelId, property_size: usize) -> bool {
         if let Some(index_label) = self
             .index_schema
             .get_edge_index(edge_label, src_label, dst_label, &index_name) {
             let edge_index_id = encode_edge_index(src_label, edge_label, dst_label, index_label);
-            if self.incoming_edge_index.contains_key(&edge_index_id) {
-                true
+            if let Some(edge_index) = self.incoming_edge_index.get(&edge_index_id) {
+                if edge_index.len() == property_size {
+                    true
+                } else {
+                    false
+                }
             } else {
                 false
             }
@@ -110,13 +123,17 @@ impl GraphIndex {
     }
 
     pub fn has_outgoing_edge_index(&self, index_name: String, src_label: LabelId,
-                                   edge_label: LabelId, dst_label: LabelId) -> bool {
+                                   edge_label: LabelId, dst_label: LabelId, property_size: usize) -> bool {
         if let Some(index_label) = self
             .index_schema
             .get_edge_index(edge_label, src_label, dst_label, &index_name) {
             let edge_index_id = encode_edge_index(src_label, edge_label, dst_label, index_label);
-            if self.outgoing_edge_index.contains_key(&edge_index_id) {
-                true
+            if let Some(edge_index) = self.outgoing_edge_index.get(&edge_index_id) {
+                if edge_index.len() == property_size {
+                    true
+                } else {
+                    false
+                }
             } else {
                 false
             }

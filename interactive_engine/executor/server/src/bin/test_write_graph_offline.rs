@@ -174,7 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     pegasus::run_with_resource_map(conf.clone(), Some(resource_maps.clone()), || {
                         query.Query(conf.clone(), &graph, &graph_index, params.clone(), None)
                     })
-                        .expect("submit query failure")
+                    .expect("submit query failure")
                 };
                 let mut write_operations = vec![];
                 for result in results {
