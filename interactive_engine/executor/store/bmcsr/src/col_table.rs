@@ -129,6 +129,75 @@ impl ColTable {
         }
     }
 
+    pub fn add_property(&mut self, index_name: String, data_type: DataType) {
+        let property_num = self.columns.len();
+        if !self.header.contains_key(&index_name) {
+            self.header.insert(index_name, property_num);
+            match data_type {
+                DataType::Int32 => {
+                    let mut column = Int32Column::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::UInt32 => {
+                    let mut column = UInt32Column::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::Int64 => {
+                    let mut column = Int64Column::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::UInt64 => {
+                    let mut column = UInt64Column::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::Double => {
+                    let mut column = DoubleColumn::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::String => {
+                    let mut column = StringColumn::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::Date => {
+                    let mut column = DateColumn::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::DateTime => {
+                    let mut column = DateTimeColumn::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::LCString => {
+                    let mut column = LCStringColumn::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::ID => {
+                    let mut column = IDColumn::new();
+                    column.resize(self.row_num);
+                    self.columns.push(Box::new(column));
+                }
+                DataType::NULL => {
+                    panic!("Data type of column can not be null");
+                }
+            }
+        }
+    }
+
+    pub fn set_property(&mut self, prop_name: String, index: &Vec<usize>, data: Box<dyn Column>) {
+        if let Some(prop_id) = self.header.get(&prop_name) {
+            let mut column = self.columns.get_mut(*prop_id).unwrap();
+            column.set_column_batch(index, &data);
+        }
+    }
+
     pub fn get_column_by_index(&self, index: usize) -> &'_ Box<dyn Column> {
         &self.columns[index]
     }
@@ -420,6 +489,7 @@ impl ColTable {
 }
 
 unsafe impl Sync for ColTable {}
+
 unsafe impl Send for ColTable {}
 
 pub fn parse_properties(

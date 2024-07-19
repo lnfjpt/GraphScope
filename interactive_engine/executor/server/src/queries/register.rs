@@ -9,9 +9,11 @@ use std::time::Instant;
 use bmcsr::col_table::ColTable;
 use bmcsr::graph::Direction;
 use bmcsr::graph_db::GraphDB;
+use bmcsr::graph_modifier::*;
 use bmcsr::types::LabelId;
 use dlopen::wrapper::{Container, WrapperApi};
-use graph_index::types::*;
+use graph_index::types::DataType as IndexDataType;
+use graph_index::types::{ColumnData, Item};
 use graph_index::GraphIndex;
 use pegasus::api::*;
 use pegasus::errors::BuildJobError;
@@ -36,7 +38,6 @@ pub struct QueryApi {
     Query: fn(
         conf: JobConf,
         graph: &GraphDB<usize, usize>,
-        graph_index: &GraphIndex,
         input_params: HashMap<String, String>,
         alias_data: Option<Arc<Mutex<HashMap<u32, Vec<AliasData>>>>>,
     ) -> Box<
@@ -140,10 +141,14 @@ pub struct QueryRegister {
     query_inputs: RwLock<HashMap<String, Vec<(String, String)>>>,
     query_outputs: RwLock<HashMap<String, HashMap<String, String>>>,
     query_description: RwLock<HashMap<String, String>>,
-    precompute_vertex_mappings: RwLock<HashMap<String, (u8, Vec<(String, DataType)>)>>,
+    precompute_vertex_mappings: RwLock<HashMap<String, (u8, Vec<(String, IndexDataType)>)>>,
     precompute_vertex_map: HashMap<String, (PrecomputeSetting, Container<PrecomputeVertexApi>)>,
     precompute_edge_map: HashMap<String, (PrecomputeSetting, Container<PrecomputeEdgeApi>)>,
 }
+
+unsafe impl Send for QueryRegister {}
+
+unsafe impl Sync for QueryRegister {}
 
 impl QueryRegister {
     pub fn new() -> Self {
@@ -225,7 +230,7 @@ impl QueryRegister {
     }
 
     pub fn register_vertex_precompute(
-        &self, query_name: String, label_id: u8, mappings: Vec<(String, DataType)>,
+        &self, query_name: String, label_id: u8, mappings: Vec<(String, IndexDataType)>,
     ) {
         let mut precompute_vertex_mappings = self
             .precompute_vertex_mappings
@@ -234,7 +239,9 @@ impl QueryRegister {
         precompute_vertex_mappings.insert(query_name.clone(), (label_id, mappings));
     }
 
-    pub fn get_precompute_vertex(&self, precompute_name: &String) -> Option<(u8, Vec<(String, DataType)>)> {
+    pub fn get_precompute_vertex(
+        &self, precompute_name: &String,
+    ) -> Option<(u8, Vec<(String, IndexDataType)>)> {
         let mut precompute_vertex_mappings = self
             .precompute_vertex_mappings
             .write()
