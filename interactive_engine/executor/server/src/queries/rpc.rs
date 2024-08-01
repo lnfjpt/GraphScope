@@ -149,7 +149,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
 
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
-    ) -> Result<(), Box<dyn std::error::Error>>
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
@@ -241,17 +241,18 @@ impl RPCServerConfig {
 
 pub async fn start_all(
     rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, workers: u32,
-    servers: &Vec<u64>, graph_db: Arc<RwLock<GraphDB<usize, usize>>>, graph_index: Arc<RwLock<GraphIndex>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+    servers: Vec<u64>, graph_db: Arc<RwLock<GraphDB<usize, usize>>>, graph_index: Arc<RwLock<GraphIndex>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_id = server_config.server_id();
-    start_rpc_sever(server_id, rpc_config, query_register, workers, servers, graph_db, graph_index).await?;
+    start_rpc_sever(server_id, rpc_config, query_register, workers, &servers, graph_db, graph_index)
+        .await?;
     Ok(())
 }
 
 pub async fn start_rpc_sever(
     server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, workers: u32,
     servers: &Vec<u64>, graph_db: Arc<RwLock<GraphDB<usize, usize>>>, graph_index: Arc<RwLock<GraphIndex>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let service = JobServiceImpl {
         query_register,
         workers,

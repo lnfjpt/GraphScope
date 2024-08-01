@@ -33,6 +33,9 @@ num = "0.4.1"
 graph_index = { path = "../store/graph_index" }
 mimalloc = {version = "0.1.42", features = ["local_dynamic_tls"], optional = true}
 mimalloc-rust = {version = "0.2.1", features = ["local-dynamic-tls"], optional = true}
+actix-web = "4.0"
+actix-rt = "2.5.0"
+byteorder = "1.5.0"
 
 [build-dependencies]
 tonic-build = { version = "0.8" }

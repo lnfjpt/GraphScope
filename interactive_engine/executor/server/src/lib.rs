@@ -9,7 +9,9 @@ extern crate lazy_static;
 extern crate core;
 extern crate rand;
 
+pub mod proxy;
 pub mod queries;
+pub mod request;
 
 #[cfg(not(feature = "gcip"))]
 mod generated {
