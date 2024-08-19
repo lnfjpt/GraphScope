@@ -23,6 +23,10 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use dyn_type::object::RawType;
 use dyn_type::CastError;
+#[cfg(feature = "hugepage_table")]
+use huge_container::HugeVec;
+use pegasus_common::codec::{Decode, Encode};
+use pegasus_common::io::{ReadExt, WriteExt};
 use serde::{Deserialize, Serialize};
 
 use crate::date::Date;
@@ -30,15 +34,12 @@ use crate::date_time::DateTime;
 use crate::types::DefaultId;
 
 #[cfg(feature = "hugepage_table")]
-use huge_container::HugeVec;
-
-#[cfg(feature = "hugepage_table")]
-type ColumnContainer<T> = HugeVec<T>;
+pub type ColumnContainer<T> = HugeVec<T>;
 
 #[cfg(not(feature = "hugepage_table"))]
-type ColumnContainer<T> = Vec<T>;
+pub type ColumnContainer<T> = Vec<T>;
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum DataType {
     Int32 = 1,
     UInt32 = 2,
@@ -51,6 +52,45 @@ pub enum DataType {
     LCString = 9,
     ID = 10,
     NULL = 0,
+}
+
+impl Encode for DataType {
+    fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
+        match *self {
+            DataType::NULL => writer.write_u8(0),
+            DataType::Int32 => writer.write_u8(1),
+            DataType::UInt32 => writer.write_u8(2),
+            DataType::Int64 => writer.write_u8(3),
+            DataType::UInt64 => writer.write_u8(4),
+            DataType::Double => writer.write_u8(5),
+            DataType::String => writer.write_u8(6),
+            DataType::Date => writer.write_u8(7),
+            DataType::DateTime => writer.write_u8(8),
+            DataType::LCString => writer.write_u8(9),
+            DataType::ID => writer.write_u8(10),
+        };
+        Ok(())
+    }
+}
+
+impl Decode for DataType {
+    fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
+        let data_type = match reader.read_u8()? {
+            0 => DataType::NULL,
+            1 => DataType::Int32,
+            2 => DataType::UInt32,
+            3 => DataType::Int64,
+            4 => DataType::UInt64,
+            5 => DataType::Double,
+            6 => DataType::String,
+            7 => DataType::Date,
+            8 => DataType::DateTime,
+            9 => DataType::LCString,
+            10 => DataType::ID,
+            _ => panic!("Unknown data type"),
+        };
+        Ok(data_type)
+    }
 }
 
 impl DataType {
@@ -389,6 +429,7 @@ pub trait Column: Debug {
     fn len(&self) -> usize;
     fn as_any(&self) -> &dyn Any;
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>);
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize);
     fn move_elem(&mut self, from: usize, to: usize);
     fn copy_range(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize, num: usize);
@@ -401,6 +442,10 @@ pub trait Column: Debug {
 pub struct Int32Column {
     pub data: ColumnContainer<i32>,
 }
+
+unsafe impl Send for Int32Column {}
+
+unsafe impl Sync for Int32Column {}
 
 impl Int32Column {
     pub fn new() -> Self {
@@ -418,6 +463,20 @@ impl Int32Column {
             }
         }
         return true;
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<i32>) -> Int32Column {
+        Int32Column { data }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<i32>) -> Int32Column {
+        Int32Column { data }
+    }
+
+    pub fn clone_from(other: &Int32Column) -> Int32Column {
+        Int32Column { data: other.data.clone() }
     }
 }
 
@@ -489,6 +548,15 @@ impl Column for Int32Column {
         self.data.resize(size, 0);
     }
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
+    }
+
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {
         let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
         self.data[self_index] = casted_col.data[col_index];
@@ -509,6 +577,10 @@ pub struct UInt32Column {
     pub data: ColumnContainer<u32>,
 }
 
+unsafe impl Send for UInt32Column {}
+
+unsafe impl Sync for UInt32Column {}
+
 impl UInt32Column {
     pub fn new() -> Self {
         Self { data: ColumnContainer::new() }
@@ -525,6 +597,20 @@ impl UInt32Column {
             }
         }
         return true;
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<u32>) -> UInt32Column {
+        UInt32Column { data }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<u32>) -> UInt32Column {
+        UInt32Column { data }
+    }
+
+    pub fn clone_from(other: &UInt32Column) -> UInt32Column {
+        UInt32Column { data: other.data.clone() }
     }
 }
 
@@ -596,6 +682,15 @@ impl Column for UInt32Column {
         self.data.resize(size, 0);
     }
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
+    }
+
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {
         let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
         self.data[self_index] = casted_col.data[col_index];
@@ -616,6 +711,10 @@ pub struct Int64Column {
     pub data: ColumnContainer<i64>,
 }
 
+unsafe impl Send for Int64Column {}
+
+unsafe impl Sync for Int64Column {}
+
 impl Int64Column {
     pub fn new() -> Self {
         Self { data: ColumnContainer::new() }
@@ -632,6 +731,20 @@ impl Int64Column {
             }
         }
         return true;
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<i64>) -> Int64Column {
+        Int64Column { data }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<i64>) -> Int64Column {
+        Int64Column { data }
+    }
+
+    pub fn clone_from(other: &Int64Column) -> Int64Column {
+        Int64Column { data: other.data.clone() }
     }
 }
 
@@ -703,6 +816,15 @@ impl Column for Int64Column {
         self.data.resize(size, 0);
     }
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
+    }
+
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {
         let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
         self.data[self_index] = casted_col.data[col_index];
@@ -723,6 +845,10 @@ pub struct UInt64Column {
     pub data: ColumnContainer<u64>,
 }
 
+unsafe impl Send for UInt64Column {}
+
+unsafe impl Sync for UInt64Column {}
+
 impl UInt64Column {
     pub fn new() -> Self {
         Self { data: ColumnContainer::new() }
@@ -739,6 +865,20 @@ impl UInt64Column {
             }
         }
         return true;
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<u64>) -> UInt64Column {
+        UInt64Column { data }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<u64>) -> UInt64Column {
+        UInt64Column { data }
+    }
+
+    pub fn clone_from(other: &UInt64Column) -> UInt64Column {
+        UInt64Column { data: other.data.clone() }
     }
 }
 
@@ -810,6 +950,15 @@ impl Column for UInt64Column {
         self.data.resize(size, 0);
     }
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
+    }
+
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {
         let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
         self.data[self_index] = casted_col.data[col_index];
@@ -830,9 +979,27 @@ pub struct IDColumn {
     pub data: ColumnContainer<DefaultId>,
 }
 
+unsafe impl Send for IDColumn {}
+
+unsafe impl Sync for IDColumn {}
+
 impl IDColumn {
     pub fn new() -> Self {
         Self { data: ColumnContainer::new() }
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<usize>) -> IDColumn {
+        IDColumn { data }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<usize>) -> IDColumn {
+        IDColumn { data }
+    }
+
+    pub fn clone_from(other: &IDColumn) -> IDColumn {
+        IDColumn { data: other.data.clone() }
     }
 }
 
@@ -848,7 +1015,9 @@ impl Column for IDColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::VertexId(x))
+        self.data
+            .get(index)
+            .map(|x| RefItem::VertexId(x))
     }
 
     fn set(&mut self, index: usize, val: Item) {
@@ -904,6 +1073,15 @@ impl Column for IDColumn {
         self.data.resize(size, 0);
     }
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
+    }
+
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {
         let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
         self.data[self_index] = casted_col.data[col_index];
@@ -924,9 +1102,27 @@ pub struct DoubleColumn {
     pub data: ColumnContainer<f64>,
 }
 
+unsafe impl Send for DoubleColumn {}
+
+unsafe impl Sync for DoubleColumn {}
+
 impl DoubleColumn {
     pub fn new() -> Self {
         Self { data: ColumnContainer::new() }
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<f64>) -> DoubleColumn {
+        DoubleColumn { data }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<f64>) -> DoubleColumn {
+        DoubleColumn { data }
+    }
+
+    pub fn clone_from(other: &DoubleColumn) -> DoubleColumn {
+        DoubleColumn { data: other.data.clone() }
     }
 }
 
@@ -998,6 +1194,15 @@ impl Column for DoubleColumn {
         self.data.resize(size, 0.0);
     }
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
+    }
+
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {
         let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
         self.data[self_index] = casted_col.data[col_index];
@@ -1018,9 +1223,27 @@ pub struct StringColumn {
     pub data: Vec<String>,
 }
 
+unsafe impl Send for StringColumn {}
+
+unsafe impl Sync for StringColumn {}
+
 impl StringColumn {
     pub fn new() -> Self {
         Self { data: Vec::new() }
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<String>) -> StringColumn {
+        StringColumn { data }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<String>) -> StringColumn {
+        StringColumn { data }
+    }
+
+    pub fn clone_from(other: &StringColumn) -> StringColumn {
+        StringColumn { data: other.data.clone() }
     }
 }
 
@@ -1096,6 +1319,15 @@ impl Column for StringColumn {
         self.data.resize(size, String::new());
     }
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index].clone();
+            }
+        }
+    }
+
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {
         let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
         self.data[self_index] = casted_col.data[col_index].clone();
@@ -1119,6 +1351,10 @@ pub struct LCStringColumn {
     pub list: Vec<String>,
 }
 
+unsafe impl Send for LCStringColumn {}
+
+unsafe impl Sync for LCStringColumn {}
+
 impl LCStringColumn {
     pub fn new() -> Self {
         Self { data: ColumnContainer::new(), table: HashMap::new(), list: Vec::new() }
@@ -1138,6 +1374,20 @@ impl LCStringColumn {
             }
         }
         return true;
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<u16>, table: HashMap<String, u16>, list: Vec<String>) -> LCStringColumn {
+        LCStringColumn { data, table, list }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<u16>, table: HashMap<String, u16>, list: Vec<String>) -> LCStringColumn {
+        LCStringColumn { data, table, list }
+    }
+
+    pub fn clone_from(other: &LCStringColumn) -> LCStringColumn {
+        LCStringColumn { data: other.data.clone(), table: other.table.clone(), list: other.list.clone() }
     }
 }
 
@@ -1243,6 +1493,23 @@ impl Column for LCStringColumn {
         self.data.resize(size, 0);
     }
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                let val = casted_col.list[casted_col.data[index] as usize].clone();
+                if let Some(idx) = self.table.get(&val) {
+                    self.data[*i] = *idx;
+                } else {
+                    let idx = self.table.len() as u16;
+                    self.list.push(val.clone());
+                    self.table.insert(val, idx);
+                    self.data[*i] = idx;
+                }
+            }
+        }
+    }
+
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {
         let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
         let val = casted_col.list[casted_col.data[col_index] as usize].clone();
@@ -1280,6 +1547,10 @@ pub struct DateColumn {
     pub data: ColumnContainer<Date>,
 }
 
+unsafe impl Send for DateColumn {}
+
+unsafe impl Sync for DateColumn {}
+
 impl DateColumn {
     pub fn new() -> Self {
         Self { data: ColumnContainer::new() }
@@ -1296,6 +1567,20 @@ impl DateColumn {
             }
         }
         return true;
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<Date>) -> DateColumn {
+        DateColumn { data }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<Date>) -> DateColumn {
+        DateColumn { data }
+    }
+
+    pub fn clone_from(other: &DateColumn) -> DateColumn {
+        DateColumn { data: other.data.clone() }
     }
 }
 
@@ -1367,6 +1652,15 @@ impl Column for DateColumn {
         self.data.resize(size, Date::empty());
     }
 
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
+    }
+
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {
         let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
         self.data[self_index] = casted_col.data[col_index];
@@ -1387,6 +1681,10 @@ pub struct DateTimeColumn {
     pub data: ColumnContainer<DateTime>,
 }
 
+unsafe impl Send for DateTimeColumn {}
+
+unsafe impl Sync for DateTimeColumn {}
+
 impl DateTimeColumn {
     pub fn new() -> Self {
         Self { data: ColumnContainer::new() }
@@ -1403,6 +1701,20 @@ impl DateTimeColumn {
             }
         }
         return true;
+    }
+
+    #[cfg(feature = "hugepage_table")]
+    pub fn from(data: HugeVec<DateTime>) -> DateTimeColumn {
+        DateTimeColumn { data }
+    }
+
+    #[cfg(not(feature = "hugepage_table"))]
+    pub fn from(data: Vec<DateTime>) -> DateTimeColumn {
+        DateTimeColumn { data }
+    }
+
+    pub fn clone_from(other: &DateTimeColumn) -> DateTimeColumn {
+        DateTimeColumn { data: other.data.clone() }
     }
 }
 
@@ -1474,6 +1786,15 @@ impl Column for DateTimeColumn {
 
     fn resize(&mut self, size: usize) {
         self.data.resize(size, DateTime::empty());
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn Column>) {
+        if col.as_any().is::<Self>() {
+            let casted_col = col.as_any().downcast_ref::<Self>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
     }
 
     fn set_column_elem(&mut self, self_index: usize, col: &Box<dyn Column>, col_index: usize) {

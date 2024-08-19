@@ -73,6 +73,7 @@ impl<'a> From<&'a str> for EdgeStrategy {
         }
     }
 }
+
 /// An edge's label is consisted of three elements:
 /// edge_label, src_vertex_label and dst_vertex_label.
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -255,6 +256,49 @@ impl CsrGraphSchema {
         } else {
             None
         }
+    }
+
+    pub fn add_vertex_index_prop(
+        &mut self, index_name: String, vertex_label: LabelId, data_type: DataType,
+    ) -> Option<usize> {
+        if let Some(mut prop_meta) = self.vertex_prop_meta.get_mut(&vertex_label) {
+            if let Some(mut prop_list) = self.vertex_prop_vec.get_mut(&vertex_label) {
+                if let Some((_, index_label)) = prop_meta.get(&index_name) {
+                    return Some(*index_label);
+                } else {
+                    let index_label = prop_list.len();
+                    prop_meta.insert(index_name.clone(), (data_type, index_label));
+                    prop_list.push((index_name.clone(), data_type));
+                    return Some(index_label);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn add_edge_index_prop(
+        &mut self, index_name: String, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
+        data_type: DataType,
+    ) -> Option<usize> {
+        if let Some(mut prop_meta) = self
+            .edge_prop_meta
+            .get_mut(&(src_label, edge_label, dst_label))
+        {
+            if let Some(mut prop_list) = self
+                .edge_prop_vec
+                .get_mut(&(src_label, edge_label, dst_label))
+            {
+                if let Some((_, index_label)) = prop_meta.get(&index_name) {
+                    return Some(*index_label);
+                } else {
+                    let index_label = prop_list.len();
+                    prop_meta.insert(index_name.clone(), (data_type, index_label));
+                    prop_list.push((index_name.clone(), data_type));
+                    return Some(index_label);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -587,7 +631,7 @@ impl<'a> From<&'a CsrGraphSchema> for CsrGraphSchemaJson {
             VertexInfo {
                 label: "".to_string(),
                 partition_type: PartitionType::Dynamic,
-                properties: vec![]
+                properties: vec![],
             };
             vertex_label_num
         ];

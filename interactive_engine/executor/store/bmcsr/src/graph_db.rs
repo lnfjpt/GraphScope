@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use crate::bmcsr::BatchMutableCsr;
 use crate::bmscsr::BatchMutableSingleCsr;
 use crate::col_table::ColTable;
-use crate::columns::{Item, RefItem};
+use crate::columns::{Column, DataType, Item, RefItem};
 use crate::csr::CsrTrait;
 use crate::edge_trim::EdgeTrimJson;
 use crate::error::GDBResult;
@@ -176,7 +176,7 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
     pub ie: Vec<Box<dyn CsrTrait<I>>>,
     pub oe: Vec<Box<dyn CsrTrait<I>>>,
 
-    pub graph_schema: Arc<CsrGraphSchema>,
+    pub graph_schema: CsrGraphSchema,
 
     pub vertex_map: VertexMap<G, I>,
 
@@ -189,9 +189,9 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
 }
 
 impl<G, I> GraphDB<G, I>
-where
-    G: Eq + IndexType + Send + Sync,
-    I: IndexType + Send + Sync,
+    where
+        G: Eq + IndexType + Send + Sync,
+        I: IndexType + Send + Sync,
 {
     pub fn edge_label_to_index(
         &self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, dir: Direction,
@@ -484,7 +484,7 @@ where
             partition,
             ie,
             oe,
-            graph_schema: Arc::new(graph_schema),
+            graph_schema: graph_schema,
             vertex_prop_table,
             vertex_map,
             ie_edge_prop_table,
@@ -576,6 +576,77 @@ where
         let lid = self.vertex_map.add_vertex(id, label);
         if let Some(properties) = properties {
             self.vertex_prop_table[label as usize].insert(lid.index(), &properties);
+        }
+    }
+
+    pub fn init_vertex_index_prop(
+        &mut self, index_name: String, vertex_label: LabelId, data_type: DataType,
+    ) {
+        if let Some(prop_index) =
+            self.graph_schema
+                .add_vertex_index_prop(index_name.clone(), vertex_label, data_type)
+        {
+            if let Some(mut col_table) = self
+                .vertex_prop_table
+                .get_mut(vertex_label as usize)
+            {
+                if !col_table.header.contains_key(&index_name) {
+                    col_table.add_property(index_name, data_type);
+                }
+            }
+        }
+    }
+
+    pub fn set_vertex_index_prop(
+        &mut self, index_name: String, vertex_label: LabelId, index: &Vec<usize>, data: Box<dyn Column>,
+    ) {
+        if let Some(mut col_table) = self
+            .vertex_prop_table
+            .get_mut(vertex_label as usize)
+        {
+            col_table.set_property(index_name, index, data);
+        }
+    }
+
+    pub fn init_edge_index_prop(
+        &mut self, index_name: String, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
+        data_type: DataType,
+    ) {
+        if let Some(prop_index) = self.graph_schema.add_edge_index_prop(
+            index_name.clone(),
+            src_label,
+            edge_label,
+            dst_label,
+            data_type,
+        ) {
+            let edge_index = src_label as usize * self.vertex_label_num * self.edge_label_num
+                + dst_label as usize * self.edge_label_num
+                + edge_label as usize;
+            if let Some(in_col_table) = self.ie_edge_prop_table.get_mut(&edge_index) {
+                in_col_table.add_property(index_name.clone(), data_type);
+            }
+            if let Some(out_col_table) = self.oe_edge_prop_table.get_mut(&edge_index) {
+                out_col_table.add_property(index_name, data_type);
+            }
+        }
+    }
+
+    pub fn set_edge_index_prop(
+        &mut self, index_name: String, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
+        in_index: Option<&Vec<usize>>, in_data: Option<Box<dyn Column>>, out_index: Option<&Vec<usize>>, out_data: Option<Box<dyn Column>>,
+    ) {
+        let edge_index = src_label as usize * self.vertex_label_num * self.edge_label_num
+            + dst_label as usize * self.edge_label_num
+            + edge_label as usize;
+        if in_index.is_some() {
+            if let Some(mut in_col_table) = self.ie_edge_prop_table.get_mut(&edge_index) {
+                in_col_table.set_property(index_name.clone(), in_index.unwrap(), in_data.unwrap());
+            }
+        }
+        if out_index.is_some() {
+            if let Some(mut out_col_table) = self.oe_edge_prop_table.get_mut(&edge_index) {
+                out_col_table.set_property(index_name, out_index.unwrap(), out_data.unwrap());
+            }
         }
     }
 }

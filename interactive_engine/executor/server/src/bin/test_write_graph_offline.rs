@@ -172,7 +172,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let graph_index = shared_graph_index.read().unwrap();
                 let results = {
                     pegasus::run_with_resource_map(conf.clone(), Some(resource_maps.clone()), || {
-                        query.Query(conf.clone(), &graph, &graph_index, params.clone(), None)
+                        query.Query(conf.clone(), &graph, params.clone(), None)
                     })
                     .expect("submit query failure")
                 };
@@ -192,19 +192,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut graph_index = shared_graph_index.write().unwrap();
                 for mut write_op in write_operations.drain(..) {
                     match write_op.write_type() {
-                        WriteType::Insert => {
+                        bmcsr::graph_modifier::WriteType::Insert => {
                             if let Some(vertex_mappings) = write_op.vertex_mappings() {
                                 let vertex_label = vertex_mappings.vertex_label();
                                 let inputs = vertex_mappings.inputs();
                                 let column_mappings = vertex_mappings.column_mappings();
                                 for input in inputs.iter() {
-                                    write_graph::insert_vertices(
-                                        &mut graph,
-                                        vertex_label,
-                                        input,
-                                        column_mappings,
-                                        8,
-                                    );
+                                    // write_graph::insert_vertices(
+                                    //     &mut graph,
+                                    //     vertex_label,
+                                    //     input,
+                                    //     column_mappings,
+                                    //     8,
+                                    // );
                                 }
                             } else if let Some(edge_mappings) = write_op.edge_mappings() {
                                 let src_label = edge_mappings.src_label();
@@ -215,33 +215,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let dst_vertex_mappings = edge_mappings.dst_column_mappings();
                                 let column_mappings = edge_mappings.column_mappings();
                                 for input in inputs.iter() {
-                                    write_graph::insert_edges(
-                                        &mut graph,
-                                        src_label,
-                                        edge_label,
-                                        dst_label,
-                                        input,
-                                        src_vertex_mappings,
-                                        dst_vertex_mappings,
-                                        column_mappings,
-                                        8,
-                                    );
+                                    // write_graph::insert_edges(
+                                    //     &mut graph,
+                                    //     src_label,
+                                    //     edge_label,
+                                    //     dst_label,
+                                    //     input,
+                                    //     src_vertex_mappings,
+                                    //     dst_vertex_mappings,
+                                    //     column_mappings,
+                                    //     8,
+                                    // );
                                 }
                             }
                         }
-                        WriteType::Delete => {
+                        bmcsr::graph_modifier::WriteType::Delete => {
                             if let Some(vertex_mappings) = write_op.take_vertex_mappings() {
                                 let vertex_label = vertex_mappings.vertex_label();
                                 let inputs = vertex_mappings.inputs();
                                 let column_mappings = vertex_mappings.column_mappings();
                                 for input in inputs.iter() {
-                                    write_graph::delete_vertices(
-                                        &mut graph,
-                                        vertex_label,
-                                        input,
-                                        column_mappings,
-                                        8,
-                                    );
+                                    // write_graph::delete_vertices(
+                                    //     &mut graph,
+                                    //     vertex_label,
+                                    //     input,
+                                    //     column_mappings,
+                                    //     8,
+                                    // );
                                 }
                             }
                             if let Some(edge_mappings) = write_op.take_edge_mappings() {
@@ -253,17 +253,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let dst_column_mappings = edge_mappings.dst_column_mappings();
                                 let column_mappings = edge_mappings.column_mappings();
                                 for input in inputs.iter() {
-                                    write_graph::delete_edges(
-                                        &mut graph,
-                                        src_label,
-                                        edge_label,
-                                        dst_label,
-                                        input,
-                                        src_column_mappings,
-                                        dst_column_mappings,
-                                        column_mappings,
-                                        8,
-                                    );
+                                    // write_graph::delete_edges(
+                                    //     &mut graph,
+                                    //     src_label,
+                                    //     edge_label,
+                                    //     dst_label,
+                                    //     input,
+                                    //     src_column_mappings,
+                                    //     dst_column_mappings,
+                                    //     column_mappings,
+                                    //     8,
+                                    // );
                                 }
                             }
                         }
