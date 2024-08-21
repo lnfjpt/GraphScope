@@ -30,6 +30,7 @@ use pegasus::errors::{ErrorKind, JobExecError};
 use pegasus::resource::DistributedParResourceMaps;
 use pegasus::result::{FromStreamExt, ResultSink};
 use pegasus::{Configuration, JobConf, ServerConf};
+use pegasus_network::{get_msg_sender, get_recv_register, InboxRegister, NetData};
 use pegasus_network::config::ServerAddr;
 use prost::Message;
 use serde::Deserialize;
@@ -150,7 +151,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
-where {
+        where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -311,6 +312,8 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     );
                     let mut conf = parse_conf_req(conf);
                     conf.reset_servers(ServerConf::Partial(self.servers.clone()));
+                    let msg_sender_map = get_msg_sender();
+                    let recv_register_map = get_recv_register();
                     for query in queries.iter() {
                         let graph = self.graph_db.read().unwrap();
                         let graph_index = self.graph_index.read().unwrap();
@@ -318,9 +321,9 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                             pegasus::run_with_resource_map(
                                 conf.clone(),
                                 Some(resource_maps.clone()),
-                                || query.Query(conf.clone(), &graph, params.clone(), None),
+                                || query.Query(conf.clone(), &graph, params.clone(), None, msg_sender_map.clone(), recv_register_map.clone()),
                             )
-                            .expect("submit query failure")
+                                .expect("submit query failure")
                         };
                         let mut write_operations = vec![];
                         let mut bytes_result = vec![];

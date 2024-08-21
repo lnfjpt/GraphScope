@@ -114,14 +114,20 @@ impl<T: Encode + 'static> Clone for IPCSender<T> {
 }
 
 lazy_static! {
-    static ref REMOTE_MSG_SENDER: ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>> =
-        ShardedLock::new(HashMap::new());
+    static ref REMOTE_MSG_SENDER: Arc<ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>> =
+        Arc::new(ShardedLock::new(HashMap::new()));
     static ref NETWORK_SEND_ERRORS: Mutex<HashMap<u128, Vec<SocketAddr>>> = Mutex::new(HashMap::new());
 }
 
 #[inline]
-pub fn get_msg_sender() -> &'static ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>> {
-    return &REMOTE_MSG_SENDER;
+pub fn get_msg_sender() -> Arc<ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>> {
+    return REMOTE_MSG_SENDER.clone();
+}
+
+pub fn set_msg_sender(sender_map: Arc<ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>>) {
+    let mut sender_write_lock = REMOTE_MSG_SENDER.write().expect("Msg sender poisoned");
+    let sender_read_lock = sender_map.read().unwrap();
+    *sender_write_lock = sender_read_lock.clone();
 }
 
 #[inline]
@@ -176,17 +182,10 @@ pub(crate) fn remove_remote_sender(local_id: u64, remote_id: u64) {
 
 pub fn fetch_remote_sender<T: Encode + 'static>(
     channel_id: u128, local: u64, remotes: &[u64],
-    msg_senders: Option<&'static ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>>,
 ) -> Result<Vec<IPCSender<T>>, NetError> {
-    let lock = if let Some(msg_senders) = msg_senders {
-        msg_senders
-            .read()
-            .expect("REMOTE_MSG_SEND read lock poisoned")
-    } else {
-        REMOTE_MSG_SENDER
-            .read()
-            .expect("REMOTE_MSG_SEND read lock poisoned")
-    };
+    let lock = REMOTE_MSG_SENDER
+        .read()
+        .expect("REMOTE_MSG_SEND read lock poisoned");
     let mut app_senders = Vec::with_capacity(remotes.len());
     for id in remotes {
         if *id != local {

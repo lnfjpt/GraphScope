@@ -269,6 +269,7 @@ fn decode_next<R: Read, D: MessageDecoder>(reader: &mut R, decoder: &mut D) -> i
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct InboxRegister {
     pub addr: SocketAddr,
     inner: Arc<InboxTable>,

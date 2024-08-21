@@ -3,9 +3,12 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fs::File;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, Weak};
 use std::time::Instant;
+use std::net::SocketAddr;
 
+use crossbeam_channel::Sender;
+use crossbeam_utils::sync::ShardedLock;
 use bmcsr::col_table::ColTable;
 use bmcsr::graph::Direction;
 use bmcsr::graph_db::GraphDB;
@@ -19,6 +22,7 @@ use pegasus::api::*;
 use pegasus::errors::BuildJobError;
 use pegasus::result::ResultSink;
 use pegasus::{JobConf, ServerConf};
+use pegasus_network::{InboxRegister, NetData};
 use serde::{Deserialize, Serialize};
 
 use crate::queries::write_graph;
@@ -40,6 +44,8 @@ pub struct QueryApi {
         graph: &GraphDB<usize, usize>,
         input_params: HashMap<String, String>,
         alias_data: Option<Arc<Mutex<HashMap<u32, Vec<AliasData>>>>>,
+        msg_sender_map: Arc<ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>>,
+        recv_register_map: Arc<ShardedLock<HashMap<(u64, u64), InboxRegister>>>,
     ) -> Box<
         dyn Fn(
             &mut Source<Vec<AliasData>>,
@@ -405,7 +411,7 @@ impl QueryRegister {
                         dst_label,
                     )
                 })
-                .expect("submit precompute failure")
+                    .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {
@@ -501,7 +507,7 @@ impl QueryRegister {
                         dst_label,
                     )
                 })
-                .expect("submit precompute failure")
+                    .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {
@@ -575,7 +581,7 @@ impl QueryRegister {
                 pegasus::run(conf.clone(), || {
                     libc.Precompute(conf.clone(), graph, graph_index, true, label, src_label, dst_label)
                 })
-                .expect("submit precompute failure")
+                    .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {
@@ -659,7 +665,7 @@ impl QueryRegister {
                 pegasus::run(conf.clone(), || {
                     libc.Precompute(conf.clone(), graph, graph_index, true, label, src_label, dst_label)
                 })
-                .expect("submit precompute failure")
+                    .expect("submit precompute failure")
             };
             let mut result_vec = vec![];
             for x in result {

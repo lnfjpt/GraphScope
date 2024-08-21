@@ -14,16 +14,12 @@
 //! limitations under the License.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt::Write;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::rc::Rc;
-use std::sync::{Arc, Weak};
-
-use crossbeam_channel::Sender;
-use crossbeam_utils::sync::ShardedLock;
-use pegasus_network::{InboxRegister, NetData};
+use std::sync::Arc;
 
 use crate::api::meta::OperatorInfo;
 use crate::channel_id::ChannelInfo;
@@ -46,15 +42,11 @@ pub struct DataflowBuilder {
     operators: Rc<RefCell<Vec<OperatorBuilder>>>,
     edges: Rc<RefCell<Vec<Edge>>>,
     sinks: Rc<RefCell<Vec<usize>>>,
-    pub msg_senders: &'static ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>,
-    pub recv_register: &'static ShardedLock<HashMap<(u64, u64), InboxRegister>>,
 }
 
 impl DataflowBuilder {
     pub(crate) fn new(
         worker_id: WorkerId, event_emitter: EventEmitter, config: &Arc<JobConf>,
-        msg_senders: &'static ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>,
-        recv_register: &'static ShardedLock<HashMap<(u64, u64), InboxRegister>>,
     ) -> Self {
         DataflowBuilder {
             worker_id,
@@ -64,8 +56,6 @@ impl DataflowBuilder {
             event_emitter,
             ch_index: Rc::new(RefCell::new(1)),
             sinks: Rc::new(RefCell::new(vec![])),
-            msg_senders,
-            recv_register,
         }
     }
 
@@ -91,9 +81,9 @@ impl DataflowBuilder {
     }
 
     pub(crate) fn add_operator<F, O>(&self, name: &str, scope_level: u32, construct: F) -> OperatorRef
-    where
-        O: OperatorCore,
-        F: FnOnce(&OperatorInfo) -> O,
+        where
+            O: OperatorCore,
+            F: FnOnce(&OperatorInfo) -> O,
     {
         let index = self.operators.borrow().len() + 1;
         let info = OperatorInfo::new(name, index, scope_level);
@@ -106,9 +96,9 @@ impl DataflowBuilder {
     pub(crate) fn add_notify_operator<F, O>(
         &self, name: &str, scope_level: u32, construct: F,
     ) -> OperatorRef
-    where
-        O: NotifiableOperator,
-        F: FnOnce(&OperatorInfo) -> O,
+        where
+            O: NotifiableOperator,
+            F: FnOnce(&OperatorInfo) -> O,
     {
         let index = self.operators.borrow().len() + 1;
         let info = OperatorInfo::new(name, index, scope_level);
@@ -215,8 +205,6 @@ impl Clone for DataflowBuilder {
             ch_index: self.ch_index.clone(),
             edges: self.edges.clone(),
             sinks: self.sinks.clone(),
-            msg_senders: self.msg_senders,
-            recv_register: self.recv_register,
         }
     }
 }
