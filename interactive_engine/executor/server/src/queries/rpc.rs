@@ -30,8 +30,8 @@ use pegasus::errors::{ErrorKind, JobExecError};
 use pegasus::resource::DistributedParResourceMaps;
 use pegasus::result::{FromStreamExt, ResultSink};
 use pegasus::{Configuration, JobConf, ServerConf};
-use pegasus_network::{get_msg_sender, get_recv_register, InboxRegister, NetData};
 use pegasus_network::config::ServerAddr;
+use pegasus_network::{get_msg_sender, get_recv_register, InboxRegister, NetData};
 use prost::Message;
 use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
@@ -44,7 +44,6 @@ use crate::generated::common;
 use crate::generated::procedure;
 use crate::generated::protocol as pb;
 use crate::queries::register::QueryRegister;
-use crate::queries::write_graph;
 
 pub struct StandaloneServiceListener;
 
@@ -151,7 +150,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
-        where {
+where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -257,6 +256,7 @@ pub async fn start_rpc_sever(
     let service = JobServiceImpl {
         query_register,
         workers,
+        server_id,
         servers: servers.clone(),
         report: true,
         graph_db,
@@ -275,6 +275,7 @@ static CODEGEN_TMP_DIR: &'static str = "CODEGEN_TMP_DIR";
 pub struct JobServiceImpl {
     query_register: QueryRegister,
     workers: u32,
+    server_id: u64,
     servers: Vec<u64>,
     report: bool,
 
@@ -321,9 +322,18 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                             pegasus::run_with_resource_map(
                                 conf.clone(),
                                 Some(resource_maps.clone()),
-                                || query.Query(conf.clone(), &graph, params.clone(), None, msg_sender_map.clone(), recv_register_map.clone()),
+                                || {
+                                    query.Query(
+                                        conf.clone(),
+                                        &graph,
+                                        params.clone(),
+                                        None,
+                                        msg_sender_map.clone(),
+                                        recv_register_map.clone(),
+                                    )
+                                },
                             )
-                                .expect("submit query failure")
+                            .expect("submit query failure")
                         };
                         let mut write_operations = vec![];
                         let mut bytes_result = vec![];
@@ -345,7 +355,12 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                         drop(graph_index);
                         let mut graph = self.graph_db.write().unwrap();
                         let mut graph_index = self.graph_index.write().unwrap();
-                        apply_write_operations(&mut graph, write_operations, self.workers);
+                        apply_write_operations(
+                            &mut graph,
+                            write_operations,
+                            self.workers,
+                            self.server_id as u32,
+                        );
 
                         if !bytes_result.is_empty() {
                             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();

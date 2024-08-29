@@ -94,6 +94,7 @@ impl<I: IndexType> BatchMutableCsr<I> {
 }
 
 unsafe impl<I: IndexType> Send for BatchMutableCsr<I> {}
+
 unsafe impl<I: IndexType> Sync for BatchMutableCsr<I> {}
 
 impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
@@ -433,11 +434,15 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
 
         if reverse {
             for e in edges.iter() {
-                new_degree[e.1.index()] += 1;
+                if e.1.index() < vertex_num {
+                    new_degree[e.1.index()] += 1;
+                }
             }
         } else {
             for e in edges.iter() {
-                new_degree[e.0.index()] += 1;
+                if e.0.index() < vertex_num {
+                    new_degree[e.0.index()] += 1;
+                }
             }
         }
 
@@ -578,15 +583,19 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
         let new_degree = &mut self.degree;
         if reverse {
             for (src, dst) in edges.iter() {
-                let offset = new_offsets[dst.index()] + new_degree[dst.index()] as usize;
-                new_degree[dst.index()] += 1;
-                new_neighbors[offset] = *src;
+                if dst.index() < vertex_num {
+                    let offset = new_offsets[dst.index()] + new_degree[dst.index()] as usize;
+                    new_degree[dst.index()] += 1;
+                    new_neighbors[offset] = *src;
+                }
             }
         } else {
             for (src, dst) in edges.iter() {
-                let offset = new_offsets[src.index()] + new_degree[src.index()] as usize;
-                new_degree[src.index()] += 1;
-                new_neighbors[offset] = *dst;
+                if src.index() < vertex_num {
+                    let offset = new_offsets[src.index()] + new_degree[src.index()] as usize;
+                    new_degree[src.index()] += 1;
+                    new_neighbors[offset] = *dst;
+                }
             }
         }
 
@@ -600,17 +609,24 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
         old_table: ColTable,
     ) -> ColTable {
         let mut new_degree = vec![0; vertex_num];
+        let mut added_edge_size = 0;
         if reverse {
             for e in edges.iter() {
-                new_degree[e.1.index()] += 1;
+                if e.1.index() < vertex_num {
+                    new_degree[e.1.index()] += 1;
+                    added_edge_size += 1;
+                }
             }
         } else {
             for e in edges.iter() {
-                new_degree[e.0.index()] += 1;
+                if e.0.index() < vertex_num {
+                    new_degree[e.0.index()] += 1;
+                    added_edge_size += 1;
+                }
             }
         }
         let mut new_table = old_table.new_empty();
-        new_table.resize(self.edge_num + edges.len());
+        new_table.resize(self.edge_num + added_edge_size);
 
         let num_threads = p as usize;
 
@@ -754,17 +770,21 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
         let new_degree = &mut self.degree;
         if reverse {
             for (row_i, (src, dst)) in edges.iter().enumerate() {
-                let offset = new_offsets[dst.index()] + new_degree[dst.index()] as usize;
-                new_degree[dst.index()] += 1;
-                new_neighbors[offset] = *src;
-                new_table.set_table_row(offset, edges_prop, row_i);
+                if dst.index() < vertex_num {
+                    let offset = new_offsets[dst.index()] + new_degree[dst.index()] as usize;
+                    new_degree[dst.index()] += 1;
+                    new_neighbors[offset] = *src;
+                    new_table.set_table_row(offset, edges_prop, row_i);
+                }
             }
         } else {
             for (row_i, (src, dst)) in edges.iter().enumerate() {
-                let offset = new_offsets[src.index()] + new_degree[src.index()] as usize;
-                new_degree[src.index()] += 1;
-                new_neighbors[offset] = *dst;
-                new_table.set_table_row(offset, edges_prop, row_i);
+                if src.index() < vertex_num {
+                    let offset = new_offsets[src.index()] + new_degree[src.index()] as usize;
+                    new_degree[src.index()] += 1;
+                    new_neighbors[offset] = *dst;
+                    new_table.set_table_row(offset, edges_prop, row_i);
+                }
             }
         }
 

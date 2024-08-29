@@ -189,9 +189,9 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
 }
 
 impl<G, I> GraphDB<G, I>
-    where
-        G: Eq + IndexType + Send + Sync,
-        I: IndexType + Send + Sync,
+where
+    G: Eq + IndexType + Send + Sync,
+    I: IndexType + Send + Sync,
 {
     pub fn edge_label_to_index(
         &self, src_label: LabelId, dst_label: LabelId, edge_label: LabelId, dir: Direction,
@@ -579,6 +579,11 @@ impl<G, I> GraphDB<G, I>
         }
     }
 
+    pub fn insert_corner_vertex(&mut self, label: LabelId, id: G) -> I {
+        let lid = self.vertex_map.add_corner_vertex(id, label);
+        lid
+    }
+
     pub fn init_vertex_index_prop(
         &mut self, index_name: String, vertex_label: LabelId, data_type: DataType,
     ) {
@@ -633,7 +638,8 @@ impl<G, I> GraphDB<G, I>
 
     pub fn set_edge_index_prop(
         &mut self, index_name: String, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
-        in_index: Option<&Vec<usize>>, in_data: Option<Box<dyn Column>>, out_index: Option<&Vec<usize>>, out_data: Option<Box<dyn Column>>,
+        in_index: Option<&Vec<usize>>, in_data: Option<Box<dyn Column>>, out_index: Option<&Vec<usize>>,
+        out_data: Option<Box<dyn Column>>,
     ) {
         let edge_index = src_label as usize * self.vertex_label_num * self.edge_label_num
             + dst_label as usize * self.edge_label_num

@@ -136,6 +136,7 @@ impl<I: IndexType> BatchMutableSingleCsr<I> {
 }
 
 unsafe impl<I: IndexType> Send for BatchMutableSingleCsr<I> {}
+
 unsafe impl<I: IndexType> Sync for BatchMutableSingleCsr<I> {}
 
 impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
@@ -289,12 +290,16 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
                     if reverse {
                         for idx in start_idx..end_idx {
                             let (dst, src) = edges_ref.get(idx).unwrap();
-                            nbr_list_ref[src.index()] = *dst;
+                            if src.index() < nbr_list_ref.len() {
+                                nbr_list_ref[src.index()] = *dst;
+                            }
                         }
                     } else {
                         for idx in start_idx..end_idx {
                             let (src, dst) = edges_ref.get(idx).unwrap();
-                            nbr_list_ref[src.index()] = *dst;
+                            if src.index() < nbr_list_ref.len() {
+                                nbr_list_ref[src.index()] = *dst;
+                            }
                         }
                     }
                 });
@@ -330,14 +335,18 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
                     if reverse {
                         for idx in start_idx..end_idx {
                             let (dst, src) = edges_ref.get(idx).unwrap();
-                            nbr_list_ref[src.index()] = *dst;
-                            table_ref.set_table_row(src.index(), edges_prop, idx);
+                            if src.index() < nbr_list_ref.len() {
+                                nbr_list_ref[src.index()] = *dst;
+                                table_ref.set_table_row(src.index(), edges_prop, idx);
+                            }
                         }
                     } else {
                         for idx in start_idx..end_idx {
                             let (src, dst) = edges_ref.get(idx).unwrap();
-                            nbr_list_ref[src.index()] = *dst;
-                            table_ref.set_table_row(src.index(), edges_prop, idx);
+                            if src.index() < nbr_list_ref.len() {
+                                nbr_list_ref[src.index()] = *dst;
+                                table_ref.set_table_row(src.index(), edges_prop, idx);
+                            }
                         }
                     }
                 });
