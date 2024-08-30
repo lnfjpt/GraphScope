@@ -503,8 +503,12 @@ impl<G: FromStr + Send + Sync + IndexType + Eq, I: Send + Sync + IndexType> Grap
                             let ie_offset = ie_csr_builder.put_edge(e.1, e.0).unwrap();
                             let oe_offset = oe_csr_builder.put_edge(e.0, e.1).unwrap();
                             if e.2.len() > 0 {
-                                ie_edge_properties.insert(ie_offset, &e.2);
-                                oe_edge_properties.insert(oe_offset, &e.2);
+                                if ie_offset != usize::MAX {
+                                    ie_edge_properties.insert(ie_offset, &e.2);
+                                }
+                                if oe_offset != usize::MAX {
+                                    oe_edge_properties.insert(oe_offset, &e.2);
+                                }
                             }
                         }
 
@@ -536,8 +540,12 @@ impl<G: FromStr + Send + Sync + IndexType + Eq, I: Send + Sync + IndexType> Grap
                             let ie_offset = ie_csr_builder.put_edge(e.1, e.0).unwrap();
                             let oe_offset = oe_csr_builder.put_edge(e.0, e.1).unwrap();
                             if e.2.len() > 0 {
-                                ie_edge_properties.insert(ie_offset, &e.2);
-                                oe_edge_properties.insert(oe_offset, &e.2);
+                                if ie_offset != usize::MAX {
+                                    ie_edge_properties.insert(ie_offset, &e.2);
+                                }
+                                if oe_offset != usize::MAX {
+                                    oe_edge_properties.insert(oe_offset, &e.2);
+                                }
                             }
                         }
 
@@ -566,8 +574,12 @@ impl<G: FromStr + Send + Sync + IndexType + Eq, I: Send + Sync + IndexType> Grap
                             let ie_offset = ie_csr_builder.put_edge(e.1, e.0).unwrap();
                             let oe_offset = oe_csr_builder.put_edge(e.0, e.1).unwrap();
                             if e.2.len() > 0 {
-                                ie_edge_properties.insert(ie_offset, &e.2);
-                                oe_edge_properties.insert(oe_offset, &e.2);
+                                if ie_offset != usize::MAX {
+                                    ie_edge_properties.insert(ie_offset, &e.2);
+                                }
+                                if oe_offset != usize::MAX {
+                                    oe_edge_properties.insert(oe_offset, &e.2);
+                                }
                             }
                         }
 

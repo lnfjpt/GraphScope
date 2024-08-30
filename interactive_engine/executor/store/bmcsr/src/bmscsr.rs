@@ -62,8 +62,12 @@ impl<I: IndexType> BatchMutableSingleCsrBuilder<I> {
     }
 
     pub fn put_edge(&mut self, src: I, dst: I) -> Result<usize, CsrBuildError> {
-        self.nbr_list[src.index()] = dst;
-        Ok(src.index())
+        if src.index() < self.nbr_list.len() {
+            self.nbr_list[src.index()] = dst;
+            Ok(src.index())
+        } else {
+            Ok(usize::MAX)
+        }
     }
 
     pub fn finish(self) -> Result<BatchMutableSingleCsr<I>, CsrBuildError> {

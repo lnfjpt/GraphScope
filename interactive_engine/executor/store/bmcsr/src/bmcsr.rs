@@ -65,11 +65,15 @@ impl<I: IndexType> BatchMutableCsrBuilder<I> {
     }
 
     pub fn put_edge(&mut self, src: I, dst: I) -> Result<usize, CsrBuildError> {
-        let offset = self.offsets[src.index()] + self.insert_offsets[src.index()] as usize;
-        self.neighbors[offset] = dst;
-        self.insert_offsets[src.index()] += 1;
-        self.edge_num += 1;
-        Ok(offset)
+        if src.index() < self.offsets.len() {
+            let offset = self.offsets[src.index()] + self.insert_offsets[src.index()] as usize;
+            self.neighbors[offset] = dst;
+            self.insert_offsets[src.index()] += 1;
+            self.edge_num += 1;
+            Ok(offset)
+        } else {
+            Ok(usize::MAX)
+        }
     }
 
     pub fn finish(self) -> Result<BatchMutableCsr<I>, CsrBuildError> {
