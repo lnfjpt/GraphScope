@@ -359,7 +359,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                             &mut graph,
                             write_operations,
                             self.workers,
-                            self.server_id as u32,
+                            self.servers.len(),
                         );
 
                         if !bytes_result.is_empty() {

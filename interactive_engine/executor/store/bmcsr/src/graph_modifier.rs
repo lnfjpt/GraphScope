@@ -828,7 +828,7 @@ unsafe impl Sync for AliasData {}
 
 pub fn apply_write_operations(
     graph: &mut GraphDB<usize, usize>, mut write_operations: Vec<WriteOperation>, parallel: u32,
-    partition_id: u32,
+    servers: usize,
 ) {
     let mut merged_delete_vertices_data: HashMap<LabelId, Vec<u64>> = HashMap::new();
     for mut write_op in write_operations.drain(..) {
@@ -839,7 +839,7 @@ pub fn apply_write_operations(
                     let inputs = vertex_mappings.inputs();
                     let column_mappings = vertex_mappings.column_mappings();
                     for input in inputs.iter() {
-                        insert_vertices(graph, vertex_label, input, column_mappings, parallel);
+                        insert_vertices(graph, vertex_label, input, column_mappings, parallel, servers);
                     }
                 }
                 if let Some(edge_mappings) = write_op.take_edge_mappings() {
@@ -861,7 +861,7 @@ pub fn apply_write_operations(
                             dst_column_mappings,
                             column_mappings,
                             parallel,
-                            partition_id,
+                            servers,
                         );
                     }
                 }
@@ -910,7 +910,7 @@ pub fn apply_write_operations(
                             }
                             _ => {}
                         }
-                        delete_vertices(graph, vertex_label, &input, column_mappings, parallel);
+                        delete_vertices(graph, vertex_label, &input, column_mappings, parallel, servers);
                     }
                 }
                 if let Some(edge_mappings) = write_op.take_edge_mappings() {
@@ -932,6 +932,7 @@ pub fn apply_write_operations(
                             dst_column_mappings,
                             column_mappings,
                             parallel,
+                            servers,
                         );
                     }
                 }
@@ -974,13 +975,13 @@ pub fn apply_write_operations(
         let column_mappings =
             vec![ColumnMappings::new(0, "id".to_string(), DataType::ID, "id".to_string())];
         let input = Input::memory(DataFrame::new_vertices_ids(vertex_ids));
-        delete_vertices(graph, vertex_label, &input, &column_mappings, parallel);
+        delete_vertices(graph, vertex_label, &input, &column_mappings, parallel, servers);
     }
 }
 
 fn insert_vertices<G, I>(
     graph: &mut GraphDB<G, I>, vertex_label: LabelId, input: &Input, column_mappings: &Vec<ColumnMappings>,
-    parallel: u32,
+    parallel: u32, servers: usize,
 ) where
     I: Send + Sync + IndexType,
     G: FromStr + Send + Sync + IndexType + Eq,
@@ -1024,6 +1025,7 @@ fn insert_vertices<G, I>(
                     modifier.skip_header();
                 }
                 modifier.parallel(parallel);
+                modifier.partitions(servers);
                 let mut mappings = vec![-1; max_col as usize];
                 if let Some(vertex_header) = graph
                     .graph_schema
@@ -1053,7 +1055,7 @@ fn insert_vertices<G, I>(
 pub fn insert_edges<G, I>(
     graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, input: &Input,
     src_vertex_mappings: &Vec<ColumnMappings>, dst_vertex_mappings: &Vec<ColumnMappings>,
-    column_mappings: &Vec<ColumnMappings>, parallel: u32, partition_id: u32,
+    column_mappings: &Vec<ColumnMappings>, parallel: u32, servers: usize,
 ) where
     I: Send + Sync + IndexType,
     G: FromStr + Send + Sync + IndexType + Eq,
@@ -1125,6 +1127,7 @@ pub fn insert_edges<G, I>(
                     modifier.skip_header();
                 }
                 modifier.parallel(parallel);
+                modifier.partitions(servers);
                 let mut mappings = vec![-1; max_col as usize];
                 if let Some(edge_header) = graph
                     .graph_schema
@@ -1140,15 +1143,8 @@ pub fn insert_edges<G, I>(
                 }
                 modifier
                     .apply_edges_insert_with_filename(
-                        graph,
-                        src_label,
-                        edge_label,
-                        dst_label,
-                        &filenames,
-                        src_id_col,
-                        dst_id_col,
+                        graph, src_label, edge_label, dst_label, &filenames, src_id_col, dst_id_col,
                         &mappings,
-                        partition_id,
                     )
                     .unwrap();
             }
@@ -1163,7 +1159,7 @@ pub fn insert_edges<G, I>(
 
 pub fn delete_vertices(
     graph: &mut GraphDB<usize, usize>, vertex_label: LabelId, input: &Input,
-    column_mappings: &Vec<ColumnMappings>, parallel: u32,
+    column_mappings: &Vec<ColumnMappings>, parallel: u32, servers: usize,
 ) {
     let mut column_map = HashMap::new();
     for column_mapping in column_mappings {
@@ -1200,6 +1196,7 @@ pub fn delete_vertices(
                     modifier.skip_header();
                 }
                 modifier.parallel(parallel);
+                modifier.partitions(servers);
                 modifier
                     .apply_vertices_delete_with_filename(graph, vertex_label, &filenames, id_col)
                     .unwrap();
@@ -1231,7 +1228,7 @@ pub fn delete_vertices(
 pub fn delete_edges(
     graph: &mut GraphDB<usize, usize>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
     input: &Input, src_vertex_mappings: &Vec<ColumnMappings>, dst_vertex_mappings: &Vec<ColumnMappings>,
-    column_mappings: &Vec<ColumnMappings>, parallel: u32,
+    column_mappings: &Vec<ColumnMappings>, parallel: u32, servers: usize,
 ) {
     let mut column_map = HashMap::new();
     for column_mapping in src_vertex_mappings {
@@ -1290,7 +1287,7 @@ pub fn delete_edges(
                     modifier.skip_header();
                 }
                 modifier.parallel(parallel);
-
+                modifier.partitions(servers);
                 modifier
                     .apply_edges_delete_with_filename(
                         graph, src_label, edge_label, dst_label, &filenames, src_id_col, dst_id_col,
@@ -2337,21 +2334,26 @@ impl GraphModifier {
                 edge_file,
                 |record| {
                     let edge_meta = parser.parse_edge_meta(&record);
-                    if let Some((got_src_label, src_lid)) = graph
-                        .vertex_map
-                        .get_internal_id(edge_meta.src_global_id)
+                    if edge_meta.src_global_id.index() % self.partitions == graph.partition
+                        || edge_meta.dst_global_id.index() % self.partitions == graph.partition
                     {
-                        if let Some((got_dst_label, dst_lid)) = graph
+                        if let Some((got_src_label, src_lid)) = graph
                             .vertex_map
-                            .get_internal_id(edge_meta.dst_global_id)
+                            .get_internal_id(edge_meta.src_global_id)
                         {
-                            if got_src_label != src_label || got_dst_label != dst_label {
-                                return;
+                            if let Some((got_dst_label, dst_lid)) = graph
+                                .vertex_map
+                                .get_internal_id(edge_meta.dst_global_id)
+                            {
+                                if got_src_label != src_label || got_dst_label != dst_label {
+                                    return;
+                                }
+                                if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
+                                    return;
+                                }
+
+                                delete_edge_set.push((src_lid, dst_lid));
                             }
-                            if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
-                                return;
-                            }
-                            delete_edge_set.push((src_lid, dst_lid));
                         }
                     }
                 },
@@ -2640,8 +2642,10 @@ impl GraphModifier {
                 vertex_file,
                 |record| {
                     let vertex_meta = parser.parse_vertex_meta(&record);
-                    if let Ok(properties) = parse_properties_by_mappings(&record, &header, mappings) {
-                        graph.insert_vertex(vertex_meta.label, vertex_meta.global_id, Some(properties));
+                    if vertex_meta.global_id.index() % self.partitions == graph.partition {
+                        if let Ok(properties) = parse_properties_by_mappings(&record, &header, mappings) {
+                            graph.insert_vertex(vertex_meta.label, vertex_meta.global_id, Some(properties));
+                        }
                     }
                 },
                 self.skip_header,
@@ -2912,7 +2916,7 @@ impl GraphModifier {
 
     pub fn apply_edges_insert_with_filename<G, I>(
         &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
-        filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32, mappings: &Vec<i32>, partition_id: u32,
+        filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32, mappings: &Vec<i32>,
     ) -> GDBResult<()>
     where
         I: Send + Sync + IndexType,
@@ -2950,8 +2954,8 @@ impl GraphModifier {
                     &file,
                     |record| {
                         let edge_meta = parser.parse_edge_meta(&record);
-                        if (edge_meta.src_global_id.index() % self.partitions == partition_id as usize)
-                            || (edge_meta.dst_global_id.index() % self.partitions == partition_id as usize)
+                        if edge_meta.src_global_id.index() % self.partitions == graph.partition
+                            || edge_meta.dst_global_id.index() % self.partitions == graph.partition
                         {
                             edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
                         }
@@ -2966,8 +2970,8 @@ impl GraphModifier {
                     &file,
                     |record| {
                         let edge_meta = parser.parse_edge_meta(&record);
-                        if (edge_meta.src_global_id.index() % self.partitions == partition_id as usize)
-                            || (edge_meta.dst_global_id.index() % self.partitions == partition_id as usize)
+                        if edge_meta.src_global_id.index() % self.partitions == graph.partition
+                            || edge_meta.dst_global_id.index() % self.partitions == graph.partition
                         {
                             edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
                             if let Ok(properties) =
@@ -2989,7 +2993,7 @@ impl GraphModifier {
                 if let Some((got_src_label, src_lid)) = graph.vertex_map.get_internal_id(src) {
                     (got_src_label, src_lid)
                 } else {
-                    if src.index() % self.partitions != partition_id as usize {
+                    if src.index() % self.partitions != graph.partition {
                         let src_lid = graph.insert_corner_vertex(src_label, src);
                         (src_label, src_lid)
                     } else {
@@ -3000,7 +3004,7 @@ impl GraphModifier {
                 if let Some((got_dst_label, dst_lid)) = graph.vertex_map.get_internal_id(dst) {
                     (got_dst_label, dst_lid)
                 } else {
-                    if dst.index() % self.partitions != partition_id as usize {
+                    if dst.index() % self.partitions != graph.partition {
                         let dst_lid = graph.insert_corner_vertex(dst_label, dst);
                         (dst_label, dst_lid)
                     } else {

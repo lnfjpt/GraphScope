@@ -233,7 +233,7 @@ pub fn parse_vertex_id_from_file(
                             }
                         }
                     }
-                } else if file.ends_with(".csv") {
+                } else if path_str.ends_with(".csv") {
                     if let Ok(file) = File::open(&file) {
                         let reader = BufReader::new(file);
                         let mut rdr = ReaderBuilder::new()
