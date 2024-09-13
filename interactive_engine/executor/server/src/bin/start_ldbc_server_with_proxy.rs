@@ -42,7 +42,7 @@ pub struct Config {
     queries_config: String,
     #[structopt(short = "e", long = "proxy_endpoint", default_value = "")]
     proxy_endpoint: String,
-    #[structopt(short = "p", long = "partition_id", default_value = 0)]
+    #[structopt(short = "p", long = "partition_id", default_value = "0")]
     partition_id: usize,
 }
 

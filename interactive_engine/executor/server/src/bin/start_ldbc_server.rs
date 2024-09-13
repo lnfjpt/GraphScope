@@ -31,7 +31,7 @@ pub struct Config {
     servers_config: PathBuf,
     #[structopt(short = "q", long = "queries_config", default_value = "")]
     queries_config: String,
-    #[structopt(short = "p", long = "partition_id", default_value = 0)]
+    #[structopt(short = "p", long = "partition_id", default_value = "0")]
     partition_id: usize,
 }
 
