@@ -42,6 +42,8 @@ pub struct Config {
     queries_config: String,
     #[structopt(short = "e", long = "proxy_endpoint", default_value = "")]
     proxy_endpoint: String,
+    #[structopt(short = "p", long = "partition_id", default_value = 0)]
+    partition_id: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -73,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proxy_endpoint = config.proxy_endpoint;
 
     let shared_graph =
-        Arc::new(RwLock::new(GraphDB::<usize, usize>::deserialize(graph_data_str, 0, None).unwrap()));
+        Arc::new(RwLock::new(GraphDB::<usize, usize>::deserialize(graph_data_str, config.partition_id, None).unwrap()));
     let shared_graph_index = Arc::new(RwLock::new(GraphIndex::new(0)));
 
     let servers_config =
@@ -146,8 +148,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .service(get_status)
                 .service(submit_query)
         })
-        .bind(&proxy_endpoint)?
-        .run(),
+            .bind(&proxy_endpoint)?
+            .run(),
     );
     let shutdown_handle = tokio::spawn(async {
         shutdown_signal().await;

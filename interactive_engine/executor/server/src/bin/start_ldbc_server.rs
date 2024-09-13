@@ -31,6 +31,8 @@ pub struct Config {
     servers_config: PathBuf,
     #[structopt(short = "q", long = "queries_config", default_value = "")]
     queries_config: String,
+    #[structopt(short = "p", long = "partition_id", default_value = 0)]
+    partition_id: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -53,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let graph_data_str = config.graph_data.to_str().unwrap();
 
     let shared_graph =
-        Arc::new(RwLock::new(GraphDB::<usize, usize>::deserialize(graph_data_str, 0, None).unwrap()));
+        Arc::new(RwLock::new(GraphDB::<usize, usize>::deserialize(graph_data_str, config.partition_id, None).unwrap()));
     let shared_graph_index = Arc::new(RwLock::new(GraphIndex::new(0)));
 
     let servers_config =
