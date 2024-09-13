@@ -40,8 +40,6 @@ pub struct Config {
     servers_config: PathBuf,
     #[structopt(short = "q", long = "queries_config", default_value = "")]
     queries_config: String,
-    #[structopt(short = "e", long = "proxy_endpoint", default_value = "")]
-    proxy_endpoint: String,
     #[structopt(short = "p", long = "partition_id", default_value = "0")]
     partition_id: usize,
 }
@@ -52,9 +50,16 @@ pub struct PegasusConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct HttpServerConfig {
+    pub http_host: Option<String>,
+    pub http_port: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     pub network_config: Option<Configuration>,
     pub rpc_server: Option<RPCServerConfig>,
+    pub http_server: Option<HttpServerConfig>,
     pub pegasus_config: Option<PegasusConfig>,
 }
 
@@ -72,8 +77,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graph_data_str = config.graph_data.to_str().unwrap();
 
-    let proxy_endpoint = config.proxy_endpoint;
-
     let shared_graph =
         Arc::new(RwLock::new(GraphDB::<usize, usize>::deserialize(graph_data_str, config.partition_id, None).unwrap()));
     let shared_graph_index = Arc::new(RwLock::new(GraphIndex::new(0)));
@@ -84,6 +87,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let servers_conf: ServerConfig = toml::from_str(servers_config.as_str())?;
     let server_conf =
         if let Some(servers) = servers_conf.network_config { servers } else { Configuration::singleton() };
+    let proxy_endpoint = if let Some(http_server) = servers_conf.http_server {
+        Some(http_server.http_host.unwrap() + &http_server.http_port.unwrap())
+    } else {
+        None
+    };
 
     let workers = servers_conf
         .pegasus_config
@@ -137,20 +145,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         shared_graph_index,
     ));
 
-    let mut rpc_client = JobClient::new(rpc_endpoint, proxy_endpoint.clone(), input_info, workers).await?;
-    let shared_client = web::Data::new(Mutex::new(rpc_client));
-    let index = web::Data::new(AtomicU64::new(0));
-    let http_server_handler = tokio::spawn(
-        HttpServer::new(move || {
-            App::new()
-                .app_data(index.clone())
-                .app_data(shared_client.clone())
-                .service(get_status)
-                .service(submit_query)
-        })
-            .bind(&proxy_endpoint)?
-            .run(),
-    );
+    if let Some(proxy_endpoint) = proxy_endpoint {
+        let mut rpc_client = JobClient::new(rpc_endpoint, proxy_endpoint.clone(), input_info, workers).await?;
+        let shared_client = web::Data::new(Mutex::new(rpc_client));
+        let index = web::Data::new(AtomicU64::new(0));
+        let http_server_handler = tokio::spawn(
+            HttpServer::new(move || {
+                App::new()
+                    .app_data(index.clone())
+                    .app_data(shared_client.clone())
+                    .service(get_status)
+                    .service(submit_query)
+            })
+                .bind(&proxy_endpoint)?
+                .run(),
+        );
+    }
     let shutdown_handle = tokio::spawn(async {
         shutdown_signal().await;
     });
