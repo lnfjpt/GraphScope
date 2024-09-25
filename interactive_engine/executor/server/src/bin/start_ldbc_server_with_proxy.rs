@@ -52,7 +52,7 @@ pub struct PegasusConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct HttpServerConfig {
     pub http_host: Option<String>,
-    pub http_port: Option<String>,
+    pub http_port: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_conf =
         if let Some(servers) = servers_conf.network_config { servers } else { Configuration::singleton() };
     let proxy_endpoint = if let Some(http_server) = servers_conf.http_server {
-        Some(http_server.http_host.unwrap() + &http_server.http_port.unwrap())
+        Some(http_server.http_host.unwrap() + ":" + &http_server.http_port.unwrap().to_string())
     } else {
         None
     };
