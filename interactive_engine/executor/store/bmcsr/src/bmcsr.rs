@@ -254,10 +254,12 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                 if let Some(set) = delete_map.get_mut(&dst) {
                     set.insert(*src);
                 } else {
-                    let mut set = HashSet::new();
-                    set.insert(*src);
-                    delete_map.insert(*dst, set);
-                    keys.push(*dst);
+                    if dst.index() < self.offsets.len() {
+                        let mut set = HashSet::new();
+                        set.insert(*src);
+                        delete_map.insert(*dst, set);
+                        keys.push(*dst);
+                    }
                 }
             }
         } else {
@@ -265,10 +267,12 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                 if let Some(set) = delete_map.get_mut(&src) {
                     set.insert(*dst);
                 } else {
-                    let mut set = HashSet::new();
-                    set.insert(*dst);
-                    delete_map.insert(*src, set);
-                    keys.push(*src);
+                    if src.index() < self.offsets.len() {
+                        let mut set = HashSet::new();
+                        set.insert(*dst);
+                        delete_map.insert(*src, set);
+                        keys.push(*src);
+                    }
                 }
             }
         }

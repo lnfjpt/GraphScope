@@ -1343,9 +1343,11 @@ pub fn delete_vertices_by_ids<G, I>(
             let mut oe_prop = graph.oe_edge_prop_table.remove(&index);
             let mut ie_to_delete = Vec::new();
             for v in lids.iter() {
-                if let Some(ie_list) = ie_csr.get_edges(*v) {
-                    for e in ie_list {
-                        ie_to_delete.push((*e, *v));
+                if *v < ie_csr.vertex_num() {
+                    if let Some(ie_list) = ie_csr.get_edges(*v) {
+                        for e in ie_list {
+                            ie_to_delete.push((*e, *v));
+                        }
                     }
                 }
             }

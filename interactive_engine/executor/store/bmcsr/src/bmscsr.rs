@@ -244,6 +244,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
 
         let num_threads = p as usize;
         let chunk_size = (edges_num + num_threads - 1) / num_threads;
+        let vertex_num = self.vertex_num;
         rayon::scope(|s| {
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
@@ -254,12 +255,16 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
                     if reverse {
                         for k in start_idx..end_idx {
                             let v = edges_ref[k].1;
-                            nbr_list_ref[v.index()] = <I as IndexType>::max();
+                            if v.index() < vertex_num {
+                                nbr_list_ref[v.index()] = <I as IndexType>::max();
+                            }
                         }
                     } else {
                         for k in start_idx..end_idx {
                             let v = edges_ref[k].0;
-                            nbr_list_ref[v.index()] = <I as IndexType>::max();
+                            if v.index() < vertex_num {
+                                nbr_list_ref[v.index()] = <I as IndexType>::max();
+                            }
                         }
                     }
                 });
