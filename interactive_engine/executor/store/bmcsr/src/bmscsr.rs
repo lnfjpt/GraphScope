@@ -232,7 +232,9 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
 
     fn delete_vertices(&mut self, vertices: &HashSet<I>) {
         for vertex in vertices {
-            self.remove_vertex(*vertex);
+            if *vertex < self.vertex_num() {
+                self.remove_vertex(*vertex);
+            }
         }
     }
 

@@ -885,6 +885,7 @@ pub fn apply_write_operations(
                                     }
                                 }
                                 if input.data_source() == DataSource::Memory {
+                                    write_op.vertex_mappings().unwrap().inputs[0].memory_data().as_ref().unwrap().columns()[0].da
                                     let mut memory_data = input.take_memory_data().unwrap();
                                     let mut data = memory_data.take_columns();
                                     let mut vertex_id_column = data
@@ -1388,9 +1389,11 @@ pub fn delete_vertices_by_ids<G, I>(
             let mut oe_prop = graph.oe_edge_prop_table.remove(&index);
             let mut oe_to_delete = Vec::new();
             for v in lids.iter() {
-                if let Some(oe_list) = oe_csr.get_edges(*v) {
-                    for e in oe_list {
-                        oe_to_delete.push((*v, *e));
+                if *v < oe_csr.vertex_num() {
+                    if let Some(oe_list) = oe_csr.get_edges(*v) {
+                        for e in oe_list {
+                            oe_to_delete.push((*v, *e));
+                        }
                     }
                 }
             }

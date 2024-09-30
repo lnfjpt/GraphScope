@@ -242,6 +242,14 @@ where
                         .insert(*v, I::new(index));
                 });
 
+            corner_ids
+                .par_iter()
+                .enumerate()
+                .for_each(|(index, v)| {
+                    self.global_id_to_index
+                        .insert(*v, I::new(<I as IndexType>::max().index() - index - 1));
+                });
+
             self.index_to_global_id.push(native_ids);
             self.index_to_corner_global_id.push(corner_ids);
         }

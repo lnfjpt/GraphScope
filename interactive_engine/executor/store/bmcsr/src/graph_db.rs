@@ -478,6 +478,7 @@ where
         let mut vertex_map = VertexMap::new(vertex_label_num);
         let vm_path = &partition_dir.join("vm");
         let vm_path_str = vm_path.to_str().unwrap().to_string();
+
         vertex_map.deserialize(&vm_path_str);
 
         Ok(Self {

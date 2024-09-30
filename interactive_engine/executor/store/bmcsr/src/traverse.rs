@@ -71,6 +71,9 @@ fn output_csr<G, I>(
                     let dst_global_id = graph
                         .get_global_id(nbr, neighbor_label)
                         .unwrap();
+                    if dst_global_id == <G as IndexType>::max() {
+                        continue;
+                    }
                     let dst_oid = LDBCVertexParser::<G>::get_original_id(dst_global_id);
                     if dir == Direction::Outgoing {
                         write!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
@@ -95,6 +98,9 @@ fn output_csr<G, I>(
             if let Some(edges) = csr.get_edges(I::new(v)) {
                 for e in edges {
                     let dst_global_id = graph.get_global_id(*e, neighbor_label).unwrap();
+                    if dst_global_id == <G as IndexType>::max() {
+                        continue;
+                    }
                     let dst_oid = LDBCVertexParser::<G>::get_original_id(dst_global_id);
                     if dir == Direction::Outgoing {
                         writeln!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
@@ -125,6 +131,9 @@ fn output_single_csr<G, I>(
                     let dst_global_id = graph
                         .get_global_id(nbr, neighbor_label)
                         .unwrap();
+                    if dst_global_id == <G as IndexType>::max() {
+                        continue;
+                    }
                     let dst_oid = LDBCVertexParser::<G>::get_original_id(dst_global_id);
                     if dir == Direction::Outgoing {
                         write!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
@@ -149,6 +158,9 @@ fn output_single_csr<G, I>(
             if let Some(edges) = csr.get_edges(I::new(v)) {
                 for e in edges {
                     let dst_global_id = graph.get_global_id(*e, neighbor_label).unwrap();
+                    if dst_global_id == <G as IndexType>::max() {
+                        continue;
+                    }
                     let dst_oid = LDBCVertexParser::<G>::get_original_id(dst_global_id);
                     if dir == Direction::Outgoing {
                         writeln!(file, "{}|{}", src_oid.index(), dst_oid.index()).unwrap();
