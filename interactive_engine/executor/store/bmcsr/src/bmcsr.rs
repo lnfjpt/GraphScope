@@ -340,6 +340,9 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                         for index in nbr_start_idx..nbr_end_idx {
                             let mut offset = offsets_ref[index];
                             let deg = degree_ref[index];
+                            if offset == usize::MAX {
+                                continue;
+                            }
 
                             let mut end = offset + deg as usize;
                             while offset < (end - 1) {
@@ -472,6 +475,9 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                         for index in nbr_start_idx..nbr_end_idx {
                             let mut offset = offsets_ref[index];
                             let deg = degree_ref[index];
+                            if offset == usize::MAX {
+                                continue;
+                            }
 
                             let mut end = offset + deg as usize;
                             while offset < (end - 1) {
