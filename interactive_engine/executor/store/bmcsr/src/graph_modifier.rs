@@ -1310,12 +1310,17 @@ pub fn delete_vertices_by_ids<G, I>(
     G: FromStr + Send + Sync + IndexType + Eq,
 {
     let mut lids = HashSet::new();
+    let mut oids = HashSet::new();
     for v in global_ids.iter() {
         if v.index() as u64 == u64::MAX {
             continue;
         }
         if let Some(internal_id) = graph.vertex_map.get_internal_id(*v) {
-            lids.insert(internal_id.1);
+            if internal_id.1.index() < graph.get_vertices_num(vertex_label) {
+                lids.insert(internal_id.1);
+            } else {
+                oids.insert(internal_id.1);
+            }
         }
     }
     let vertex_label_num = graph.vertex_label_num;
@@ -1353,9 +1358,9 @@ pub fn delete_vertices_by_ids<G, I>(
             }
             ie_csr.delete_vertices(&lids);
             if let Some(table) = oe_prop.as_mut() {
-                oe_csr.parallel_delete_edges_with_props(&ie_to_delete, false, table, parallel);
+                oe_csr.parallel_delete_edges_with_props(&ie_to_delete, false, table, parallel, Some(&oids));
             } else {
-                oe_csr.parallel_delete_edges(&ie_to_delete, false, parallel);
+                oe_csr.parallel_delete_edges(&ie_to_delete, false, parallel, Some(&oids));
             }
             graph.ie[index] = ie_csr;
             if let Some(table) = ie_prop {
@@ -1398,9 +1403,9 @@ pub fn delete_vertices_by_ids<G, I>(
             }
             oe_csr.delete_vertices(&lids);
             if let Some(table) = ie_prop.as_mut() {
-                ie_csr.parallel_delete_edges_with_props(&oe_to_delete, true, table, parallel);
+                ie_csr.parallel_delete_edges_with_props(&oe_to_delete, true, table, parallel, Some(&oids));
             } else {
-                ie_csr.parallel_delete_edges(&oe_to_delete, true, parallel);
+                ie_csr.parallel_delete_edges(&oe_to_delete, true, parallel, Some(&oids));
             }
             graph.ie[index] = ie_csr;
             if let Some(table) = ie_prop {
@@ -2413,34 +2418,34 @@ impl GraphModifier {
         if let Some(table) = input.oe_prop.as_mut() {
             input
                 .oe_csr
-                .parallel_delete_edges_with_props(&delete_edge_set, false, table, p);
+                .parallel_delete_edges_with_props(&delete_edge_set, false, table, p, None);
             input
                 .oe_csr
-                .parallel_delete_edges_with_props(&ie_to_delete, false, table, p);
+                .parallel_delete_edges_with_props(&ie_to_delete, false, table, p, None);
         } else {
             input
                 .oe_csr
-                .parallel_delete_edges(&delete_edge_set, false, p);
+                .parallel_delete_edges(&delete_edge_set, false, p, None);
             input
                 .oe_csr
-                .parallel_delete_edges(&ie_to_delete, false, p);
+                .parallel_delete_edges(&ie_to_delete, false, p, None);
         }
 
         input.ie_csr.delete_vertices(dst_delete_set);
         if let Some(table) = input.ie_prop.as_mut() {
             input
                 .ie_csr
-                .parallel_delete_edges_with_props(&delete_edge_set, true, table, p);
+                .parallel_delete_edges_with_props(&delete_edge_set, true, table, p, None);
             input
                 .ie_csr
-                .parallel_delete_edges_with_props(&oe_to_delete, true, table, p);
+                .parallel_delete_edges_with_props(&oe_to_delete, true, table, p, None);
         } else {
             input
                 .ie_csr
-                .parallel_delete_edges(&delete_edge_set, true, p);
+                .parallel_delete_edges(&delete_edge_set, true, p, None);
             input
                 .ie_csr
-                .parallel_delete_edges(&oe_to_delete, true, p);
+                .parallel_delete_edges(&oe_to_delete, true, p, None);
         }
     }
 

@@ -57,6 +57,7 @@ impl<I: IndexType> Iterator for NbrIterBeta<I> {
 }
 
 unsafe impl<I: IndexType> Sync for NbrIterBeta<I> {}
+
 unsafe impl<I: IndexType> Send for NbrIterBeta<I> {}
 
 pub struct NbrOffsetIter<'a, I> {
@@ -101,9 +102,9 @@ pub trait CsrTrait<I: IndexType>: Send + Sync {
     fn as_mut_any(&mut self) -> &mut dyn Any;
 
     fn delete_vertices(&mut self, vertices: &HashSet<I>);
-    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32);
+    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32, nbr_vertices: Option<&HashSet<I>>);
     fn parallel_delete_edges_with_props(
-        &mut self, edges: &Vec<(I, I)>, reverse: bool, table: &mut ColTable, p: u32,
+        &mut self, edges: &Vec<(I, I)>, reverse: bool, table: &mut ColTable, p: u32, nbr_vertices: Option<&HashSet<I>>,
     );
 
     fn insert_edges(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, reverse: bool, p: u32);
@@ -121,7 +122,9 @@ pub enum CsrBuildError {
 }
 
 pub struct SafePtr<I>(*const I, PhantomData<I>);
+
 unsafe impl<I> Send for SafePtr<I> {}
+
 unsafe impl<I> Sync for SafePtr<I> {}
 
 impl<I> Clone for SafePtr<I> {
@@ -143,7 +146,9 @@ impl<I> SafePtr<I> {
 }
 
 pub struct SafeMutPtr<I>(*mut I, PhantomData<I>);
+
 unsafe impl<I> Send for SafeMutPtr<I> {}
+
 unsafe impl<I> Sync for SafeMutPtr<I> {}
 
 impl<I> SafeMutPtr<I> {

@@ -238,7 +238,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
         }
     }
 
-    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32) {
+    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32, nbr_ids: Option<&HashSet<I>>) {
         let edges_num = edges.len();
 
         let safe_nbr_list_ptr = SafeMutPtr::new(&mut self.nbr_list);
@@ -247,10 +247,14 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
         let num_threads = p as usize;
         let chunk_size = (edges_num + num_threads - 1) / num_threads;
         let vertex_num = self.vertex_num;
+
+        let nbr_chunk_size = (self.nbr_list.len() + num_threads - 1) / num_threads;
         rayon::scope(|s| {
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
                 let end_idx = edges_num.min(start_idx + chunk_size);
+                let nbr_start_idx = i * nbr_chunk_size;
+                let nbr_end_idx = self.nbr_list.len().min(nbr_start_idx + chunk_size);
                 s.spawn(move |_| {
                     let edges_ref = safe_edges_ptr.get_ref();
                     let nbr_list_ref = safe_nbr_list_ptr.get_mut();
@@ -269,15 +273,23 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
                             }
                         }
                     }
+                    if nbr_ids.is_some() {
+                        let nbr_set = nbr_ids.unwrap();
+                        for index in nbr_start_idx..nbr_end_idx {
+                            if nbr_set.contains(&nbr_list_ref[index]) {
+                                nbr_list_ref[index] = <I as IndexType>::max();
+                            }
+                        }
+                    }
                 });
             }
         });
     }
 
     fn parallel_delete_edges_with_props(
-        &mut self, edges: &Vec<(I, I)>, reverse: bool, _: &mut ColTable, p: u32,
+        &mut self, edges: &Vec<(I, I)>, reverse: bool, _: &mut ColTable, p: u32, nbr_ids: Option<&HashSet<I>>,
     ) {
-        self.parallel_delete_edges(edges, reverse, p);
+        self.parallel_delete_edges(edges, reverse, p, nbr_ids);
     }
 
     fn insert_edges(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, reverse: bool, p: u32) {

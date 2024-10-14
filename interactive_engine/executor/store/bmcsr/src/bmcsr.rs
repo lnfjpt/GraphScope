@@ -246,7 +246,8 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
         }
     }
 
-    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32) {
+    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32,
+                             nbr_ids: Option<&HashSet<I>>, ) {
         let mut delete_map: HashMap<I, HashSet<I>> = HashMap::new();
         let mut keys = vec![];
         if reverse {
@@ -286,6 +287,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
         let keys_size = keys.len();
         let num_threads = p as usize;
         let chunk_size = (keys_size + num_threads - 1) / num_threads;
+        let nbr_chunk_size = (self.degree.len() + num_threads - 1) / num_threads;
 
         let mut thread_deleted_edges = vec![0_usize; num_threads];
 
@@ -296,6 +298,8 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
                 let end_idx = keys_size.min(start_idx + chunk_size);
+                let nbr_start_idx = i * nbr_chunk_size;
+                let nbr_end_idx = self.offsets.len().min(nbr_start_idx + chunk_size);
                 s.spawn(move |_| {
                     let keys_ref = safe_keys_ptr.get_ref();
                     let offsets_ref = safe_offsets_ptr.get_ref();
@@ -331,6 +335,34 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                         deleted_edges += (deg - new_deg) as usize;
                     }
 
+                    if nbr_ids.is_some() {
+                        let nbr_set = nbr_ids.unwrap();
+                        for index in nbr_start_idx..nbr_end_idx {
+                            let mut offset = offsets_ref[index];
+                            let deg = degree_ref[index];
+
+                            let mut end = offset + deg as usize;
+                            while offset < (end - 1) {
+                                let nbr = neighbors_ref[offset];
+                                if nbr_set.contains(&nbr) {
+                                    neighbors_ref[offset] = neighbors_ref[end - 1];
+                                    end -= 1;
+                                } else {
+                                    offset += 1;
+                                }
+                            }
+                            let nbr = neighbors_ref[end - 1];
+                            if nbr_set.contains(&nbr) {
+                                end -= 1;
+                            }
+
+                            let new_deg = (end - offsets_ref[index]) as i32;
+                            degree_ref[index] = new_deg;
+
+                            deleted_edges += (deg - new_deg) as usize;
+                        }
+                    }
+
                     tde_ref[i] = deleted_edges;
                 });
             }
@@ -343,6 +375,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
 
     fn parallel_delete_edges_with_props(
         &mut self, edges: &Vec<(I, I)>, reverse: bool, table: &mut ColTable, p: u32,
+        nbr_ids: Option<&HashSet<I>>,
     ) {
         let mut delete_map: HashMap<I, HashSet<I>> = HashMap::new();
         let mut keys = vec![];
@@ -384,6 +417,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
         let keys_size = keys.len();
         let num_threads = p as usize;
         let chunk_size = (keys_size + num_threads - 1) / num_threads;
+        let nbr_chunk_size = (self.offsets.len() + num_threads - 1) / num_threads;
 
         let mut thread_deleted_edges = vec![0_usize; num_threads];
 
@@ -394,6 +428,8 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
                 let end_idx = keys_size.min(start_idx + chunk_size);
+                let nbr_start_idx = i * nbr_chunk_size;
+                let nbr_end_idx = self.offsets.len().min(nbr_start_idx + chunk_size);
                 s.spawn(move |_| {
                     let keys_ref = safe_keys_ptr.get_ref();
                     let offsets_ref = safe_offsets_ptr.get_ref();
@@ -429,6 +465,35 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                         degree_ref[v.index()] = new_deg;
 
                         deleted_edges += (deg - new_deg) as usize;
+                    }
+
+                    if nbr_ids.is_some() {
+                        let nbr_set = nbr_ids.unwrap();
+                        for index in nbr_start_idx..nbr_end_idx {
+                            let mut offset = offsets_ref[index];
+                            let deg = degree_ref[index];
+
+                            let mut end = offset + deg as usize;
+                            while offset < (end - 1) {
+                                let nbr = neighbors_ref[offset];
+                                if nbr_set.contains(&nbr) {
+                                    neighbors_ref[offset] = neighbors_ref[end - 1];
+                                    table_ref.move_row(end - 1, offset);
+                                    end -= 1;
+                                } else {
+                                    offset += 1;
+                                }
+                            }
+                            let nbr = neighbors_ref[end - 1];
+                            if nbr_set.contains(&nbr) {
+                                end -= 1;
+                            }
+
+                            let new_deg = (end - offsets_ref[index]) as i32;
+                            degree_ref[index] = new_deg;
+
+                            deleted_edges += (deg - new_deg) as usize;
+                        }
                     }
 
                     tde_ref[i] = deleted_edges;
