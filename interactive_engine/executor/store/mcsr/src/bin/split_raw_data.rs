@@ -14,6 +14,7 @@
 //! limitations under the License.
 
 use std::path::PathBuf;
+use std::collections::HashSet;
 
 use clap::{App, Arg};
 use env_logger;
@@ -53,8 +54,12 @@ fn main() {
                 .short("p")
                 .long_help("The number of partitions")
                 .takes_value(true),
-            Arg::with_name("index")
-                .short("i")
+            Arg::with_name("start_index")
+                .short("s")
+                .long_help("The index of partitions")
+                .takes_value(true),
+            Arg::with_name("end_index")
+                .short("e")
                 .long_help("The index of partitions")
                 .takes_value(true),
             Arg::with_name("thread_num")
@@ -95,8 +100,13 @@ fn main() {
         .unwrap_or("1")
         .parse::<usize>()
         .expect(&format!("Specify invalid partition number"));
-    let partition_index = matches
-        .value_of("index")
+    let start_partition_index = matches
+        .value_of("start_index")
+        .unwrap_or("0")
+        .parse::<usize>()
+        .expect(&format!("Specify invalid partition number"));
+    let end_partition_index = matches
+        .value_of("end_index")
         .unwrap_or("0")
         .parse::<usize>()
         .expect(&format!("Specify invalid partition number"));
@@ -133,6 +143,7 @@ fn main() {
         .expect("Write graph schema error!");
 
     let mut handles = Vec::with_capacity(thread_num);
+
     for i in 0..thread_num {
         let raw_dir = raw_data_dir.clone();
         let graph_schema_f = graph_schema_file.clone();
@@ -140,12 +151,16 @@ fn main() {
 
         let cur_out_dir = graph_data_dir.clone();
         let handle = std::thread::spawn(move || {
+            let mut index_set = HashSet::new();
+            for i in start_partition_index..end_partition_index {
+                index_set.insert(i);
+            }
             let mut partitioner: GraphPartitioner = GraphPartitioner::new(
                 raw_dir,
                 cur_out_dir.as_str(),
                 input_schema_f,
                 graph_schema_f,
-                partition_index,
+                index_set,
                 partition_num,
                 i,
                 thread_num,

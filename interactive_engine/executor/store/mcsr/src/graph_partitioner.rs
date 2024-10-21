@@ -13,6 +13,7 @@
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
 
+use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, File};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::marker::PhantomData;
@@ -25,16 +26,16 @@ use rust_htslib::bgzf::Reader as GzReader;
 
 use crate::error::{GDBError, GDBResult};
 use crate::graph::IndexType;
-use crate::graph_loader::{get_files_list, keep_vertex};
+use crate::graph_loader::{get_files_list};
 use crate::ldbc_parser::{LDBCEdgeParser, LDBCVertexParser};
 use crate::schema::{CsrGraphSchema, InputSchema, Schema};
 use crate::types::{DefaultId, LabelId, DIR_SPLIT_RAW_DATA};
 
 pub struct GraphPartitioner<G: FromStr + Send + Sync + IndexType = DefaultId> {
     input_dir: PathBuf,
-    partition_dir: PathBuf,
+    partition_dir: HashMap<usize, PathBuf>,
 
-    work_id: usize,
+    work_id: HashSet<usize>,
     peers: usize,
     delim: u8,
     input_schema: Arc<InputSchema>,
@@ -50,7 +51,7 @@ pub struct GraphPartitioner<G: FromStr + Send + Sync + IndexType = DefaultId> {
 
 impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
     pub fn new<D: AsRef<Path>>(
-        input_dir: D, output_path: &str, input_schema_file: D, graph_schema_file: D, work_id: usize,
+        input_dir: D, output_path: &str, input_schema_file: D, graph_schema_file: D, work_id: HashSet<usize>,
         peers: usize, thread_id: usize, thread_num: usize,
     ) -> GraphPartitioner<G> {
         let graph_schema =
@@ -60,9 +61,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
         graph_schema.desc();
 
         let output_dir = PathBuf::from_str(output_path).unwrap();
-        let partition_dir = output_dir
-            .join(DIR_SPLIT_RAW_DATA)
-            .join(format!("partition_{}", work_id));
+        let mut partition_dir = HashMap::<usize, PathBuf>::new();
+        for i in work_id.iter() {
+            partition_dir.insert(*i, output_dir.clone().join(DIR_SPLIT_RAW_DATA).join(format!("partition_{}", *i)));
+        }
 
         Self {
             input_dir: input_dir.as_ref().to_path_buf(),
@@ -89,12 +91,21 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
         self
     }
 
+    pub fn get_vertex_partition(&self, vid: G) -> Option<usize> {
+        let partition = vid.index() % self.peers;
+        if self.work_id.contains(&partition) {
+            Some(partition)
+        } else {
+            None
+        }
+    }
+
     pub fn skip_header(&mut self) {
         self.skip_header = true;
     }
 
     fn load_vertices<R: Read, W: Write>(
-        &mut self, vertex_type: LabelId, mut rdr: Reader<R>, wtr: &mut Writer<W>, is_static_vertex: bool,
+        &mut self, vertex_type: LabelId, mut rdr: Reader<R>, wtr: &mut HashMap<usize, Writer<W>>, is_static_vertex: bool,
     ) {
         let header = self
             .input_schema
@@ -107,15 +118,17 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
         if is_static_vertex {
             for result in rdr.records() {
                 if let Ok(record) = result {
-                    wtr.write_record(record.iter()).unwrap();
+                    for (_, mut w) in wtr.iter_mut() {
+                        w.write_record(record.iter()).unwrap();
+                    }
                 }
             }
         } else {
             for result in rdr.records() {
                 if let Ok(record) = result {
                     let vertex_meta = parser.parse_vertex_meta(&record);
-                    if keep_vertex(vertex_meta.global_id, self.peers, self.work_id) {
-                        wtr.write_record(record.iter()).unwrap();
+                    if let Some(index) = self.get_vertex_partition(vertex_meta.global_id) {
+                        wtr.get_mut(&index).unwrap().write_record(record.iter()).unwrap();
                     }
                 }
             }
@@ -124,7 +137,7 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
 
     fn load_edges<R: Read, W: Write>(
         &mut self, src_vertex_type: LabelId, dst_vertex_type: LabelId, edge_type: LabelId,
-        is_src_static: bool, is_dst_static: bool, mut rdr: Reader<R>, mut wtr: Writer<W>,
+        is_src_static: bool, is_dst_static: bool, mut rdr: Reader<R>, mut wtr: HashMap<usize, Writer<W>>,
     ) {
         info!("loading edge-{}", edge_type);
         let header = self
@@ -145,15 +158,17 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
         if is_src_static && is_dst_static {
             for result in rdr.records() {
                 if let Ok(record) = result {
-                    wtr.write_record(record.iter()).unwrap();
+                    for (_, w) in wtr.iter_mut() {
+                        w.write_record(record.iter()).unwrap();
+                    }
                 }
             }
         } else if is_src_static && !is_dst_static {
             for result in rdr.records() {
                 if let Ok(record) = result {
                     let edge_meta = parser.parse_edge_meta(&record);
-                    if keep_vertex(edge_meta.dst_global_id, self.peers, self.work_id) {
-                        wtr.write_record(record.iter()).unwrap();
+                    if let Some(index) = self.get_vertex_partition(edge_meta.dst_global_id) {
+                        wtr.get_mut(&index).unwrap().write_record(record.iter()).unwrap();
                     }
                 }
             }
@@ -161,8 +176,8 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
             for result in rdr.records() {
                 if let Ok(record) = result {
                     let edge_meta = parser.parse_edge_meta(&record);
-                    if keep_vertex(edge_meta.src_global_id, self.peers, self.work_id) {
-                        wtr.write_record(record.iter()).unwrap();
+                    if let Some(index) = self.get_vertex_partition(edge_meta.src_global_id) {
+                        wtr.get_mut(&index).unwrap().write_record(record.iter()).unwrap();
                     }
                 }
             }
@@ -170,10 +185,11 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
             for result in rdr.records() {
                 if let Ok(record) = result {
                     let edge_meta = parser.parse_edge_meta(&record);
-                    if keep_vertex(edge_meta.src_global_id, self.peers, self.work_id)
-                        || keep_vertex(edge_meta.dst_global_id, self.peers, self.work_id)
-                    {
-                        wtr.write_record(record.iter()).unwrap();
+                    if let Some(index) = self.get_vertex_partition(edge_meta.src_global_id) {
+                        wtr.get_mut(&index).unwrap().write_record(record.iter()).unwrap();
+                    }
+                    if let Some(index) = self.get_vertex_partition(edge_meta.dst_global_id) {
+                        wtr.get_mut(&index).unwrap().write_record(record.iter()).unwrap();
                     }
                 }
             }
@@ -181,7 +197,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
     }
 
     pub fn load(&mut self) -> GDBResult<()> {
-        create_dir_all(&self.partition_dir)?;
+        for (_, dir) in self.partition_dir.iter() {
+            create_dir_all(&dir)?;
+        }
+
 
         let v_label_num = self.graph_schema.vertex_type_to_id.len() as LabelId;
         let mut index = 0_usize;
@@ -224,18 +243,27 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
                         .to_str()
                         .unwrap();
                     let output_path = if let Some(pos) = input_path.find(input_dir_path) {
-                        self.partition_dir.join(
-                            input_path
-                                .clone()
-                                .split_at(pos + input_dir_path.len() + 1)
-                                .1,
-                        )
+                        let mut path_map = HashMap::new();
+                        for (index, dir) in self.partition_dir.iter() {
+                            path_map.insert(*index, dir.join(
+                                input_path
+                                    .clone()
+                                    .split_at(pos + input_dir_path.len() + 1)
+                                    .1));
+                        }
+                        path_map
                     } else {
-                        self.partition_dir.join("tmp")
+                        let mut path_map = HashMap::new();
+                        for (index, dir) in self.partition_dir.iter() {
+                            path_map.insert(*index, dir.join("tmp"));
+                        }
+                        path_map
                     };
-                    let mut output_dir = output_path.clone();
-                    output_dir.pop();
-                    create_dir_all(output_dir)?;
+                    for (_, output_p) in output_path.iter() {
+                        let mut output_dir = output_p.clone();
+                        output_dir.pop();
+                        create_dir_all(output_dir)?;
+                    }
                     let rdr = ReaderBuilder::new()
                         .delimiter(self.delim)
                         .buffer_capacity(4096)
@@ -243,9 +271,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
                         .flexible(true)
                         .has_headers(self.skip_header)
                         .from_reader(BufReader::new(File::open(&vertex_file).unwrap()));
-                    let mut wtr = WriterBuilder::new()
-                        .delimiter(self.delim)
-                        .from_writer(BufWriter::new(File::create(&output_path).unwrap()));
+                    let mut wtr = HashMap::new();
+                    for (index, path) in output_path.iter() {
+                        wtr.insert(*index, WriterBuilder::new().delimiter(self.delim).from_writer(BufWriter::new(File::create(path).unwrap())));
+                    }
                     self.load_vertices(
                         v_label_i,
                         rdr,
@@ -272,18 +301,27 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
                     let gz_loc = input_path.find(".gz").unwrap();
                     let input_path = input_path.split_at(gz_loc).0;
                     let output_path = if let Some(pos) = input_path.find(input_dir_path) {
-                        self.partition_dir.join(
-                            input_path
-                                .clone()
-                                .split_at(pos + input_dir_path.len() + 1)
-                                .1,
-                        )
+                        let mut path_map = HashMap::new();
+                        for (index, dir) in self.partition_dir.iter() {
+                            path_map.insert(*index, dir.join(
+                                input_path
+                                    .clone()
+                                    .split_at(pos + input_dir_path.len() + 1)
+                                    .1));
+                        }
+                        path_map
                     } else {
-                        self.partition_dir.join("tmp")
+                        let mut path_map = HashMap::new();
+                        for (index, dir) in self.partition_dir.iter() {
+                            path_map.insert(*index, dir.join("tmp"));
+                        }
+                        path_map
                     };
-                    let mut output_dir = output_path.clone();
-                    output_dir.pop();
-                    create_dir_all(output_dir)?;
+                    for (_, output_p) in output_path.iter() {
+                        let mut output_dir = output_p.clone();
+                        output_dir.pop();
+                        create_dir_all(output_dir)?;
+                    }
                     let rdr = ReaderBuilder::new()
                         .delimiter(self.delim)
                         .buffer_capacity(4096)
@@ -291,9 +329,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
                         .flexible(true)
                         .has_headers(self.skip_header)
                         .from_reader(BufReader::new(GzReader::from_path(&vertex_file).unwrap()));
-                    let mut wtr = WriterBuilder::new()
-                        .delimiter(self.delim)
-                        .from_writer(BufWriter::new(File::create(&output_path).unwrap()));
+                    let mut wtr = HashMap::new();
+                    for (index, path) in output_path.iter() {
+                        wtr.insert(*index, WriterBuilder::new().delimiter(self.delim).from_writer(BufWriter::new(File::create(path).unwrap())));
+                    }
                     self.load_vertices(
                         v_label_i,
                         rdr,
@@ -336,18 +375,27 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
                                     .to_str()
                                     .unwrap();
                                 let output_path = if let Some(pos) = input_path.find(input_dir_path) {
-                                    self.partition_dir.join(
-                                        input_path
-                                            .clone()
-                                            .split_at(pos + input_dir_path.len() + 1)
-                                            .1,
-                                    )
+                                    let mut path_map = HashMap::new();
+                                    for (index, dir) in self.partition_dir.iter() {
+                                        path_map.insert(*index, dir.join(
+                                            input_path
+                                                .clone()
+                                                .split_at(pos + input_dir_path.len() + 1)
+                                                .1));
+                                    }
+                                    path_map
                                 } else {
-                                    self.partition_dir.join("tmp")
+                                    let mut path_map = HashMap::new();
+                                    for (index, dir) in self.partition_dir.iter() {
+                                        path_map.insert(*index, dir.join("tmp"));
+                                    }
+                                    path_map
                                 };
-                                let mut output_dir = output_path.clone();
-                                output_dir.pop();
-                                create_dir_all(output_dir)?;
+                                for (_, output_p) in output_path.iter() {
+                                    let mut output_dir = output_p.clone();
+                                    output_dir.pop();
+                                    create_dir_all(output_dir)?;
+                                }
                                 let rdr = ReaderBuilder::new()
                                     .delimiter(self.delim)
                                     .buffer_capacity(4096)
@@ -355,9 +403,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
                                     .flexible(true)
                                     .has_headers(self.skip_header)
                                     .from_reader(BufReader::new(File::open(&edge_file).unwrap()));
-                                let wtr = WriterBuilder::new()
-                                    .delimiter(self.delim)
-                                    .from_writer(BufWriter::new(File::create(&output_path).unwrap()));
+                                let mut wtr = HashMap::new();
+                                for (index, path) in output_path.iter() {
+                                    wtr.insert(*index, WriterBuilder::new().delimiter(self.delim).from_writer(BufWriter::new(File::create(path).unwrap())));
+                                }
                                 self.load_edges(
                                     src_label_i,
                                     dst_label_i,
@@ -383,18 +432,27 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
                                 let gz_loc = input_path.find(".gz").unwrap();
                                 let input_path = input_path.split_at(gz_loc).0;
                                 let output_path = if let Some(pos) = input_path.find(input_dir_path) {
-                                    self.partition_dir.join(
-                                        input_path
-                                            .clone()
-                                            .split_at(pos + input_dir_path.len() + 1)
-                                            .1,
-                                    )
+                                    let mut path_map = HashMap::new();
+                                    for (index, dir) in self.partition_dir.iter() {
+                                        path_map.insert(*index, dir.join(
+                                            input_path
+                                                .clone()
+                                                .split_at(pos + input_dir_path.len() + 1)
+                                                .1));
+                                    }
+                                    path_map
                                 } else {
-                                    self.partition_dir.join("tmp")
+                                    let mut path_map = HashMap::new();
+                                    for (index, dir) in self.partition_dir.iter() {
+                                        path_map.insert(*index, dir.join("tmp"));
+                                    }
+                                    path_map
                                 };
-                                let mut output_dir = output_path.clone();
-                                output_dir.pop();
-                                create_dir_all(output_dir)?;
+                                for (_, output_p) in output_path.iter() {
+                                    let mut output_dir = output_p.clone();
+                                    output_dir.pop();
+                                    create_dir_all(output_dir)?;
+                                }
                                 let rdr = ReaderBuilder::new()
                                     .delimiter(self.delim)
                                     .buffer_capacity(4096)
@@ -402,9 +460,10 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
                                     .flexible(true)
                                     .has_headers(self.skip_header)
                                     .from_reader(BufReader::new(GzReader::from_path(&edge_file).unwrap()));
-                                let wtr = WriterBuilder::new()
-                                    .delimiter(self.delim)
-                                    .from_writer(BufWriter::new(File::create(&output_path).unwrap()));
+                                let mut wtr = HashMap::new();
+                                for (index, path) in output_path.iter() {
+                                    wtr.insert(*index, WriterBuilder::new().delimiter(self.delim).from_writer(BufWriter::new(File::create(path).unwrap())));
+                                }
                                 self.load_edges(
                                     src_label_i,
                                     dst_label_i,
