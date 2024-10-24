@@ -254,7 +254,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
                 let start_idx = i * chunk_size;
                 let end_idx = edges_num.min(start_idx + chunk_size);
                 let nbr_start_idx = i * nbr_chunk_size;
-                let nbr_end_idx = self.nbr_list.len().min(nbr_start_idx + chunk_size);
+                let nbr_end_idx = self.nbr_list.len().min(nbr_start_idx + nbr_chunk_size);
                 s.spawn(move |_| {
                     let edges_ref = safe_edges_ptr.get_ref();
                     let nbr_list_ref = safe_nbr_list_ptr.get_mut();

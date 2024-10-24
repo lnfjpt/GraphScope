@@ -299,7 +299,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                 let start_idx = i * chunk_size;
                 let end_idx = keys_size.min(start_idx + chunk_size);
                 let nbr_start_idx = i * nbr_chunk_size;
-                let nbr_end_idx = self.offsets.len().min(nbr_start_idx + chunk_size);
+                let nbr_end_idx = self.offsets.len().min(nbr_start_idx + nbr_chunk_size);
                 s.spawn(move |_| {
                     let keys_ref = safe_keys_ptr.get_ref();
                     let offsets_ref = safe_offsets_ptr.get_ref();
@@ -340,7 +340,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                         for index in nbr_start_idx..nbr_end_idx {
                             let mut offset = offsets_ref[index];
                             let deg = degree_ref[index];
-                            if offset == usize::MAX {
+                            if deg == 0 {
                                 continue;
                             }
 
@@ -432,7 +432,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                 let start_idx = i * chunk_size;
                 let end_idx = keys_size.min(start_idx + chunk_size);
                 let nbr_start_idx = i * nbr_chunk_size;
-                let nbr_end_idx = self.offsets.len().min(nbr_start_idx + chunk_size);
+                let nbr_end_idx = self.offsets.len().min(nbr_start_idx + nbr_chunk_size);
                 s.spawn(move |_| {
                     let keys_ref = safe_keys_ptr.get_ref();
                     let offsets_ref = safe_offsets_ptr.get_ref();
@@ -475,7 +475,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                         for index in nbr_start_idx..nbr_end_idx {
                             let mut offset = offsets_ref[index];
                             let deg = degree_ref[index];
-                            if offset == usize::MAX {
+                            if deg == 0 {
                                 continue;
                             }
 
