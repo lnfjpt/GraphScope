@@ -213,6 +213,7 @@ pub fn parse_vertex_id_from_file(
             .to_string()];
         let parser = LDBCVertexParser::<usize>::new(vertex_label, id_col as usize);
         let files = get_files_list(&input_dir, &filename).unwrap();
+
         for file in files.iter() {
             if let Some(path_str) = file.clone().to_str() {
                 if path_str.ends_with(".csv.gz") {

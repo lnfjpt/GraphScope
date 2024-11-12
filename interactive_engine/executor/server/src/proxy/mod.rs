@@ -40,6 +40,7 @@ async fn submit_query(
     path: web::Path<(String,)>, bytes: web::Bytes, index: web::Data<AtomicU64>,
     client: web::Data<Mutex<JobClient>>,
 ) -> impl Responder {
+
     let byte_slice: &[u8] = &bytes;
     let arguments: Vec<String> = serde_json::from_slice(byte_slice).unwrap();
     let job_id = index.fetch_add(1, Ordering::SeqCst);

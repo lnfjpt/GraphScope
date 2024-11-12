@@ -185,11 +185,15 @@ impl<G: FromStr + Send + Sync + IndexType + Eq> GraphPartitioner<G> {
             for result in rdr.records() {
                 if let Ok(record) = result {
                     let edge_meta = parser.parse_edge_meta(&record);
+                    let mut updated_index = usize::MAX;
                     if let Some(index) = self.get_vertex_partition(edge_meta.src_global_id) {
+                        updated_index = index;
                         wtr.get_mut(&index).unwrap().write_record(record.iter()).unwrap();
                     }
                     if let Some(index) = self.get_vertex_partition(edge_meta.dst_global_id) {
-                        wtr.get_mut(&index).unwrap().write_record(record.iter()).unwrap();
+                        if updated_index != index {
+                            wtr.get_mut(&index).unwrap().write_record(record.iter()).unwrap();
+                        }
                     }
                 }
             }

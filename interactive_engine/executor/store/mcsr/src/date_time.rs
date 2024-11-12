@@ -18,6 +18,7 @@ use std::fmt::{Debug, Display, Formatter};
 use chrono::DateTime as CDateTime;
 use chrono::{Datelike, Duration, Timelike, Utc};
 use pegasus_common::codec::{Decode, Encode, ReadExt, WriteExt};
+use crate::date::Date;
 
 #[derive(Clone, Copy)]
 pub struct DateTime {

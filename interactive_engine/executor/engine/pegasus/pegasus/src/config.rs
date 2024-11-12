@@ -129,7 +129,7 @@ pub struct JobConf {
     /// the most memory(MB) this job can use in each server;
     pub memory_limit: u32,
     /// set to print runtime dataflow plan before running;
-    pub plan_print: bool,
+        pub plan_print: bool,
     /// the id of servers this job will run on;
     servers: ServerConf,
     /// set enable trace job run progress;
