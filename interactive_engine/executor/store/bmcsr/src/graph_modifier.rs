@@ -1321,8 +1321,6 @@ pub fn delete_vertices_by_ids<G, I>(
             } else {
                 oids.insert(internal_id.1);
             }
-        } else {
-            oids.insert(*v);
         }
     }
     let vertex_label_num = graph.vertex_label_num;
