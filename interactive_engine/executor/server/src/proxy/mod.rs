@@ -37,11 +37,15 @@ struct ServiceStatus {
 
 #[post("/v1/graph/{graph_id}/query")]
 async fn submit_query(
-    path: web::Path<(String,)>, bytes: web::Bytes, index: web::Data<AtomicU64>,
+    path: web::Path<(String, )>, bytes: web::Bytes, index: web::Data<AtomicU64>,
     client: web::Data<Mutex<JobClient>>,
 ) -> impl Responder {
-
-    let byte_slice: &[u8] = &bytes;
+    let mut new_bytes = bytes;
+    if !new_bytes.is_empty() {
+        let new_len = new_bytes.len() - 1;
+        new_bytes = new_bytes.slice(0..new_len);
+    }
+    let byte_slice: &[u8] = &new_bytes;
     let arguments: Vec<String> = serde_json::from_slice(byte_slice).unwrap();
     let job_id = index.fetch_add(1, Ordering::SeqCst);
     let query_name = arguments[0].clone();
