@@ -1455,11 +1455,7 @@ pub fn set_vertices(
                     if let Some(id_column) = data.as_any().downcast_ref::<IDColumn>() {
                         id_column.data.clone()
                     } else if let Some(uint64_column) = data.as_any().downcast_ref::<UInt64Column>() {
-                        let mut lid = vec![];
-                        for i in uint64_column.data.iter() {
-                            lid.push(graph.get_internal_id(*i as usize));
-                        }
-                        lid
+                        uint64_column.data.par_iter().map(|&x| graph.get_internal_id(x as usize)).collect()
                     } else {
                         panic!("DataType of id col is not VertexId")
                     }
