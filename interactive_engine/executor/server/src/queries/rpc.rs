@@ -29,6 +29,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
+use crate::queries::register::QueryApi;
 use crate::generated::common;
 use crate::generated::procedure;
 use crate::generated::protocol as pb;
@@ -139,7 +140,7 @@ impl<S: pb::job_service_server::JobService> RPCJobServer<S> {
     pub async fn run(
         self, server_id: u64, mut listener: StandaloneServiceListener,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
-where {
+        where {
         let RPCJobServer { service, mut rpc_config } = self;
         let mut builder = Server::builder();
         if let Some(limit) = rpc_config.rpc_concurrency_limit_per_connection {
@@ -354,10 +355,77 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                                 Ok(_) => println!("Response sent successfully."),
                                 Err(e) => eprintln!("Failed to send response: {}", e),
                             }
-                            return Ok(Response::new(UnboundedReceiverStream::new(rx)));
                         }
                     }
-                    drop(resource_maps);
+                    drop(graph);
+                    drop(graph_index);
+                } else {
+                    if let Some(queries) = self.query_register.get_new_query(&query_name) {
+                        let resource_maps = DistributedParResourceMaps::default(
+                            ServerConf::Partial(self.servers.clone()),
+                            self.workers,
+                        );
+                        let mut conf = parse_conf_req(conf);
+                        conf.reset_servers(ServerConf::Partial(self.servers.clone()));
+                        let msg_sender_map = get_msg_sender();
+                        let recv_register_map = get_recv_register();
+                        for query in queries.iter() {
+                            let graph = self.graph_db.read().unwrap();
+                            let graph_index = self.graph_index.read().unwrap();
+                            let results = {
+                                pegasus::run_with_resource_map(
+                                    conf.clone(),
+                                    Some(resource_maps.clone()),
+                                    || {
+                                        query.Query(
+                                            conf.clone(),
+                                            params.clone(),
+                                            msg_sender_map.clone(),
+                                            recv_register_map.clone(),
+                                        )
+                                    },
+                                )
+                                    .expect("submit query failure")
+                            };
+                            let mut write_operations = vec![];
+                            let mut bytes_result = vec![];
+                            for result in results {
+                                if let Ok((worker_id, alias_datas, write_ops, mut query_result)) = result {
+                                    if let Some(write_ops) = write_ops {
+                                        for write_op in write_ops {
+                                            write_operations.push(write_op);
+                                        }
+                                    }
+                                    if let Some(mut query_result) = query_result {
+                                        let len = query_result.len();
+                                        bytes_result.append(&mut len.to_le_bytes().to_vec());
+                                        bytes_result.append(&mut query_result);
+                                    }
+                                }
+                            }
+                            drop(graph);
+                            drop(graph_index);
+                            let mut graph = self.graph_db.write().unwrap();
+                            let mut graph_index = self.graph_index.write().unwrap();
+                            apply_write_operations(
+                                &mut graph,
+                                write_operations,
+                                self.workers,
+                                self.servers.len(),
+                            );
+
+                            if !bytes_result.is_empty() {
+                                let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                                let response = pb::JobResponse { job_id, resp: bytes_result };
+                                match tx.send(Ok(response)) {
+                                    Ok(_) => println!("Response sent successfully."),
+                                    Err(e) => eprintln!("Failed to send response: {}", e),
+                                }
+                                return Ok(Response::new(UnboundedReceiverStream::new(rx)));
+                            }
+                        }
+                        drop(resource_maps);
+                    }
                 }
             };
         }
