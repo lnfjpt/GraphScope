@@ -22,9 +22,7 @@ use serde::{Deserialize, Serialize};
 pub struct QueryApi {
     Query: fn(
         conf: JobConf,
-        graph: &GraphDB<usize, usize>,
         input_params: HashMap<String, String>,
-        alias_data: Option<Arc<Mutex<HashMap<u32, Vec<AliasData>>>>>,
         msg_sender_map: Arc<ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>>,
         recv_register_map: Arc<ShardedLock<HashMap<(u64, u64), InboxRegister>>>,
     ) -> Box<
