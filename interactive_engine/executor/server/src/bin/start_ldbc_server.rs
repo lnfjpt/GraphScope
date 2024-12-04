@@ -95,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         query_register,
         workers,
         servers,
-        shared_graph,
+        Some(shared_graph),
     )
     .await?;
     Ok(())
