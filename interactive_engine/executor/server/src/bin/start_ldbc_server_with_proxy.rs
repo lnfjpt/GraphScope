@@ -73,6 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pegasus_common::logs::init_log();
     let config: Config = Config::from_args();
 
+    let graph_data_str = config.graph_data.to_str().unwrap();
+
     let start = Instant::now();
     let name = "/SHM_GRAPH_STORE";
     // let mut is_load = false;
@@ -86,9 +88,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shared_graph =
         Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, config.partition_id)));
     println!("open graph takes: {} s", start.elapsed().as_secs_f64());
-    // if !is_load {
-    //     traverse(&shared_graph.read().unwrap(), "/mnt/nas/luoxiaojian/traverse_output");
-    // }
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
@@ -142,15 +141,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Rpc config not set");
     let rpc_endpoint =
         format!("https://{}:{}", rpc_config.rpc_host.as_ref().unwrap(), rpc_config.rpc_port.unwrap());
-    pegasus::startup(server_conf.clone()).ok();
-    pegasus::wait_servers_ready(&ServerConf::All);
+    // pegasus::startup(server_conf.clone()).ok();
+    // pegasus::wait_servers_ready(&ServerConf::All);
     let _rpc_server_handler = tokio::spawn(queries::rpc::start_all(
         rpc_config,
         server_conf,
         query_register,
         workers,
         servers,
-        shared_graph,
+        Some(shared_graph),
     ));
 
     if let Some(proxy_endpoint) = proxy_endpoint {
