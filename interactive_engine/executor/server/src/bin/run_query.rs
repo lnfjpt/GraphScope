@@ -35,7 +35,7 @@ pub struct Config {
     queries_config: String,
     #[structopt(short = "n", long = "query_name")]
     query_name: String,
-    #[structopt(short = "p", long = "params")]
+    #[structopt(short = "p", long = "params", default_value = "")]
     parameters: String,
 }
 
@@ -104,6 +104,7 @@ fn main() {
     println!("Finished load libs");
 
     pegasus::startup(server_conf.clone()).ok();
+    pegasus::wait_servers_ready(&ServerConf::All);
 
     let query_name = config.query_name;
     let parameters = config.parameters;

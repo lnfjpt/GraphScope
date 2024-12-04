@@ -233,7 +233,7 @@ impl RPCServerConfig {
 
 pub async fn start_all(
     rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, workers: u32,
-    servers: Vec<u64>, graph_db: Arc<RwLock<GraphDB<usize, usize>>>,
+    servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_id = server_config.server_id();
     start_rpc_sever(server_id, rpc_config, query_register, workers, &servers, graph_db).await?;
@@ -242,7 +242,7 @@ pub async fn start_all(
 
 pub async fn start_rpc_sever(
     server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, workers: u32,
-    servers: &Vec<u64>, graph_db: Arc<RwLock<GraphDB<usize, usize>>>,
+    servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let service = JobServiceImpl {
         query_register,
@@ -268,8 +268,7 @@ pub struct JobServiceImpl {
     server_id: u64,
     servers: Vec<u64>,
     report: bool,
-
-    graph_db: Arc<RwLock<GraphDB<usize, usize>>>,
+    graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
 }
 
 #[tonic::async_trait]
@@ -362,9 +361,9 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     .output()
                     .expect("Failed to execute command");
                 if status.status.success() {
-                    println!("Finished run subprocess, time used {}ms",start.elapsed().as_millis());
+                    println!("Finished run subprocess, time used {}ms", start.elapsed().as_millis());
                 } else {
-                    println!("Failed to run subprocess, time used {}ms",start.elapsed().as_millis());
+                    println!("Failed to run subprocess, time used {}ms", start.elapsed().as_millis());
                 }
 
                 // if let Some(queries) = self.query_register.get_new_query(&query_name) {
