@@ -112,6 +112,7 @@ fn main() {
     if let Some(queries) = query_register.get_new_query(&query_name) {
         let mut conf = pegasus::JobConf::new(query_name);
         conf.reset_servers(ServerConf::Partial(servers.clone()));
+        conf.set_workers(workers);
         for query in queries.iter() {
             let params = HashMap::<String, String>::new();
             let results = {
