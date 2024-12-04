@@ -19,20 +19,6 @@ use pegasus::result::ResultSink;
 use pegasus::{get_servers_len, JobConf};
 use pegasus_network::{InboxRegister, NetData, set_msg_sender, set_recv_register};
 
-#[cfg(feature = "use_mimalloc")]
-use mimalloc::MiMalloc;
-
-#[cfg(feature = "use_mimalloc")]
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
-
-#[cfg(feature = "use_mimalloc_rust")]
-use mimalloc_rust::*;
-
-#[cfg(feature = "use_mimalloc_rust")]
-#[global_allocator]
-static GLOBAL_MIMALLOC: GlobalMiMalloc = GlobalMiMalloc;
-
 #[no_mangle]
 pub fn interaction1_count_precompute(
     conf: JobConf, graph: &'static GraphDB<usize, usize>,
