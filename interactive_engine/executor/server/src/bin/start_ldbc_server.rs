@@ -1,8 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use bmcsr::graph_db::GraphDB;
-use graph_index::GraphIndex;
+use shm_graph::graph_db::GraphDB;
 #[cfg(feature = "use_mimalloc")]
 use mimalloc::MiMalloc;
 use pegasus::{Configuration, ServerConf};
@@ -54,9 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let graph_data_str = config.graph_data.to_str().unwrap();
 
-    let shared_graph =
-        Arc::new(RwLock::new(GraphDB::<usize, usize>::deserialize(graph_data_str, config.partition_id, None).unwrap()));
-    let shared_graph_index = Arc::new(RwLock::new(GraphIndex::new(0)));
+    let shared_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(graph_data_str, config.partition_id)));
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
@@ -95,7 +92,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         workers,
         servers,
         shared_graph,
-        shared_graph_index,
     )
     .await?;
     Ok(())

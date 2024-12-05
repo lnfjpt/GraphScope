@@ -18,12 +18,12 @@ type ArrayType<T> = HugeVec<T>;
 type ArrayType<T> = Vec<T>;
 
 pub struct BatchMutableSingleCsr<I> {
-    nbr_list: ArrayType<I>,
+    pub nbr_list: ArrayType<I>,
 
     vertex_num: usize,
     edge_num: usize,
 
-    vertex_capacity: usize,
+    pub vertex_capacity: usize,
 }
 
 pub struct BatchMutableSingleCsrBuilder<I> {

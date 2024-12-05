@@ -2,6 +2,7 @@
 
 members = [
     "bmcsr",
+    "shm_graph",
     "mcsr",
     "global_query",
     "groot",

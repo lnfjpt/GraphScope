@@ -12,16 +12,14 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use std::{env, fs};
 
-use bmcsr::graph::Direction;
-use bmcsr::graph_db::GraphDB;
-use bmcsr::graph_modifier::*;
-use bmcsr::graph_modifier::{DeleteGenerator, GraphModifier};
-use bmcsr::ldbc_parser::LDBCVertexParser;
-use bmcsr::schema::InputSchema;
-use bmcsr::traverse::traverse;
+use shm_graph::graph::Direction;
+use shm_graph::graph_db::GraphDB;
+use shm_graph::graph_modifier::*;
+use shm_graph::ldbc_parser::LDBCVertexParser;
+use shm_graph::schema::InputSchema;
+
 use dlopen::wrapper::{Container, WrapperApi};
 use futures::Stream;
-use graph_index::GraphIndex;
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
 use pegasus::api::function::FnResult;
@@ -241,17 +239,16 @@ impl RPCServerConfig {
 
 pub async fn start_all(
     rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, workers: u32,
-    servers: Vec<u64>, graph_db: Arc<RwLock<GraphDB<usize, usize>>>, graph_index: Arc<RwLock<GraphIndex>>,
+    servers: Vec<u64>, graph_db: Arc<RwLock<GraphDB<usize, usize>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_id = server_config.server_id();
-    start_rpc_sever(server_id, rpc_config, query_register, workers, &servers, graph_db, graph_index)
-        .await?;
+    start_rpc_sever(server_id, rpc_config, query_register, workers, &servers, graph_db).await?;
     Ok(())
 }
 
 pub async fn start_rpc_sever(
     server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, workers: u32,
-    servers: &Vec<u64>, graph_db: Arc<RwLock<GraphDB<usize, usize>>>, graph_index: Arc<RwLock<GraphIndex>>,
+    servers: &Vec<u64>, graph_db: Arc<RwLock<GraphDB<usize, usize>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let service = JobServiceImpl {
         query_register,
@@ -260,7 +257,6 @@ pub async fn start_rpc_sever(
         servers: servers.clone(),
         report: true,
         graph_db,
-        graph_index,
     };
     let server = RPCJobServer::new(rpc_config, service);
     server
@@ -280,7 +276,6 @@ pub struct JobServiceImpl {
     report: bool,
 
     graph_db: Arc<RwLock<GraphDB<usize, usize>>>,
-    graph_index: Arc<RwLock<GraphIndex>>,
 }
 
 #[tonic::async_trait]
@@ -315,9 +310,8 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     conf.reset_servers(ServerConf::Partial(self.servers.clone()));
                     let msg_sender_map = get_msg_sender();
                     let recv_register_map = get_recv_register();
-                    for query in queries.iter() {
+                    for query in queries.into_iter() {
                         let graph = self.graph_db.read().unwrap();
-                        let graph_index = self.graph_index.read().unwrap();
                         let results = {
                             pegasus::run_with_resource_map(
                                 conf.clone(),
@@ -352,9 +346,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                             }
                         }
                         drop(graph);
-                        drop(graph_index);
                         let mut graph = self.graph_db.write().unwrap();
-                        let mut graph_index = self.graph_index.write().unwrap();
                         apply_write_operations(
                             &mut graph,
                             write_operations,

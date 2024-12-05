@@ -8,8 +8,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
-use bmcsr::graph_db::GraphDB;
-use graph_index::GraphIndex;
+use shm_graph::graph_db::GraphDB;
 #[cfg(feature = "use_mimalloc")]
 use mimalloc::MiMalloc;
 use pegasus::{Configuration, ServerConf};
@@ -77,9 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graph_data_str = config.graph_data.to_str().unwrap();
 
-    let shared_graph =
-        Arc::new(RwLock::new(GraphDB::<usize, usize>::deserialize(graph_data_str, config.partition_id, None).unwrap()));
-    let shared_graph_index = Arc::new(RwLock::new(GraphIndex::new(0)));
+    let shared_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(graph_data_str, config.partition_id)));
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
@@ -142,7 +139,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         workers,
         servers,
         shared_graph,
-        shared_graph_index,
     ));
 
     if let Some(proxy_endpoint) = proxy_endpoint {
