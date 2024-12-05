@@ -171,7 +171,6 @@ where
                         }
 
                         let ie_prefix = format!("{}/ie_{}_{}_{}", partition_prefix.as_str(), src_label as usize, edge_label as usize, dst_label as usize);
-                        println!("ie index = {}, prefix = {}", index, ie_prefix.as_str());
                         if graph_schema.is_single_ie(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
                             ie.insert(index, Box::new(SCsr::open(ie_prefix.as_str())));
                         } else {
@@ -271,7 +270,6 @@ where
         let index = self.edge_label_to_index(src_label, dst_label, edge_label, dir);
         match dir {
             Direction::Incoming => {
-                println!("src_label = {}, edge_label = {}, dst_label = {}, index = {}", src_label as usize, edge_label as usize, dst_label as usize, index);
                 SubGraph::new(
                     &self.ie.get(&index).unwrap().as_any().downcast_ref::<Csr<I>>().unwrap(),
                     &self.vertex_map,
@@ -279,7 +277,7 @@ where
                     dst_label,
                     edge_label,
                     &self.vertex_prop_table[src_label as usize],
-                    self.oe_edge_prop_table.get(&index),
+                    self.ie_edge_prop_table.get(&index),
                 )
             },
             Direction::Outgoing => {
@@ -290,7 +288,7 @@ where
                     dst_label,
                     edge_label,
                     &self.vertex_prop_table[src_label as usize],
-                    self.ie_edge_prop_table.get(&index),
+                    self.oe_edge_prop_table.get(&index),
                 )
             },
         }
@@ -307,7 +305,7 @@ where
                     dst_label,
                     edge_label,
                     &self.vertex_prop_table[src_label as usize],
-                    self.oe_edge_prop_table.get(&index),
+                    self.ie_edge_prop_table.get(&index),
                 )
             },
             Direction::Outgoing => {
@@ -318,7 +316,7 @@ where
                     dst_label,
                     edge_label,
                     &self.vertex_prop_table[src_label as usize],
-                    self.ie_edge_prop_table.get(&index),
+                    self.oe_edge_prop_table.get(&index),
                 )
 
             },

@@ -22,7 +22,6 @@ where
     T: Copy + Sized,
 {
     pub fn open(name: &str) -> Self {
-        println!("opening file {}", name);
         let file = File::open(name).unwrap();
         let data = unsafe { Mmap::map(&file).unwrap() };
         let ptr = PtrWrapper { inner: data.as_ptr() as *const T};
