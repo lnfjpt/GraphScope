@@ -6,7 +6,6 @@ use std::future;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
-use std::io::{self, BufRead};
 
 #[cfg(feature = "use_mimalloc")]
 use mimalloc::MiMalloc;
@@ -111,35 +110,27 @@ fn main() {
     let parameters = config.parameters;
     let msg_sender_map = get_msg_sender();
     let recv_register_map = get_recv_register();
-
-    let stdin = io::stdin();
-    let reader = stdin.lock();
-
-    for query_name in reader.lines() {
-        if let Some(query_name) = query_name {
-            if let Some(queries) = query_register.get_new_query(&query_name) {
-                let mut conf = pegasus::JobConf::new(query_name);
-                conf.reset_servers(ServerConf::Partial(servers.clone()));
-                conf.set_workers(workers);
-                for query in queries.iter() {
-                    let params = HashMap::<String, String>::new();
-                    let results = {
-                        pegasus::run(
+    if let Some(queries) = query_register.get_new_query(&query_name) {
+        let mut conf = pegasus::JobConf::new(query_name);
+        conf.reset_servers(ServerConf::Partial(servers.clone()));
+        conf.set_workers(workers);
+        for query in queries.iter() {
+            let params = HashMap::<String, String>::new();
+            let results = {
+                pegasus::run(
+                    conf.clone(),
+                    || {
+                        query.Query(
                             conf.clone(),
-                            || {
-                                query.Query(
-                                    conf.clone(),
-                                    params.clone(),
-                                    msg_sender_map.clone(),
-                                    recv_register_map.clone(),
-                                )
-                            },
+                            params.clone(),
+                            msg_sender_map.clone(),
+                            recv_register_map.clone(),
                         )
-                            .expect("submit query failure")
-                    };
-                    for result in results {}
-                }
-            }
+                    },
+                )
+                    .expect("submit query failure")
+            };
+            for result in results {}
         }
     }
     pegasus::shutdown_all();
