@@ -2,6 +2,12 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::pin::Pin;
+<<<<<<< HEAD
+=======
+use std::process::{Command, Stdio};
+use std::io::{BufReader, BufRead, self};
+use std::ptr::write;
+>>>>>>> c32118c96 (update subprocess)
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
@@ -350,21 +356,34 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                         apply_write_operations(&mut graph, write_operations, self.servers.len());
 
                 let start = Instant::now();
-                let status = Command::new("/root/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
+                let mut child = Command::new("/mnt/nas/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
                     .env("RUST_LOG", "INFO")
                     .arg("-s")
-                    .arg("server.toml")
+                    .arg("/root/server.toml")
                     .arg("-q")
-                    .arg("queries.yaml")
+                    .arg("/root/queries.yaml")
                     .arg("-n")
                     .arg("test")
-                    .output()
+                    .spawn()
                     .expect("Failed to execute command");
-                if status.status.success() {
-                    println!("Finished run subprocess, time used {}ms", start.elapsed().as_millis());
-                } else {
-                    println!("Failed to run subprocess, time used {}ms", start.elapsed().as_millis());
+                let stdin = child.stdin.as_mut().expect("Failed to open stdin");
+                std::thread::sleep(Duration::from_millis(5000));
+                write!(stdin, "test");
+                drop(stdin);
+                if let Some(stdout) = child.stdout.take() {
+                    let reader = BufReader::new(stdout);
+                    for line in reader.lines() {
+                        match line {
+                            Ok(line) => println!("{}", line),
+                            Err(e) => eprintln!("Error reading line: {}", e),
+                        }
+                    }
                 }
+                let _ = child.wait().expect("Child process wasn't running");
+                println!(
+                    "Finished run query, time: {}",
+                    start.elapsed().as_millis()
+                );
 
                 // if let Some(queries) = self.query_register.get_new_query(&query_name) {
                 //     let resource_maps = DistributedParResourceMaps::default(
