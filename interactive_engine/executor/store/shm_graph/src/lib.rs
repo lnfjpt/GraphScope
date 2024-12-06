@@ -26,3 +26,4 @@ pub mod ldbc_parser;
 pub mod sub_graph;
 pub mod graph_modifier;
 pub mod utils;
+pub mod dataframe;

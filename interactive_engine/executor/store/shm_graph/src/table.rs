@@ -72,6 +72,17 @@ impl Table {
         Self { columns, header, row_num }
     }
 
+    pub fn from_column(prop_name: &str, prop_col: Box<dyn Column>) -> Self {
+        let mut header = HashMap::new();
+        header.insert(prop_name.to_string(), 0);
+        let row_num = prop_col.len();
+        Self {
+            columns: vec![prop_col],
+            header,
+            row_num,
+        }
+    }
+    
     pub fn col_num(&self) -> usize {
         self.columns.len()
     }
@@ -116,8 +127,15 @@ impl Table {
             None
         }
     }
+
+    pub fn set_column(&mut self, col_id: usize, col_name: &str, col: Box<dyn Column>) {
+        while self.columns.len() <= col_id {
+            self.columns.push(Box::new(NullColumn::new(self.row_num)));
+        }
+        self.columns[col_id] = col;
+        self.header.insert(col_name.to_string(), col_id);
+    }
 }
 
 unsafe impl Sync for Table {}
-
 unsafe impl Send for Table {}

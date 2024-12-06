@@ -14,10 +14,12 @@ use dyn_type::CastError;
 use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
 
+use crate::dataframe::{HeapColumn, I32HColumn, I64HColumn};
 use crate::date::Date;
 use crate::date_time::DateTime;
 use crate::types::DefaultId;
-use crate::vector::{SharedStringVec, SharedVec};
+use crate::vector::{SharedMutVec, SharedStringVec, SharedVec};
+use crate::dataframe::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum DataType {
@@ -408,12 +410,56 @@ pub trait Column {
     fn as_any(&self) -> &dyn Any;
 }
 
+pub trait ColumnBuilder {
+    fn get_type(&self) -> DataType;
+    fn get(&self, index: usize) -> Option<RefItem>;
+    fn len(&self) -> usize;
+    fn as_any(&self) -> &dyn Any;
+
+    fn set(&mut self, index: usize, val: Item);
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>);
+}
+
+pub struct NullColumn {
+    size: usize,
+}
+
+unsafe impl Send for NullColumn {}
+unsafe impl Sync for NullColumn {}
+
+impl NullColumn {
+    pub fn new(size: usize) -> Self {
+        Self { size }
+    }
+}
+
+impl Column for NullColumn {
+    fn get_type(&self) -> DataType {
+        DataType::NULL
+    }
+
+    fn get(&self, index: usize) -> Option<RefItem> {
+        if index < self.size {
+            Some(RefItem::Null)
+        } else {
+            None
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.size
+    }
+    
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 pub struct Int32Column {
     pub data: SharedVec<i32>,
 }
 
 unsafe impl Send for Int32Column {}
-
 unsafe impl Sync for Int32Column {}
 
 impl Int32Column {
@@ -438,6 +484,63 @@ impl Column for Int32Column {
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+pub struct Int32ColumnBuilder {
+    pub data: SharedMutVec<i32>,
+}
+
+impl Int32ColumnBuilder {
+    pub fn create(path: &str, size: usize) -> Self {
+        Self { data: SharedMutVec::<i32>::create(path, size) }
+    }
+
+    pub fn finish(&self) {
+        self.data.commit();
+    }
+
+    pub fn path(&self) -> &str {
+        self.data.path()
+    }
+}
+
+impl ColumnBuilder for Int32ColumnBuilder {
+    fn get_type(&self) -> DataType {
+        DataType::Int32
+    }
+
+    fn get(&self, index: usize) -> Option<RefItem> {
+        self.data.get(index).map(|x| RefItem::Int32(x))
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::Int32(v) => {
+                self.data.set(index, v);
+            }
+            _ => {
+                self.data.set(index, 0);
+            }
+        }
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>) {
+        if col.as_any().is::<I32HColumn>() {
+            let casted_col = col.as_any().downcast_ref::<I32HColumn>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data.set(*i, casted_col.data[index]);
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
 }
 
 pub struct UInt32Column {
@@ -504,6 +607,62 @@ impl Column for Int64Column {
     }
 }
 
+pub struct Int64ColumnBuilder {
+    pub data: SharedMutVec<i64>,
+}
+
+impl Int64ColumnBuilder {
+    pub fn create(path: &str, size: usize) -> Self {
+        Self { data: SharedMutVec::<i64>::create(path, size) }
+    }
+
+    pub fn finish(&self) {
+        self.data.commit();
+    }
+
+    pub fn path(&self) -> &str {
+        self.data.path()
+    }
+}
+
+impl ColumnBuilder for Int64ColumnBuilder {
+    fn get_type(&self) -> DataType {
+        DataType::Int64
+    }
+
+    fn get(&self, index: usize) -> Option<RefItem> {
+        self.data.get(index).map(|x| RefItem::Int64(x))
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::Int64(v) => {
+                self.data.set(index, v);
+            }
+            _ => {
+                self.data.set(index, 0);
+            }
+        }
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>) {
+        if col.as_any().is::<I64HColumn>() {
+            let casted_col = col.as_any().downcast_ref::<I64HColumn>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data.set(*i, casted_col.data[index]);
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 pub struct UInt64Column {
     pub data: SharedVec<u64>,
 }
@@ -525,6 +684,62 @@ impl Column for UInt64Column {
 
     fn get(&self, index: usize) -> Option<RefItem> {
         self.data.get(index).map(|x| RefItem::UInt64(x))
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+pub struct UInt64ColumnBuilder {
+    pub data: SharedMutVec<u64>,
+}
+
+impl UInt64ColumnBuilder {
+    pub fn create(path: &str, size: usize) -> Self {
+        Self { data: SharedMutVec::<u64>::create(path, size) }
+    }
+
+    pub fn finish(&self) {
+        self.data.commit();
+    }
+
+    pub fn path(&self) -> &str {
+        self.data.path()
+    }
+}
+
+impl ColumnBuilder for UInt64ColumnBuilder {
+    fn get_type(&self) -> DataType {
+        DataType::UInt64
+    }
+
+    fn get(&self, index: usize) -> Option<RefItem> {
+        self.data.get(index).map(|x| RefItem::UInt64(x))
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::UInt64(v) => {
+                self.data.set(index, v);
+            }
+            _ => {
+                self.data.set(index, 0);
+            }
+        }
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>) {
+        if col.as_any().is::<U64HColumn>() {
+            let casted_col = col.as_any().downcast_ref::<U64HColumn>().unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data.set(*i, casted_col.data[index]);
+            }
+        }
     }
 
     fn len(&self) -> usize {
@@ -745,5 +960,22 @@ impl Column for DateTimeColumn {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+pub fn create_column_builder(dt: DataType, path: &str, size: usize) -> Box<dyn ColumnBuilder> {
+    match dt {
+        DataType::Int32 => {
+            Box::new(Int32ColumnBuilder::create(path, size))
+        },
+        DataType::Int64 => {
+            Box::new(Int64ColumnBuilder::create(path, size))
+        },
+        DataType::UInt64 => {
+            Box::new(UInt64ColumnBuilder::create(path, size))
+        }
+        _ => {
+            panic!("not implemented...");
+        }
     }
 }

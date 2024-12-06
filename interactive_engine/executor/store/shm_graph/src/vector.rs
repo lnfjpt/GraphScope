@@ -1,5 +1,5 @@
 use memmap2::{Mmap, MmapMut};
-use std::ops::Index;
+use std::ops::{Index, IndexMut};
 use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
@@ -24,7 +24,7 @@ where
     pub fn open(name: &str) -> Self {
         let file = File::open(name).unwrap();
         let data = unsafe { Mmap::map(&file).unwrap() };
-        let ptr = PtrWrapper { inner: data.as_ptr() as *const T};
+        let ptr = PtrWrapper { inner: data.as_ptr() as *const T };
         let size = data.len() / std::mem::size_of::<T>();
         Self { data, ptr, size }
     }
@@ -77,6 +77,83 @@ impl<T: Copy + Sized> Index<usize> for SharedVec<T> {
     #[inline(always)]
     fn index(&self, index: usize) -> &Self::Output {
         unsafe { &*self.ptr.inner.add(index) }
+    }
+}
+
+struct MutPtrWrapper<T> {
+    pub inner: *mut T,
+}
+
+unsafe impl<T> Send for MutPtrWrapper<T> {}
+unsafe impl<T> Sync for MutPtrWrapper<T> {}
+
+pub struct SharedMutVec<T: Copy + Sized> {
+    path: String,
+    file: File,
+    data: MmapMut,
+    ptr: MutPtrWrapper<T>,
+    size: usize,
+}
+
+impl<T> SharedMutVec<T>
+where
+    T: Copy + Sized,
+{
+    pub fn create(name: &str, len: usize) -> Self {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(name)
+            .unwrap();
+        file.set_len((len * std::mem::size_of::<T>()) as u64);
+        let mut data = unsafe { MmapMut::map_mut(&file).unwrap() };
+        let ptr = MutPtrWrapper { inner: data.as_mut_ptr() as *mut T };
+        Self { path: name.to_string(), file, data, ptr, size: len }
+    }
+
+    pub fn commit(&self) {
+        self.file.sync_all().unwrap();
+    }
+
+    pub fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    pub fn set(&mut self, index: usize, val: T) {
+        unsafe { *self.ptr.inner.add(index) = val };
+    }
+
+    pub fn get(&self, index: usize) -> Option<T> {
+        if index < self.size {
+            Some(unsafe { *self.ptr.inner.add(index) })
+        } else {
+            None
+        }
+    }
+
+    pub fn get_unchecked(&self, index: usize) -> T {
+        unsafe { *self.ptr.inner.add(index) }
+    }
+
+    pub fn len(&self) -> usize {
+        self.size 
+    }
+}
+
+impl<T: Copy + Sized> Index<usize> for SharedMutVec<T> {
+    type Output = T;
+
+    #[inline(always)]
+    fn index(&self, index: usize) -> &Self::Output {
+        unsafe { &*self.ptr.inner.add(index) }
+    }
+}
+
+impl<T: Copy + Sized> IndexMut<usize> for SharedMutVec<T> {
+    #[inline(always)]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        unsafe { &mut *self.ptr.inner.add(index) }
     }
 }
 

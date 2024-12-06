@@ -15,6 +15,7 @@ use crate::table::Table;
 use crate::vertex_map::VertexMap;
 use crate::graph::*;
 use crate::types::*;
+use crate::columns::Column;
 
 /// A data structure to maintain a local view of the vertex.
 #[derive(Clone)]
@@ -123,6 +124,9 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
 
     pub vertex_label_num: usize,
     pub edge_label_num: usize,
+
+    pub root_path: String,
+    pub partition_prefix: String,
 }
 
 impl<G, I> GraphDB<G, I>
@@ -202,7 +206,45 @@ where
 
             vertex_label_num,
             edge_label_num,
+
+            root_path: prefix.to_string(),
+            partition_prefix,
         }
+    }
+
+    pub fn get_root_path(&self) -> &str {
+        self.root_path.as_str()
+    }
+
+    pub fn get_partition_prefix(&self) -> &str {
+        self.partition_prefix.as_str()
+    }
+
+    pub fn set_vertex_property(&mut self, label: LabelId, prop_name: &str, prop_col: Box<dyn Column>) {
+        let idx = self.graph_schema.get_vertex_property_id(label, prop_name).unwrap();
+        self.vertex_prop_table[label as usize].set_column(idx, prop_name, prop_col);
+    }
+
+    pub fn set_edge_property(&mut self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, dir: Direction, prop_name: &str, prop_col: Box<dyn Column>) {
+        let idx = self.edge_label_to_index(src_label, dst_label, edge_label, dir);
+        let col_idx = self.graph_schema.get_edge_property_id(src_label, edge_label, dst_label, prop_name).unwrap();
+        match dir {
+            Direction::Incoming => {
+                if let Some(table) = self.ie_edge_prop_table.get_mut(&idx) {
+                    table.set_column(col_idx, prop_name, prop_col);
+                } else {
+                    self.ie_edge_prop_table.insert(idx, Table::from_column(prop_name, prop_col));
+                }
+            }
+            Direction::Outgoing => {
+                if let Some(table) = self.oe_edge_prop_table.get_mut(&idx) {
+                    table.set_column(col_idx, prop_name, prop_col);
+                } else {
+                    self.oe_edge_prop_table.insert(idx, Table::from_column(prop_name, prop_col));
+                }
+            }
+        }
+
     }
 
     pub fn edge_label_to_index(

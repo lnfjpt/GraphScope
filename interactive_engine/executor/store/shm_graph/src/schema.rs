@@ -126,6 +126,24 @@ pub struct CsrGraphSchema {
 }
 
 impl CsrGraphSchema {
+    pub fn get_vertex_property_id(&self, label: LabelId, prop_name: &str) -> Option<usize> {
+        if let Some(table) = self.vertex_prop_meta.get(&label) {
+            if let Some(record) = table.get(prop_name) {
+                return Some(record.1);
+            }
+        }
+        return None;
+    }
+
+    pub fn get_edge_property_id(&self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, prop_name: &str) -> Option<usize> {
+        if let Some(table) = self.edge_prop_meta.get(&(src_label, edge_label, dst_label)) {
+            if let Some(record) = table.get(prop_name) {
+                return Some(record.1);
+            }
+        }
+        return None;
+    }
+
     pub fn vertex_label_names(&self) -> Vec<String> {
         let mut ret = vec![];
         let vertex_label_num = self.vertex_type_to_id.len();
