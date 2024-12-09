@@ -1,7 +1,11 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+<<<<<<< HEAD
 use shm_graph::graph_db::GraphDB;
+=======
+use bmcsr::graph_db::GraphDB;
+>>>>>>> 2765f545f (update run_query)
 #[cfg(feature = "use_mimalloc")]
 use mimalloc::MiMalloc;
 use pegasus::{Configuration, ServerConf};
@@ -93,6 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         rpc_config,
         server_conf,
         query_register,
+        0,
         workers,
         servers,
         Some(shared_graph),

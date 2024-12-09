@@ -74,7 +74,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graph_data_str = config.graph_data.to_str().unwrap();
 
-<<<<<<< HEAD
     let start = Instant::now();
     let name = "/SHM_GRAPH_STORE";
     let schema = GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
@@ -83,15 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shared_graph =
         Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, schema, config.partition_id)));
     println!("open graph takes: {} s", start.elapsed().as_secs_f64());
-=======
-<<<<<<< HEAD
-    let shared_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(graph_data_str, config.partition_id)));
-=======
-    // let shared_graph =
-    //     Arc::new(RwLock::new(GraphDB::<usize, usize>::deserialize(graph_data_str, config.partition_id, None).unwrap()));
-    // let shared_graph_index = Arc::new(RwLock::new(GraphIndex::new(0)));
->>>>>>> 3fc0f8422 (update server)
->>>>>>> 7c5ab91e5 (update server)
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
@@ -151,6 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rpc_config,
         server_conf,
         query_register,
+        0,
         workers,
         servers,
         Some(shared_graph),

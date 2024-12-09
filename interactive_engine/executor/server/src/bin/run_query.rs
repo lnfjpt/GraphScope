@@ -38,6 +38,8 @@ pub struct Config {
     query_name: String,
     #[structopt(short = "p", long = "params", default_value = "")]
     parameters: String,
+    #[structopt(short = "o", long = "port_offset", default_value = "")]
+    offset: u16,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -46,16 +48,8 @@ pub struct PegasusConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct HttpServerConfig {
-    pub http_host: Option<String>,
-    pub http_port: Option<usize>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     pub network_config: Option<Configuration>,
-    pub rpc_server: Option<RPCServerConfig>,
-    pub http_server: Option<HttpServerConfig>,
     pub pegasus_config: Option<PegasusConfig>,
 }
 
@@ -66,7 +60,7 @@ fn main() {
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
     let servers_conf: ServerConfig = toml::from_str(servers_config.as_str()).unwrap();
-    let server_conf =
+    let mut server_conf =
         if let Some(servers) = servers_conf.network_config { servers } else { Configuration::singleton() };
 
     let workers = servers_conf
@@ -75,11 +69,18 @@ fn main() {
         .worker_num
         .expect("Could not read worker num");
 
+    let port_offset = config.offset;
+
     let mut servers = vec![];
-    if let Some(network) = &server_conf.network {
+    if let Some(mut network) = server_conf.network.clone() {
         for i in 0..network.servers_size {
+            let addr = network.get_server_addr(i as u64).unwrap();
+            let mut new_addr = addr.clone();
+            new_addr.set_port(addr.get_port() + port_offset);
+            network.set_server_addr(i as u64, new_addr);
             servers.push(i as u64);
         }
+        server_conf.network = Some(network);
     }
 
     let file = File::open(config.queries_config.clone()).unwrap();
@@ -112,32 +113,33 @@ fn main() {
     let msg_sender_map = get_msg_sender();
     let recv_register_map = get_recv_register();
 
-    let stdin = io::stdin();
-    let reader = stdin.lock();
-
-    for query_name in reader.lines() {
-        if let Some(query_name) = query_name {
-            if let Some(queries) = query_register.get_new_query(&query_name) {
-                let mut conf = pegasus::JobConf::new(query_name);
-                conf.reset_servers(ServerConf::Partial(servers.clone()));
-                conf.set_workers(workers);
-                for query in queries.iter() {
-                    let params = HashMap::<String, String>::new();
-                    let results = {
-                        pegasus::run(
-                            conf.clone(),
-                            || {
-                                query.Query(
-                                    conf.clone(),
-                                    params.clone(),
-                                    msg_sender_map.clone(),
-                                    recv_register_map.clone(),
-                                )
-                            },
-                        )
-                            .expect("submit query failure")
-                    };
-                    for result in results {}
+    while true {
+        let stdin = io::stdin();
+        let reader = stdin.lock();
+        for query_name in reader.lines() {
+            if let Ok(query_name) = query_name {
+                if let Some(queries) = query_register.get_new_query(&query_name) {
+                    let mut conf = pegasus::JobConf::new(query_name);
+                    conf.reset_servers(ServerConf::Partial(servers.clone()));
+                    conf.set_workers(workers);
+                    for query in queries.iter() {
+                        let params = HashMap::<String, String>::new();
+                        let results = {
+                            pegasus::run(
+                                conf.clone(),
+                                || {
+                                    query.Query(
+                                        conf.clone(),
+                                        params.clone(),
+                                        msg_sender_map.clone(),
+                                        recv_register_map.clone(),
+                                    )
+                                },
+                            )
+                                .expect("submit query failure")
+                        };
+                        for result in results {}
+                    }
                 }
             }
         }
