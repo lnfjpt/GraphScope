@@ -135,8 +135,13 @@ impl CsrGraphSchema {
         return None;
     }
 
-    pub fn get_edge_property_id(&self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, prop_name: &str) -> Option<usize> {
-        if let Some(table) = self.edge_prop_meta.get(&(src_label, edge_label, dst_label)) {
+    pub fn get_edge_property_id(
+        &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, prop_name: &str,
+    ) -> Option<usize> {
+        if let Some(table) = self
+            .edge_prop_meta
+            .get(&(src_label, edge_label, dst_label))
+        {
             if let Some(record) = table.get(prop_name) {
                 return Some(record.1);
             }

@@ -1,9 +1,13 @@
 use memmap2::{Mmap, MmapMut};
+use std::ffi::CString;
 use std::ops::{Index, IndexMut};
+use std::os::fd::RawFd;
+use std::ptr;
 use std::{
     fs::{File, OpenOptions},
-    io::{BufWriter, Write},
+    io::{Write, Read},
 };
+use libc::{c_int, c_void, MAP_SHARED, PROT_READ, PROT_WRITE, shm_open, ftruncate, mmap, munmap, close, O_CREAT, O_RDWR, O_RDONLY, stat, off_t, fstat, S_IRUSR, S_IWUSR, S_IXUSR};
 
 struct PtrWrapper<T> {
     pub inner: *const T,
@@ -12,7 +16,9 @@ struct PtrWrapper<T> {
 unsafe impl<T> Send for PtrWrapper<T> {}
 unsafe impl<T> Sync for PtrWrapper<T> {}
 pub struct SharedVec<T: Copy + Sized> {
-    data: Mmap,
+    fd: RawFd,
+    name: String,
+
     ptr: PtrWrapper<T>,
     size: usize,
 }
@@ -21,12 +27,62 @@ impl<T> SharedVec<T>
 where
     T: Copy + Sized,
 {
+    pub fn load(path: &str, name: &str) -> Self {
+        let cstr_name = CString::new(name).unwrap();
+        let fd: RawFd = unsafe { shm_open(cstr_name.as_ptr(), O_CREAT | O_RDWR, S_IRUSR | S_IWUSR) };
+        if fd == -1 {
+            println!("shm_open failed, {}", std::io::Error::last_os_error());
+        }
+
+        let mut input_file = File::open(path).unwrap();
+        let input_file_size = input_file.metadata().unwrap().len() as usize;
+
+        let result = unsafe { ftruncate(fd, input_file_size as i64) };
+        if result == -1 {
+            println!("ftruncate failed, {}", std::io::Error::last_os_error());
+        }
+
+        if input_file_size != 0 {
+            let addr = unsafe {
+                mmap(ptr::null_mut(), input_file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) as *mut T
+            };
+
+            if addr as *mut c_void == libc::MAP_FAILED {
+                println!("mmap failed...");
+            }
+
+            let slice = unsafe { std::slice::from_raw_parts_mut(addr as *mut u8, input_file_size) };
+            input_file.read_exact(slice).unwrap();
+
+            unsafe { munmap(addr as *mut c_void, input_file_size); }
+        }
+
+        unsafe { close(fd); }
+
+        let ret = Self::open(name);
+        ret
+    }
+
     pub fn open(name: &str) -> Self {
-        let file = File::open(name).unwrap();
-        let data = unsafe { Mmap::map(&file).unwrap() };
-        let ptr = PtrWrapper { inner: data.as_ptr() as *const T };
-        let size = data.len() / std::mem::size_of::<T>();
-        Self { data, ptr, size }
+        let cstr_name = CString::new(name).unwrap();
+        let fd: RawFd = unsafe {
+            shm_open(cstr_name.as_ptr(), O_RDONLY, 0o666)
+        };
+
+        let mut st: stat = unsafe { std::mem::zeroed() };
+        unsafe { fstat(fd, &mut st); }
+        let file_size = st.st_size as usize;
+
+        let addr = unsafe {
+            mmap(ptr::null_mut(), file_size, PROT_READ, MAP_SHARED, fd, 0) as *const T
+        };
+
+        Self {
+            fd,
+            name: name.to_string(),
+            ptr: PtrWrapper { inner: addr },
+            size: file_size / std::mem::size_of::<T>(),
+        }
     }
 
     pub fn dump_vec(name: &str, vec: &Vec<T>) {
@@ -71,6 +127,15 @@ where
     }
 }
 
+impl<T: Copy + Sized> Drop for SharedVec<T> {
+    fn drop(&mut self) {
+        unsafe {
+            munmap(self.ptr.inner as *mut c_void, self.size * std::mem::size_of::<T>()); 
+            close(self.fd);
+        }
+    }
+}
+
 impl<T: Copy + Sized> Index<usize> for SharedVec<T> {
     type Output = T;
 
@@ -88,9 +153,9 @@ unsafe impl<T> Send for MutPtrWrapper<T> {}
 unsafe impl<T> Sync for MutPtrWrapper<T> {}
 
 pub struct SharedMutVec<T: Copy + Sized> {
-    path: String,
-    file: File,
-    data: MmapMut,
+    fd: RawFd,
+    name: String,
+
     ptr: MutPtrWrapper<T>,
     size: usize,
 }
@@ -100,24 +165,26 @@ where
     T: Copy + Sized,
 {
     pub fn create(name: &str, len: usize) -> Self {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(name)
-            .unwrap();
-        file.set_len((len * std::mem::size_of::<T>()) as u64);
-        let mut data = unsafe { MmapMut::map_mut(&file).unwrap() };
-        let ptr = MutPtrWrapper { inner: data.as_mut_ptr() as *mut T };
-        Self { path: name.to_string(), file, data, ptr, size: len }
+        let cstr_name = CString::new(name).unwrap();
+        let fd = unsafe {
+            shm_open(cstr_name.as_ptr(), O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        };
+        let file_size = len * std::mem::size_of::<T>();
+        unsafe { ftruncate(fd, file_size as i64); }
+        let addr = unsafe {
+            mmap(ptr::null_mut(), file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) as *mut T 
+        };
+
+        Self {
+            fd,
+            name: name.to_string(),
+            ptr: MutPtrWrapper { inner: addr },
+            size: len,
+        }
     }
 
-    pub fn commit(&self) {
-        self.file.sync_all().unwrap();
-    }
-
-    pub fn path(&self) -> &str {
-        self.path.as_str()
+    pub fn name(&self) -> &str {
+        self.name.as_str()
     }
 
     pub fn set(&mut self, index: usize, val: T) {
@@ -137,7 +204,16 @@ where
     }
 
     pub fn len(&self) -> usize {
-        self.size 
+        self.size
+    }
+}
+
+impl<T: Copy + Sized> Drop for SharedMutVec<T> {
+    fn drop(&mut self) {
+        unsafe {
+            munmap(self.ptr.inner as *mut c_void, self.size * std::mem::size_of::<T>()); 
+            close(self.fd);
+        }
     }
 }
 
@@ -163,6 +239,11 @@ pub struct SharedStringVec {
 }
 
 impl SharedStringVec {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<usize>::load(format!("{}_offset", path).as_str(), format!("{}_offset", name).as_str());
+        SharedVec::<u8>::load(format!("{}_content", path).as_str(), format!("{}_content", name).as_str());
+    }
+
     pub fn open(name: &str) -> Self {
         Self {
             offset: SharedVec::<usize>::open(format!("{}_offset", name).as_str()),

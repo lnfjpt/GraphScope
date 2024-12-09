@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::usize;
 
 use crate::columns::*;
-use crate::vector::*;
 
 pub struct Table {
     columns: Vec<Box<dyn Column>>,
@@ -11,11 +10,55 @@ pub struct Table {
 }
 
 impl Table {
-    pub fn open(prefix: &str) -> Self {
-        let col_names = SharedStringVec::open(format!("{}_col_names", prefix).as_str());
-        let col_types = SharedVec::<DataType>::open(format!("{}_col_types", prefix).as_str());
+    pub fn load(prefix: &str, col_headers: &[(String, DataType)], name: &str) {
+        let col_num = col_headers.len();
 
-        let col_num = col_names.len().min(col_types.len());
+        for col_i in 0..col_num {
+            let col_name = col_headers[col_i].0.clone();
+            let col_type = col_headers[col_i].1;
+            let col_path = format!("{}_col_{}", prefix, col_i);
+            let col_name = format!("{}_col_{}", name, col_i);
+
+            match col_type {
+                DataType::Int32 => {
+                    Int32Column::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::UInt32 => {
+                    UInt32Column::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::Int64 => {
+                    Int64Column::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::UInt64 => {
+                    UInt64Column::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::String => {
+                    StringColumn::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::LCString => {
+                    LCStringColumn::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::Double => {
+                    DoubleColumn::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::Date => {
+                    DateColumn::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::DateTime => {
+                    DateTimeColumn::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::ID => {
+                    IDColumn::load(col_path.as_str(), col_name.as_str());
+                }
+                DataType::NULL => {
+                    error!("Unexpected column type");
+                }
+            }
+        }
+    }
+
+    pub fn open(prefix: &str, col_headers: &[(String, DataType)]) -> Self {
+        let col_num = col_headers.len();
         let mut header = HashMap::new();
         let mut columns = Vec::with_capacity(col_num);
         if col_num == 0 {
@@ -23,9 +66,9 @@ impl Table {
         }
 
         for col_i in 0..col_num {
-            let col_name = col_names.get_unchecked(col_i).to_string();
-            let col_type = col_types.get_unchecked(col_i);
-            header.insert(col_name.clone(), col_i);
+            let col_name = col_headers[col_i].0.clone();
+            let col_type = col_headers[col_i].1;
+            header.insert(col_name, col_i);
             let col_path = format!("{}_col_{}", prefix, col_i);
 
             match col_type {
@@ -76,13 +119,9 @@ impl Table {
         let mut header = HashMap::new();
         header.insert(prop_name.to_string(), 0);
         let row_num = prop_col.len();
-        Self {
-            columns: vec![prop_col],
-            header,
-            row_num,
-        }
+        Self { columns: vec![prop_col], header, row_num }
     }
-    
+
     pub fn col_num(&self) -> usize {
         self.columns.len()
     }
@@ -130,7 +169,8 @@ impl Table {
 
     pub fn set_column(&mut self, col_id: usize, col_name: &str, col: Box<dyn Column>) {
         while self.columns.len() <= col_id {
-            self.columns.push(Box::new(NullColumn::new(self.row_num)));
+            self.columns
+                .push(Box::new(NullColumn::new(self.row_num)));
         }
         self.columns[col_id] = col;
         self.header.insert(col_name.to_string(), col_id);

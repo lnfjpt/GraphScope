@@ -1,16 +1,11 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::fmt::Debug;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, Weak};
-use std::time::Instant;
+use std::sync::{Arc, Mutex, Weak};
 
-use shm_graph::table::Table;
-use shm_graph::graph::Direction;
 use shm_graph::graph_db::GraphDB;
-use shm_graph::types::LabelId;
 use shm_graph::graph_modifier::{AliasData, WriteOperation};
 
 use crossbeam_channel::Sender;
@@ -19,7 +14,7 @@ use dlopen::wrapper::{Container, WrapperApi};
 use pegasus::api::*;
 use pegasus::errors::BuildJobError;
 use pegasus::result::ResultSink;
-use pegasus::{JobConf, ServerConf};
+use pegasus::JobConf;
 use pegasus_network::{InboxRegister, NetData};
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +34,6 @@ pub struct QueryApi {
         ) -> Result<(), BuildJobError>,
     >,
 }
-
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Param {
@@ -74,9 +68,7 @@ unsafe impl Sync for QueryRegister {}
 
 impl QueryRegister {
     pub fn new() -> Self {
-        Self {
-            query_map: HashMap::new(),
-        }
+        Self { query_map: HashMap::new() }
     }
 
     pub fn load(&mut self, config_path: &PathBuf) {
@@ -86,14 +78,15 @@ impl QueryRegister {
             for query in queries {
                 let query_name = query.name;
                 let lib_path = query.library;
-                self.query_map.insert(query_name.clone(), lib_path.clone());
+                self.query_map
+                    .insert(query_name.clone(), lib_path.clone());
             }
         }
     }
 
     pub fn get_new_query(&self, query_name: &String) -> Option<Vec<Container<QueryApi>>> {
         if let Some(lib_path) = self.query_map.get(query_name) {
-           Some(vec![unsafe { Container::load(lib_path) }.unwrap()]) 
+            Some(vec![unsafe { Container::load(lib_path) }.unwrap()])
         } else {
             None
         }

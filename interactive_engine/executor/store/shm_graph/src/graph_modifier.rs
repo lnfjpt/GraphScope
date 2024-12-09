@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 // use std::any::Any;
 // use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Display, Formatter};
-use std::process::id;
+use std::fmt::{Debug, Formatter};
 // use std::fs::File;
 // use std::io::{BufReader, Write};
 // use std::path::{Path, PathBuf};
@@ -23,13 +22,15 @@ use crate::columns::*;
 // use crate::date::Date;
 // use crate::date_time::DateTime;
 // use crate::error::GDBResult;
-use crate::graph::{Direction, IndexType};
+use crate::graph::Direction;
+// use crate::graph::IndexType;
 use crate::graph_db::GraphDB;
 // use crate::graph_loader::{get_files_list, get_files_list_beta};
 // use crate::ldbc_parser::{LDBCEdgeParser, LDBCVertexParser};
 // use crate::schema::{CsrGraphSchema, InputSchema, Schema};
 use crate::dataframe::*;
-use crate::types::{DefaultId, LabelId};
+use crate::types::LabelId;
+// use crate::types::DefaultId;
 // use crate::utils::get_partition;
 
 #[derive(Clone, Copy)]
@@ -74,7 +75,7 @@ impl ColumnMappings {
 
 impl Encode for ColumnMappings {
     fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_i32(self.column.index);
+        writer.write_i32(self.column.index)?;
         self.column.name.write_to(writer)?;
         self.column.data_type.write_to(writer)?;
         self.property_name.write_to(writer)?;
@@ -239,7 +240,7 @@ pub struct VertexMappings {
 
 impl Encode for VertexMappings {
     fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_u8(self.label_id);
+        writer.write_u8(self.label_id)?;
         self.inputs.write_to(writer)?;
         self.column_mappings.write_to(writer)?;
         Ok(())
@@ -290,9 +291,9 @@ pub struct EdgeMappings {
 
 impl Encode for EdgeMappings {
     fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_u8(self.src_label);
-        writer.write_u8(self.edge_label);
-        writer.write_u8(self.dst_label);
+        writer.write_u8(self.src_label)?;
+        writer.write_u8(self.edge_label)?;
+        writer.write_u8(self.dst_label)?;
         self.inputs.write_to(writer)?;
         self.src_column_mappings.write_to(writer)?;
         self.dst_column_mappings.write_to(writer)?;
@@ -536,8 +537,7 @@ unsafe impl Send for AliasData {}
 unsafe impl Sync for AliasData {}
 
 pub fn apply_write_operations(
-    graph: &mut GraphDB<usize, usize>, mut write_operations: Vec<WriteOperation>, parallel: u32,
-    servers: usize,
+    graph: &mut GraphDB<usize, usize>, mut write_operations: Vec<WriteOperation>, servers: usize,
 ) {
     // let mut merged_delete_vertices_data: HashMap<LabelId, Vec<u64>> = HashMap::new();
     for mut write_op in write_operations.drain(..) {
@@ -656,42 +656,45 @@ pub fn apply_write_operations(
                     let mut column_builders = HashMap::<(LabelId, String), Box<dyn ColumnBuilder>>::new();
 
                     for mut input in inputs.drain(..) {
-                        set_vertices(graph, vertex_label, input, column_mappings, parallel, &mut column_builders);
+                        set_vertices(graph, vertex_label, input, column_mappings, &mut column_builders);
                     }
                     for ((vertex_label, prop_name), prop_col_builder) in column_builders.into_iter() {
                         let prop_type = prop_col_builder.get_type();
                         match prop_type {
                             DataType::Int32 => {
-                                if let Some(cb) = prop_col_builder.as_any().downcast_ref::<Int32ColumnBuilder>() {
-                                    cb.finish();
-
+                                if let Some(cb) = prop_col_builder
+                                    .as_any()
+                                    .downcast_ref::<Int32ColumnBuilder>()
+                                {
                                     let col = Box::new(Int32Column::open(cb.path()));
                                     graph.set_vertex_property(vertex_label, prop_name.as_str(), col);
                                 }
-                            },
+                            }
                             DataType::Int64 => {
-                                if let Some(cb) = prop_col_builder.as_any().downcast_ref::<Int64ColumnBuilder>() {
-                                    cb.finish();
-
+                                if let Some(cb) = prop_col_builder
+                                    .as_any()
+                                    .downcast_ref::<Int64ColumnBuilder>()
+                                {
                                     let col = Box::new(Int64Column::open(cb.path()));
                                     graph.set_vertex_property(vertex_label, prop_name.as_str(), col);
                                 }
-                            },
+                            }
                             DataType::UInt64 => {
-                                if let Some(cb) = prop_col_builder.as_any().downcast_ref::<UInt64ColumnBuilder>() {
-                                    cb.finish();
-
+                                if let Some(cb) = prop_col_builder
+                                    .as_any()
+                                    .downcast_ref::<UInt64ColumnBuilder>()
+                                {
                                     let col = Box::new(UInt64Column::open(cb.path()));
                                     graph.set_vertex_property(vertex_label, prop_name.as_str(), col);
                                 }
-                            },
+                            }
                             _ => {
                                 info!("not implemented...");
                             }
                         }
                     }
                 }
-                 if let Some(mut edge_mappings) = write_op.take_edge_mappings() {
+                if let Some(mut edge_mappings) = write_op.take_edge_mappings() {
                     let src_label = edge_mappings.src_label();
                     let edge_label = edge_mappings.edge_label();
                     let dst_label = edge_mappings.dst_label();
@@ -710,36 +713,62 @@ pub fn apply_write_operations(
                             src_column_mappings,
                             dst_column_mappings,
                             column_mappings,
-                            parallel, &mut column_builders,
+                            &mut column_builders,
                         );
                     }
-                    for ((src_label, edge_label, dst_label, col_name), (ie_cb, oe_cb)) in column_builders.into_iter() {
+                    for ((src_label, edge_label, dst_label, col_name), (ie_cb, oe_cb)) in
+                        column_builders.into_iter()
+                    {
                         let ie_prop_type = ie_cb.get_type();
                         match ie_prop_type {
                             DataType::Int32 => {
-                                if let Some(cb) = ie_cb.as_any().downcast_ref::<Int32ColumnBuilder>() {
-                                    cb.finish();
-
+                                if let Some(cb) = ie_cb
+                                    .as_any()
+                                    .downcast_ref::<Int32ColumnBuilder>()
+                                {
                                     let col = Box::new(Int32Column::open(cb.path()));
-                                    graph.set_edge_property(dst_label, edge_label, src_label, Direction::Incoming, col_name.as_str(), col);
+                                    graph.set_edge_property(
+                                        dst_label,
+                                        edge_label,
+                                        src_label,
+                                        Direction::Incoming,
+                                        col_name.as_str(),
+                                        col,
+                                    );
                                 }
-                            },
+                            }
                             DataType::Int64 => {
-                                if let Some(cb) = ie_cb.as_any().downcast_ref::<Int64ColumnBuilder>() {
-                                    cb.finish();
-
+                                if let Some(cb) = ie_cb
+                                    .as_any()
+                                    .downcast_ref::<Int64ColumnBuilder>()
+                                {
                                     let col = Box::new(Int64Column::open(cb.path()));
-                                    graph.set_edge_property(dst_label, edge_label, src_label, Direction::Incoming, col_name.as_str(), col);
+                                    graph.set_edge_property(
+                                        dst_label,
+                                        edge_label,
+                                        src_label,
+                                        Direction::Incoming,
+                                        col_name.as_str(),
+                                        col,
+                                    );
                                 }
-                            },
+                            }
                             DataType::UInt64 => {
-                                if let Some(cb) = ie_cb.as_any().downcast_ref::<UInt64ColumnBuilder>() {
-                                    cb.finish();
-
+                                if let Some(cb) = ie_cb
+                                    .as_any()
+                                    .downcast_ref::<UInt64ColumnBuilder>()
+                                {
                                     let col = Box::new(UInt64Column::open(cb.path()));
-                                    graph.set_edge_property(dst_label, edge_label, src_label, Direction::Incoming, col_name.as_str(), col);
+                                    graph.set_edge_property(
+                                        dst_label,
+                                        edge_label,
+                                        src_label,
+                                        Direction::Incoming,
+                                        col_name.as_str(),
+                                        col,
+                                    );
                                 }
-                            },
+                            }
                             _ => {
                                 info!("not implemented...");
                             }
@@ -748,29 +777,53 @@ pub fn apply_write_operations(
                         let oe_prop_type = oe_cb.get_type();
                         match oe_prop_type {
                             DataType::Int32 => {
-                                if let Some(cb) = oe_cb.as_any().downcast_ref::<Int32ColumnBuilder>() {
-                                    cb.finish();
-
+                                if let Some(cb) = oe_cb
+                                    .as_any()
+                                    .downcast_ref::<Int32ColumnBuilder>()
+                                {
                                     let col = Box::new(Int32Column::open(cb.path()));
-                                    graph.set_edge_property(src_label, edge_label, dst_label, Direction::Outgoing, col_name.as_str(), col);
+                                    graph.set_edge_property(
+                                        src_label,
+                                        edge_label,
+                                        dst_label,
+                                        Direction::Outgoing,
+                                        col_name.as_str(),
+                                        col,
+                                    );
                                 }
-                            },
+                            }
                             DataType::Int64 => {
-                                if let Some(cb) = oe_cb.as_any().downcast_ref::<Int64ColumnBuilder>() {
-                                    cb.finish();
-
+                                if let Some(cb) = oe_cb
+                                    .as_any()
+                                    .downcast_ref::<Int64ColumnBuilder>()
+                                {
                                     let col = Box::new(Int64Column::open(cb.path()));
-                                    graph.set_edge_property(src_label, edge_label, dst_label, Direction::Outgoing, col_name.as_str(), col);
+                                    graph.set_edge_property(
+                                        src_label,
+                                        edge_label,
+                                        dst_label,
+                                        Direction::Outgoing,
+                                        col_name.as_str(),
+                                        col,
+                                    );
                                 }
-                            },
+                            }
                             DataType::UInt64 => {
-                                if let Some(cb) = oe_cb.as_any().downcast_ref::<UInt64ColumnBuilder>() {
-                                    cb.finish();
-
+                                if let Some(cb) = oe_cb
+                                    .as_any()
+                                    .downcast_ref::<UInt64ColumnBuilder>()
+                                {
                                     let col = Box::new(UInt64Column::open(cb.path()));
-                                    graph.set_edge_property(src_label, edge_label, dst_label, Direction::Outgoing, col_name.as_str(), col);
+                                    graph.set_edge_property(
+                                        src_label,
+                                        edge_label,
+                                        dst_label,
+                                        Direction::Outgoing,
+                                        col_name.as_str(),
+                                        col,
+                                    );
                                 }
-                            },
+                            }
                             _ => {
                                 info!("not implemented...");
                             }
@@ -1235,7 +1288,8 @@ pub fn apply_write_operations(
 //
 pub fn set_vertices(
     graph: &mut GraphDB<usize, usize>, vertex_label: LabelId, mut input: Input,
-    column_mappings: &Vec<ColumnMappings>, parallel: u32, column_builders: &mut HashMap<(LabelId, String), Box<dyn ColumnBuilder>>,
+    column_mappings: &Vec<ColumnMappings>,
+    column_builders: &mut HashMap<(LabelId, String), Box<dyn ColumnBuilder>>,
 ) {
     let mut column_map = HashMap::new();
     for column_mapping in column_mappings {
@@ -1285,10 +1339,22 @@ pub fn set_vertices(
                     if let Some(cb) = column_builders.get_mut(&(vertex_label, k.clone())) {
                         cb.set_column_batch(&global_ids, column.take_data());
                     } else {
-                        let idx = graph.graph_schema.add_vertex_index_prop(k.clone(), vertex_label, column_data_type).unwrap();
-                        let vp_prefix = format!("{}/vp_{}_col_{}", graph.get_partition_prefix(), vertex_label as usize, idx);
+                        let idx = graph
+                            .graph_schema
+                            .add_vertex_index_prop(k.clone(), vertex_label, column_data_type)
+                            .unwrap();
+                        let vp_prefix = format!(
+                            "{}_vp_{}_col_{}",
+                            graph.get_partition_prefix(),
+                            vertex_label as usize,
+                            idx
+                        );
 
-                        let mut cb = create_column_builder(column_data_type, vp_prefix.as_str(), graph.vertex_prop_table[vertex_label as usize].row_num());
+                        let mut cb = create_column_builder(
+                            column_data_type,
+                            vp_prefix.as_str(),
+                            graph.vertex_prop_table[vertex_label as usize].row_num(),
+                        );
                         cb.set_column_batch(&global_ids, column.take_data());
 
                         column_builders.insert((vertex_label, k.clone()), cb);
@@ -1302,7 +1368,12 @@ pub fn set_vertices(
 pub fn set_edges(
     graph: &mut GraphDB<usize, usize>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
     mut input: Input, src_vertex_mappings: &Vec<ColumnMappings>, dst_vertex_mappings: &Vec<ColumnMappings>,
-    column_mappings: &Vec<ColumnMappings>, parallel: u32, column_builders: &mut HashMap<(LabelId, LabelId, LabelId, String), (Box<dyn ColumnBuilder>, Box<dyn ColumnBuilder>)>) {
+    column_mappings: &Vec<ColumnMappings>,
+    column_builders: &mut HashMap<
+        (LabelId, LabelId, LabelId, String),
+        (Box<dyn ColumnBuilder>, Box<dyn ColumnBuilder>),
+    >,
+) {
     let mut column_map = HashMap::new();
     for column_mapping in column_mappings {
         let column = column_mapping.column();
@@ -1323,7 +1394,7 @@ pub fn set_edges(
                     let offset_column = column_data
                         .get_mut(offset_col_id as usize)
                         .expect("Failed to find id column");
-                    let mut data = offset_column.take_data();
+                    let data = offset_column.take_data();
                     let offsets = {
                         if let Some(id_column) = data.as_any().downcast_ref::<IDHColumn>() {
                             id_column.data.clone()
@@ -1334,24 +1405,62 @@ pub fn set_edges(
                     for (k, v) in column_map.iter() {
                         let column_index = v.0;
                         let column_data_type = v.1;
-                        let mut column = column_data
+                        let column = column_data
                             .get_mut(column_index as usize)
                             .expect("Failed to find column");
-                        if let Some((ie_cb, oe_cb)) = column_builders.get_mut(&(src_label, edge_label, dst_label, k.clone())) {
+                        if let Some((_, oe_cb)) =
+                            column_builders.get_mut(&(src_label, edge_label, dst_label, k.clone()))
+                        {
                             oe_cb.set_column_batch(&offsets, column.take_data());
                         } else {
-                            let idx = graph.graph_schema.add_edge_index_prop(k.clone(), src_label, edge_label, dst_label, column_data_type).unwrap();
+                            let idx = graph
+                                .graph_schema
+                                .add_edge_index_prop(
+                                    k.clone(),
+                                    src_label,
+                                    edge_label,
+                                    dst_label,
+                                    column_data_type,
+                                )
+                                .unwrap();
 
-                            let oe_col_size = graph.get_max_edge_offset(src_label, edge_label, dst_label, Direction::Outgoing);
-                            let oe_prefix = format!("{}/oep_{}_{}_{}_col_{}", graph.get_partition_prefix(), src_label as usize, edge_label as usize, dst_label as usize, idx);
-                            let mut oe_cb = create_column_builder(column_data_type, oe_prefix.as_str(), oe_col_size);
+                            let oe_col_size = graph.get_max_edge_offset(
+                                src_label,
+                                edge_label,
+                                dst_label,
+                                Direction::Outgoing,
+                            );
+                            let oe_prefix = format!(
+                                "{}_oep_{}_{}_{}_col_{}",
+                                graph.get_partition_prefix(),
+                                src_label as usize,
+                                edge_label as usize,
+                                dst_label as usize,
+                                idx
+                            );
+                            let mut oe_cb =
+                                create_column_builder(column_data_type, oe_prefix.as_str(), oe_col_size);
 
-                            let ie_col_size = graph.get_max_edge_offset(dst_label, edge_label, src_label, Direction::Incoming);
-                            let ie_prefix = format!("{}/iep_{}_{}_{}_col_{}", graph.get_partition_prefix(), src_label as usize, edge_label as usize, dst_label as usize, idx);
-                            let mut ie_cb = create_column_builder(column_data_type, ie_prefix.as_str(), ie_col_size);
+                            let ie_col_size = graph.get_max_edge_offset(
+                                dst_label,
+                                edge_label,
+                                src_label,
+                                Direction::Incoming,
+                            );
+                            let ie_prefix = format!(
+                                "{}_iep_{}_{}_{}_col_{}",
+                                graph.get_partition_prefix(),
+                                src_label as usize,
+                                edge_label as usize,
+                                dst_label as usize,
+                                idx
+                            );
+                            let ie_cb =
+                                create_column_builder(column_data_type, ie_prefix.as_str(), ie_col_size);
 
                             oe_cb.set_column_batch(&offsets, column.take_data());
-                            column_builders.insert((src_label, edge_label, dst_label, k.clone()), (ie_cb, oe_cb));
+                            column_builders
+                                .insert((src_label, edge_label, dst_label, k.clone()), (ie_cb, oe_cb));
                         }
                     }
                 }
@@ -1360,7 +1469,7 @@ pub fn set_edges(
                     let offset_column = column_data
                         .get_mut(offset_col_id as usize)
                         .expect("Failed to find id column");
-                    let mut data = offset_column.take_data();
+                    let data = offset_column.take_data();
                     let offsets = {
                         if let Some(id_column) = data.as_any().downcast_ref::<IDHColumn>() {
                             id_column.data.clone()
@@ -1371,24 +1480,62 @@ pub fn set_edges(
                     for (k, v) in column_map.iter() {
                         let column_index = v.0;
                         let column_data_type = v.1;
-                        let mut column = column_data
+                        let column = column_data
                             .get_mut(column_index as usize)
                             .expect("Failed to find column");
-                        if let Some((ie_cb, oe_cb)) = column_builders.get_mut(&(src_label, edge_label, dst_label, k.clone())) {
+                        if let Some((ie_cb, _)) =
+                            column_builders.get_mut(&(src_label, edge_label, dst_label, k.clone()))
+                        {
                             ie_cb.set_column_batch(&offsets, column.take_data());
                         } else {
-                            let idx = graph.graph_schema.add_edge_index_prop(k.clone(), src_label, edge_label, dst_label, column_data_type).unwrap();
+                            let idx = graph
+                                .graph_schema
+                                .add_edge_index_prop(
+                                    k.clone(),
+                                    src_label,
+                                    edge_label,
+                                    dst_label,
+                                    column_data_type,
+                                )
+                                .unwrap();
 
-                            let oe_col_size = graph.get_max_edge_offset(src_label, edge_label, dst_label, Direction::Outgoing);
-                            let oe_prefix = format!("{}/oep_{}_{}_{}_col_{}", graph.get_partition_prefix(), src_label as usize, edge_label as usize, dst_label as usize, idx);
-                            let mut oe_cb = create_column_builder(column_data_type, oe_prefix.as_str(), oe_col_size);
+                            let oe_col_size = graph.get_max_edge_offset(
+                                src_label,
+                                edge_label,
+                                dst_label,
+                                Direction::Outgoing,
+                            );
+                            let oe_prefix = format!(
+                                "{}_oep_{}_{}_{}_col_{}",
+                                graph.get_partition_prefix(),
+                                src_label as usize,
+                                edge_label as usize,
+                                dst_label as usize,
+                                idx
+                            );
+                            let oe_cb =
+                                create_column_builder(column_data_type, oe_prefix.as_str(), oe_col_size);
 
-                            let ie_col_size = graph.get_max_edge_offset(dst_label, edge_label, src_label, Direction::Incoming);
-                            let ie_prefix = format!("{}/iep_{}_{}_{}_col_{}", graph.get_partition_prefix(), src_label as usize, edge_label as usize, dst_label as usize, idx);
-                            let mut ie_cb = create_column_builder(column_data_type, ie_prefix.as_str(), ie_col_size);
+                            let ie_col_size = graph.get_max_edge_offset(
+                                dst_label,
+                                edge_label,
+                                src_label,
+                                Direction::Incoming,
+                            );
+                            let ie_prefix = format!(
+                                "{}_iep_{}_{}_{}_col_{}",
+                                graph.get_partition_prefix(),
+                                src_label as usize,
+                                edge_label as usize,
+                                dst_label as usize,
+                                idx
+                            );
+                            let mut ie_cb =
+                                create_column_builder(column_data_type, ie_prefix.as_str(), ie_col_size);
 
                             ie_cb.set_column_batch(&offsets, column.take_data());
-                            column_builders.insert((src_label, edge_label, dst_label, k.clone()), (ie_cb, oe_cb));
+                            column_builders
+                                .insert((src_label, edge_label, dst_label, k.clone()), (ie_cb, oe_cb));
                         }
                     }
                 }

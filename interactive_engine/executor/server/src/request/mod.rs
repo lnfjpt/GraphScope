@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::env;
 use std::fs::OpenOptions;
 use std::io;
 use std::io::Write;
@@ -7,14 +6,12 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use lazy_static::lazy_static;
 use pb::job_service_client::JobServiceClient;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::AsyncReadExt;
 use tokio_stream::StreamExt;
-use tonic::transport::{Channel, Uri};
-use tonic::{Request, Response, Streaming};
+use tonic::transport::Channel;
 
 use crate::generated::common;
 use crate::generated::procedure;
@@ -63,7 +60,7 @@ impl JobClient {
                     println!("Successfully connected to grpc server.");
                     break channel;
                 }
-                Err(e) => {
+                Err(_) => {
                     println!("Failed to connect. Retrying... ");
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
@@ -133,7 +130,6 @@ impl JobClient {
             while let Some(message) = stream.next().await {
                 match message {
                     Ok(job_response) => {
-                        let job_id: u64 = job_response.job_id;
                         let resp_bytes: Vec<u8> = job_response.resp;
                         result = resp_bytes.clone();
                         let mut reader = io::Cursor::new(resp_bytes);

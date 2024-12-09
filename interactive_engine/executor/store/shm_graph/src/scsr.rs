@@ -1,21 +1,24 @@
 use std::any::Any;
 
-use dyn_type::macros;
-
 use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter};
-use crate::vector::SharedVec;
 use crate::graph::IndexType;
+use crate::vector::SharedVec;
 
-pub struct SCsr<I : Copy + Sized> {
+pub struct SCsr<I: Copy + Sized> {
     nbr_list: SharedVec<I>,
 
     vertex_num: usize,
     edge_num: usize,
-    
+
     vertex_capacity: usize,
 }
 
 impl<I: IndexType> SCsr<I> {
+    pub fn load(prefix: &str, name: &str) {
+        SharedVec::<usize>::load(format!("{}_meta", prefix).as_str(), format!("{}_meta", name).as_str());
+        SharedVec::<I>::load(format!("{}_nbrs", prefix).as_str(), format!("{}_nbrs", name).as_str());
+    }
+
     pub fn open(prefix: &str) -> Self {
         let tmp_vec = SharedVec::<usize>::open(format!("{}_meta", prefix).as_str());
         Self {
@@ -49,7 +52,7 @@ unsafe impl<I: IndexType> Send for SCsr<I> {}
 
 unsafe impl<I: IndexType> Sync for SCsr<I> {}
 
-impl<I: IndexType> CsrTrait<I> for SCsr<I>  {
+impl<I: IndexType> CsrTrait<I> for SCsr<I> {
     fn vertex_num(&self) -> I {
         I::new(self.vertex_num)
     }
@@ -70,14 +73,9 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I>  {
         if self.nbr_list.get_unchecked(u.index()) == <I as IndexType>::max() {
             None
         } else {
-            Some(NbrIter::new(
-                unsafe {
-                    self.nbr_list.as_ptr().add(u.index())
-                },
-                unsafe {
-                    self.nbr_list.as_ptr().add(u.index() + 1)
-                }
-            ))
+            Some(NbrIter::new(unsafe { self.nbr_list.as_ptr().add(u.index()) }, unsafe {
+                self.nbr_list.as_ptr().add(u.index() + 1)
+            }))
         }
     }
     fn get_edges_with_offset(&self, u: I) -> Option<NbrOffsetIter<I>> {
@@ -85,13 +83,9 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I>  {
             None
         } else {
             Some(NbrOffsetIter::new(
-                unsafe {
-                    self.nbr_list.as_ptr().add(u.index())
-                },
-                unsafe {
-                    self.nbr_list.as_ptr().add(u.index() + 1)
-                },
-                u.index()
+                unsafe { self.nbr_list.as_ptr().add(u.index()) },
+                unsafe { self.nbr_list.as_ptr().add(u.index() + 1) },
+                u.index(),
             ))
         }
     }

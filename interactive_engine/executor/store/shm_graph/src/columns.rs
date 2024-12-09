@@ -1,10 +1,7 @@
-use std::any::Any;
 use core::ops::Index;
+use std::any::Any;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
@@ -14,12 +11,12 @@ use dyn_type::CastError;
 use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
 
+use crate::dataframe::*;
 use crate::dataframe::{HeapColumn, I32HColumn, I64HColumn};
 use crate::date::Date;
 use crate::date_time::DateTime;
 use crate::types::DefaultId;
 use crate::vector::{SharedMutVec, SharedStringVec, SharedVec};
-use crate::dataframe::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum DataType {
@@ -449,7 +446,7 @@ impl Column for NullColumn {
     fn len(&self) -> usize {
         self.size
     }
-    
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -463,6 +460,10 @@ unsafe impl Send for Int32Column {}
 unsafe impl Sync for Int32Column {}
 
 impl Int32Column {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<i32>::load(path, name);
+    }
+
     pub fn open(path: &str) -> Self {
         Self { data: SharedVec::<i32>::open(path) }
     }
@@ -495,12 +496,8 @@ impl Int32ColumnBuilder {
         Self { data: SharedMutVec::<i32>::create(path, size) }
     }
 
-    pub fn finish(&self) {
-        self.data.commit();
-    }
-
     pub fn path(&self) -> &str {
-        self.data.path()
+        self.data.name()
     }
 }
 
@@ -526,7 +523,10 @@ impl ColumnBuilder for Int32ColumnBuilder {
 
     fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>) {
         if col.as_any().is::<I32HColumn>() {
-            let casted_col = col.as_any().downcast_ref::<I32HColumn>().unwrap();
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<I32HColumn>()
+                .unwrap();
             for (index, i) in index.iter().enumerate() {
                 self.data.set(*i, casted_col.data[index]);
             }
@@ -540,7 +540,6 @@ impl ColumnBuilder for Int32ColumnBuilder {
     fn as_any(&self) -> &dyn Any {
         self
     }
-
 }
 
 pub struct UInt32Column {
@@ -548,6 +547,10 @@ pub struct UInt32Column {
 }
 
 impl UInt32Column {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<u32>::load(path, name);
+    }
+
     pub fn open(path: &str) -> Self {
         Self { data: SharedVec::<u32>::open(path) }
     }
@@ -580,6 +583,10 @@ pub struct Int64Column {
 }
 
 impl Int64Column {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<i64>::load(path, name);
+    }
+
     pub fn open(path: &str) -> Self {
         Self { data: SharedVec::<i64>::open(path) }
     }
@@ -616,12 +623,8 @@ impl Int64ColumnBuilder {
         Self { data: SharedMutVec::<i64>::create(path, size) }
     }
 
-    pub fn finish(&self) {
-        self.data.commit();
-    }
-
     pub fn path(&self) -> &str {
-        self.data.path()
+        self.data.name()
     }
 }
 
@@ -647,7 +650,10 @@ impl ColumnBuilder for Int64ColumnBuilder {
 
     fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>) {
         if col.as_any().is::<I64HColumn>() {
-            let casted_col = col.as_any().downcast_ref::<I64HColumn>().unwrap();
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<I64HColumn>()
+                .unwrap();
             for (index, i) in index.iter().enumerate() {
                 self.data.set(*i, casted_col.data[index]);
             }
@@ -668,6 +674,10 @@ pub struct UInt64Column {
 }
 
 impl UInt64Column {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<u64>::load(path, name);
+    }
+
     pub fn open(path: &str) -> Self {
         Self { data: SharedVec::<u64>::open(path) }
     }
@@ -704,12 +714,8 @@ impl UInt64ColumnBuilder {
         Self { data: SharedMutVec::<u64>::create(path, size) }
     }
 
-    pub fn finish(&self) {
-        self.data.commit();
-    }
-
     pub fn path(&self) -> &str {
-        self.data.path()
+        self.data.name()
     }
 }
 
@@ -735,7 +741,10 @@ impl ColumnBuilder for UInt64ColumnBuilder {
 
     fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>) {
         if col.as_any().is::<U64HColumn>() {
-            let casted_col = col.as_any().downcast_ref::<U64HColumn>().unwrap();
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<U64HColumn>()
+                .unwrap();
             for (index, i) in index.iter().enumerate() {
                 self.data.set(*i, casted_col.data[index]);
             }
@@ -756,6 +765,10 @@ pub struct IDColumn {
 }
 
 impl IDColumn {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<DefaultId>::load(path, name);
+    }
+
     pub fn open(path: &str) -> Self {
         Self { data: SharedVec::<DefaultId>::open(path) }
     }
@@ -790,6 +803,10 @@ pub struct DoubleColumn {
 }
 
 impl DoubleColumn {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<f64>::load(path, name);
+    }
+
     pub fn open(path: &str) -> Self {
         Self { data: SharedVec::<f64>::open(path) }
     }
@@ -822,6 +839,10 @@ pub struct StringColumn {
 }
 
 impl StringColumn {
+    pub fn load(path: &str, name: &str) {
+        SharedStringVec::load(path, name);
+    }
+
     pub fn open(path: &str) -> Self {
         Self { data: SharedStringVec::open(path) }
     }
@@ -855,6 +876,11 @@ pub struct LCStringColumn {
 }
 
 impl LCStringColumn {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<u16>::load(format!("{}_index", path).as_str(), format!("{}_index", name).as_str());
+        SharedStringVec::load(format!("{}_data", path).as_str(), format!("{}_data", name).as_str());
+    }
+
     pub fn open(path: &str) -> Self {
         Self {
             index: SharedVec::<u16>::open(format!("{}_index", path).as_str()),
@@ -902,6 +928,10 @@ pub struct DateColumn {
 }
 
 impl DateColumn {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<Date>::load(path, name);
+    }
+
     pub fn open(path: &str) -> Self {
         Self { data: SharedVec::<Date>::open(path) }
     }
@@ -934,6 +964,10 @@ pub struct DateTimeColumn {
 }
 
 impl DateTimeColumn {
+    pub fn load(path: &str, name: &str) {
+        SharedVec::<DateTime>::load(path, name);
+    }
+
     pub fn open(path: &str) -> Self {
         Self { data: SharedVec::<DateTime>::open(path) }
     }
@@ -965,15 +999,9 @@ impl Column for DateTimeColumn {
 
 pub fn create_column_builder(dt: DataType, path: &str, size: usize) -> Box<dyn ColumnBuilder> {
     match dt {
-        DataType::Int32 => {
-            Box::new(Int32ColumnBuilder::create(path, size))
-        },
-        DataType::Int64 => {
-            Box::new(Int64ColumnBuilder::create(path, size))
-        },
-        DataType::UInt64 => {
-            Box::new(UInt64ColumnBuilder::create(path, size))
-        }
+        DataType::Int32 => Box::new(Int32ColumnBuilder::create(path, size)),
+        DataType::Int64 => Box::new(Int64ColumnBuilder::create(path, size)),
+        DataType::UInt64 => Box::new(UInt64ColumnBuilder::create(path, size)),
         _ => {
             panic!("not implemented...");
         }

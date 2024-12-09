@@ -1,14 +1,11 @@
 use std::collections::HashMap;
-use std::fmt::format;
 use std::fs::File;
-use std::fs::OpenOptions;
-use std::future;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
 
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
-use shm_graph::graph_db::GraphDB;
+use actix_web::{web, App, HttpServer};
 #[cfg(feature = "use_mimalloc")]
 use mimalloc::MiMalloc;
 use pegasus::{Configuration, ServerConf};
@@ -18,6 +15,7 @@ use rpc_server::queries::register::QueryRegister;
 use rpc_server::queries::rpc::RPCServerConfig;
 use rpc_server::request::JobClient;
 use serde::Deserialize;
+use shm_graph::graph_db::GraphDB;
 use structopt::StructOpt;
 
 #[cfg(feature = "use_mimalloc")]
@@ -76,7 +74,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graph_data_str = config.graph_data.to_str().unwrap();
 
-    let shared_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(graph_data_str, config.partition_id)));
+    let start = Instant::now();
+    let name = "/SHM_GRAPH_STORE";
+    let schema = GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
+    println!("load graph takes: {} s", start.elapsed().as_secs_f64());
+    let start = Instant::now();
+    let shared_graph =
+        Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, schema, config.partition_id)));
+    println!("open graph takes: {} s", start.elapsed().as_secs_f64());
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
@@ -132,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         format!("https://{}:{}", rpc_config.rpc_host.as_ref().unwrap(), rpc_config.rpc_port.unwrap());
     pegasus::startup(server_conf.clone()).ok();
     pegasus::wait_servers_ready(&ServerConf::All);
-    let rpc_server_handler = tokio::spawn(queries::rpc::start_all(
+    let _rpc_server_handler = tokio::spawn(queries::rpc::start_all(
         rpc_config,
         server_conf,
         query_register,
@@ -142,10 +147,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     if let Some(proxy_endpoint) = proxy_endpoint {
-        let mut rpc_client = JobClient::new(rpc_endpoint, proxy_endpoint.clone(), input_info, workers).await?;
+        let rpc_client = JobClient::new(rpc_endpoint, proxy_endpoint.clone(), input_info, workers).await?;
         let shared_client = web::Data::new(Mutex::new(rpc_client));
         let index = web::Data::new(AtomicU64::new(0));
-        let http_server_handler = tokio::spawn(
+        let _http_server_handler = tokio::spawn(
             HttpServer::new(move || {
                 App::new()
                     .app_data(index.clone())
@@ -153,8 +158,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .service(get_status)
                     .service(submit_query)
             })
-                .bind(&proxy_endpoint)?
-                .run(),
+            .bind(&proxy_endpoint)?
+            .run(),
         );
     }
     let shutdown_handle = tokio::spawn(async {

@@ -1,21 +1,19 @@
 use std::collections::HashMap;
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use crate::columns::RefItem;
+use crate::columns::Column;
 use crate::csr::Csr;
 use crate::csr_trait::CsrTrait;
-use crate::indexer::Indexer;
+use crate::graph::*;
 use crate::schema::CsrGraphSchema;
 use crate::schema::Schema;
 use crate::scsr::SCsr;
 use crate::sub_graph::SingleSubGraph;
 use crate::sub_graph::SubGraph;
 use crate::table::Table;
-use crate::vertex_map::VertexMap;
-use crate::graph::*;
 use crate::types::*;
-use crate::columns::Column;
+use crate::vertex_map::VertexMap;
 
 /// A data structure to maintain a local view of the vertex.
 #[derive(Clone)]
@@ -28,7 +26,7 @@ pub struct LocalVertex<I: IndexType + Sync + Send> {
 
 impl<I: IndexType + Sync + Send> LocalVertex<I> {
     pub fn new(index: I, label: LabelId) -> Self {
-        Self { index, label}
+        Self { index, label }
     }
 
     pub fn get_label(&self) -> LabelId {
@@ -125,7 +123,7 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
     pub vertex_label_num: usize,
     pub edge_label_num: usize,
 
-    pub root_path: String,
+    // pub root_path: String,
     pub partition_prefix: String,
 }
 
@@ -134,17 +132,140 @@ where
     G: Eq + IndexType + Send + Sync,
     I: IndexType + Send + Sync,
 {
-    pub fn open(prefix: &str, partition: usize) -> Self {
-        let schema_path = PathBuf::from_str(prefix).unwrap().join(DIR_GRAPH_SCHEMA).join(FILE_SCHEMA);
+    pub fn load(prefix: &str, partition: usize, name: &str) -> CsrGraphSchema {
+        let schema_path = PathBuf::from_str(prefix)
+            .unwrap()
+            .join(DIR_GRAPH_SCHEMA)
+            .join(FILE_SCHEMA);
+
         let graph_schema = CsrGraphSchema::from_json_file(schema_path).unwrap();
 
         let partition_prefix = format!("{}/{}/partition_{}", prefix, DIR_BINARY_DATA, partition);
 
         let vertex_label_num = graph_schema.vertex_type_to_id.len();
+        let edge_label_num = graph_schema.edge_type_to_id.len();
+
+        for i in 0..vertex_label_num {
+            Table::load(
+                format!("{}/vp_{}", partition_prefix.as_str(), i).as_str(),
+                graph_schema
+                    .get_vertex_header(i as LabelId)
+                    .unwrap(),
+                format!("{}_vp_{}", name, i).as_str(),
+            );
+        }
+
+        for src_label in 0..vertex_label_num {
+            for edge_label in 0..edge_label_num {
+                for dst_label in 0..vertex_label_num {
+                    if let Some(_) = graph_schema.get_edge_header(
+                        src_label as LabelId,
+                        edge_label as LabelId,
+                        dst_label as LabelId,
+                    ) {
+                        let index = src_label * vertex_label_num * edge_label_num
+                            + dst_label * edge_label_num
+                            + edge_label;
+                        let oe_prefix = format!(
+                            "{}/oe_{}_{}_{}",
+                            partition_prefix.as_str(),
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        let oe_name_prefix = format!("{}_oe_{}_{}_{}", name, src_label,
+                            edge_label,
+                            dst_label);
+                        if graph_schema.is_single_oe(
+                            src_label as LabelId,
+                            edge_label as LabelId,
+                            dst_label as LabelId,
+                        ) {
+                            SCsr::<I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
+                        } else {
+                            Csr::<I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
+                        }
+
+                        let oep_prefix = format!(
+                            "{}/oep_{}_{}_{}",
+                            partition_prefix.as_str(),
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        let oep_name_prefix = format!(
+                            "{}_oep_{}_{}_{}",
+                            name,
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        if let Some(header) = graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                            if !header.is_empty() {
+                                Table::load(oep_prefix.as_str(), header, oep_name_prefix.as_str());
+                            }
+                        }
+
+                        let ie_prefix = format!(
+                            "{}/ie_{}_{}_{}",
+                            partition_prefix.as_str(),
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        let ie_name_prefix = format!("{}_ie_{}_{}_{}", name, src_label,
+                            edge_label,
+                            dst_label);
+                        if graph_schema.is_single_ie(
+                            src_label as LabelId,
+                            edge_label as LabelId,
+                            dst_label as LabelId,
+                        ) {
+                            SCsr::<I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
+                        } else {
+                            Csr::<I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
+                        }
+
+                        let iep_prefix = format!(
+                            "{}/iep_{}_{}_{}",
+                            partition_prefix.as_str(),
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        let iep_name_prefix = format!(
+                            "{}_iep_{}_{}_{}",
+                            name,
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        if let Some(header) = graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                            if !header.is_empty() {
+                                Table::load(iep_prefix.as_str(), header, iep_name_prefix.as_str());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        VertexMap::<G, I>::load(partition_prefix.as_str(), vertex_label_num, name);
+
+        graph_schema
+    }
+
+    pub fn open(name: &str, graph_schema: CsrGraphSchema, partition: usize) -> Self {
+        let vertex_label_num = graph_schema.vertex_type_to_id.len();
 
         let mut vertex_prop_table = Vec::with_capacity(vertex_label_num);
         for i in 0..vertex_label_num {
-            vertex_prop_table.push(Table::open(format!("{}/vp_{}", partition_prefix.as_str(), i).as_str()));
+            vertex_prop_table.push(Table::open(
+                format!("{}_vp_{}", name, i).as_str(),
+                graph_schema
+                    .get_vertex_header(i as LabelId)
+                    .unwrap(),
+            ));
         }
 
         let edge_label_num = graph_schema.edge_type_to_id.len();
@@ -159,32 +280,84 @@ where
         for src_label in 0..vertex_label_num {
             for edge_label in 0..edge_label_num {
                 for dst_label in 0..vertex_label_num {
-                    if let Some(header) = graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
-                        let index = src_label * vertex_label_num * edge_label_num + dst_label * edge_label_num + edge_label;
-                        let oe_prefix = format!("{}/oe_{}_{}_{}", partition_prefix.as_str(), src_label as usize, edge_label as usize, dst_label as usize);
-                        if graph_schema.is_single_oe(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                    if let Some(_) = graph_schema.get_edge_header(
+                        src_label as LabelId,
+                        edge_label as LabelId,
+                        dst_label as LabelId,
+                    ) {
+                        let index = src_label * vertex_label_num * edge_label_num
+                            + dst_label * edge_label_num
+                            + edge_label;
+                        let oe_prefix = format!(
+                            "{}_oe_{}_{}_{}",
+                            name,
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        if graph_schema.is_single_oe(
+                            src_label as LabelId,
+                            edge_label as LabelId,
+                            dst_label as LabelId,
+                        ) {
                             oe.insert(index, Box::new(SCsr::open(oe_prefix.as_str())));
                         } else {
                             oe.insert(index, Box::new(Csr::open(oe_prefix.as_str())));
                         }
 
-                        let oep_prefix = format!("{}/oep_{}_{}_{}", partition_prefix.as_str(), src_label as usize, edge_label as usize, dst_label as usize);
-                        let oep_probe = format!("{}_col_types", oep_prefix.as_str());
-                        if Path::new(&oep_probe).exists() {
-                            oe_edge_prop_table.insert(index, Table::open(oep_prefix.as_str()));
+                        let oep_prefix = format!(
+                            "{}_oep_{}_{}_{}",
+                            name,
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        if let Some(header) = graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                            if !header.is_empty() {
+                                oe_edge_prop_table.insert(
+                                    index,
+                                    Table::open(
+                                        oep_prefix.as_str(),
+                                        header,
+                                    ),
+                                );
+                            }
                         }
 
-                        let ie_prefix = format!("{}/ie_{}_{}_{}", partition_prefix.as_str(), src_label as usize, edge_label as usize, dst_label as usize);
-                        if graph_schema.is_single_ie(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                        let ie_prefix = format!(
+                            "{}_ie_{}_{}_{}",
+                            name,
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        if graph_schema.is_single_ie(
+                            src_label as LabelId,
+                            edge_label as LabelId,
+                            dst_label as LabelId,
+                        ) {
                             ie.insert(index, Box::new(SCsr::open(ie_prefix.as_str())));
                         } else {
                             ie.insert(index, Box::new(Csr::open(ie_prefix.as_str())));
                         }
 
-                        let iep_prefix = format!("{}/iep_{}_{}_{}", partition_prefix.as_str(), src_label as usize, edge_label as usize, dst_label as usize);
-                        let iep_probe = format!("{}_col_types", iep_prefix.as_str());
-                        if Path::new(&iep_probe).exists() {
-                            ie_edge_prop_table.insert(index, Table::open(iep_prefix.as_str()));
+                        let iep_prefix = format!(
+                            "{}_iep_{}_{}_{}",
+                            name,
+                            src_label,
+                            edge_label,
+                            dst_label,
+                        );
+                        if let Some(header) = graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                            if !header.is_empty() {
+                                ie_edge_prop_table.insert(
+                                    index,
+                                    Table::open(
+                                        iep_prefix.as_str(),
+                                        header,
+                                    ),
+                                );
+                            }
                         }
                     }
                 }
@@ -198,7 +371,7 @@ where
             oe,
 
             graph_schema,
-            vertex_map: VertexMap::open(partition_prefix.as_str(), vertex_label_num),
+            vertex_map: VertexMap::open(name, vertex_label_num),
 
             vertex_prop_table,
             ie_edge_prop_table,
@@ -207,44 +380,54 @@ where
             vertex_label_num,
             edge_label_num,
 
-            root_path: prefix.to_string(),
-            partition_prefix,
+            // root_path: prefix.to_string(),
+            partition_prefix: name.to_string(),
         }
     }
 
-    pub fn get_root_path(&self) -> &str {
-        self.root_path.as_str()
-    }
+    // pub fn get_root_path(&self) -> &str {
+    //     self.root_path.as_str()
+    // }
 
     pub fn get_partition_prefix(&self) -> &str {
         self.partition_prefix.as_str()
     }
 
     pub fn set_vertex_property(&mut self, label: LabelId, prop_name: &str, prop_col: Box<dyn Column>) {
-        let idx = self.graph_schema.get_vertex_property_id(label, prop_name).unwrap();
+        let idx = self
+            .graph_schema
+            .get_vertex_property_id(label, prop_name)
+            .unwrap();
         self.vertex_prop_table[label as usize].set_column(idx, prop_name, prop_col);
     }
 
-    pub fn set_edge_property(&mut self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, dir: Direction, prop_name: &str, prop_col: Box<dyn Column>) {
+    pub fn set_edge_property(
+        &mut self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, dir: Direction,
+        prop_name: &str, prop_col: Box<dyn Column>,
+    ) {
         let idx = self.edge_label_to_index(src_label, dst_label, edge_label, dir);
-        let col_idx = self.graph_schema.get_edge_property_id(src_label, edge_label, dst_label, prop_name).unwrap();
+        let col_idx = self
+            .graph_schema
+            .get_edge_property_id(src_label, edge_label, dst_label, prop_name)
+            .unwrap();
         match dir {
             Direction::Incoming => {
                 if let Some(table) = self.ie_edge_prop_table.get_mut(&idx) {
                     table.set_column(col_idx, prop_name, prop_col);
                 } else {
-                    self.ie_edge_prop_table.insert(idx, Table::from_column(prop_name, prop_col));
+                    self.ie_edge_prop_table
+                        .insert(idx, Table::from_column(prop_name, prop_col));
                 }
             }
             Direction::Outgoing => {
                 if let Some(table) = self.oe_edge_prop_table.get_mut(&idx) {
                     table.set_column(col_idx, prop_name, prop_col);
                 } else {
-                    self.oe_edge_prop_table.insert(idx, Table::from_column(prop_name, prop_col));
+                    self.oe_edge_prop_table
+                        .insert(idx, Table::from_column(prop_name, prop_col));
                 }
             }
         }
-
     }
 
     pub fn edge_label_to_index(
@@ -308,60 +491,79 @@ where
         )
     }
 
-    pub fn get_sub_graph(&self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, dir: Direction) -> SubGraph<'_, G, I> {
+    pub fn get_sub_graph(
+        &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, dir: Direction,
+    ) -> SubGraph<'_, G, I> {
         let index = self.edge_label_to_index(src_label, dst_label, edge_label, dir);
         match dir {
-            Direction::Incoming => {
-                SubGraph::new(
-                    &self.ie.get(&index).unwrap().as_any().downcast_ref::<Csr<I>>().unwrap(),
-                    &self.vertex_map,
-                    src_label,
-                    dst_label,
-                    edge_label,
-                    &self.vertex_prop_table[src_label as usize],
-                    self.ie_edge_prop_table.get(&index),
-                )
-            },
-            Direction::Outgoing => {
-                SubGraph::new(
-                    &self.oe.get(&index).unwrap().as_any().downcast_ref::<Csr<I>>().unwrap(),
-                    &self.vertex_map,
-                    src_label,
-                    dst_label,
-                    edge_label,
-                    &self.vertex_prop_table[src_label as usize],
-                    self.oe_edge_prop_table.get(&index),
-                )
-            },
+            Direction::Incoming => SubGraph::new(
+                &self
+                    .ie
+                    .get(&index)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Csr<I>>()
+                    .unwrap(),
+                &self.vertex_map,
+                src_label,
+                dst_label,
+                edge_label,
+                &self.vertex_prop_table[src_label as usize],
+                self.ie_edge_prop_table.get(&index),
+            ),
+            Direction::Outgoing => SubGraph::new(
+                &self
+                    .oe
+                    .get(&index)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Csr<I>>()
+                    .unwrap(),
+                &self.vertex_map,
+                src_label,
+                dst_label,
+                edge_label,
+                &self.vertex_prop_table[src_label as usize],
+                self.oe_edge_prop_table.get(&index),
+            ),
         }
     }
 
-    pub fn get_single_sub_graph(&self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, dir: Direction) -> SingleSubGraph<'_, G, I> {
+    pub fn get_single_sub_graph(
+        &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, dir: Direction,
+    ) -> SingleSubGraph<'_, G, I> {
         let index = self.edge_label_to_index(src_label, dst_label, edge_label, dir);
         match dir {
-            Direction::Incoming => {
-                SingleSubGraph::new(
-                    &self.ie.get(&index).unwrap().as_any().downcast_ref::<SCsr<I>>().unwrap(),
-                    &self.vertex_map,
-                    src_label,
-                    dst_label,
-                    edge_label,
-                    &self.vertex_prop_table[src_label as usize],
-                    self.ie_edge_prop_table.get(&index),
-                )
-            },
-            Direction::Outgoing => {
-                SingleSubGraph::new(
-                    &self.oe.get(&index).unwrap().as_any().downcast_ref::<SCsr<I>>().unwrap(),
-                    &self.vertex_map,
-                    src_label,
-                    dst_label,
-                    edge_label,
-                    &self.vertex_prop_table[src_label as usize],
-                    self.oe_edge_prop_table.get(&index),
-                )
-
-            },
+            Direction::Incoming => SingleSubGraph::new(
+                &self
+                    .ie
+                    .get(&index)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<SCsr<I>>()
+                    .unwrap(),
+                &self.vertex_map,
+                src_label,
+                dst_label,
+                edge_label,
+                &self.vertex_prop_table[src_label as usize],
+                self.ie_edge_prop_table.get(&index),
+            ),
+            Direction::Outgoing => SingleSubGraph::new(
+                &self
+                    .oe
+                    .get(&index)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<SCsr<I>>()
+                    .unwrap(),
+                &self.vertex_map,
+                src_label,
+                dst_label,
+                edge_label,
+                &self.vertex_prop_table[src_label as usize],
+                self.oe_edge_prop_table.get(&index),
+            ),
         }
     }
 }

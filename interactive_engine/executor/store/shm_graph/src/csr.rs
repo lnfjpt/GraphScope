@@ -13,6 +13,13 @@ pub struct Csr<I: Copy + Sized> {
 }
 
 impl<I: IndexType> Csr<I> {
+    pub fn load(prefix: &str, name: &str) {
+        SharedVec::<usize>::load(format!("{}_meta", prefix).as_str(), format!("{}_meta", name).as_str());
+        SharedVec::<I>::load(format!("{}_nbrs", prefix).as_str(), format!("{}_nbrs", name).as_str());
+        SharedVec::<usize>::load(format!("{}_offsets", prefix).as_str(), format!("{}_offsets", name).as_str());
+        SharedVec::<i32>::load(format!("{}_degree", prefix).as_str(), format!("{}_degree", name).as_str());
+    }
+
     pub fn open(prefix: &str) -> Self {
         let tmp_vec = SharedVec::<usize>::open(format!("{}_meta", prefix).as_str());
 

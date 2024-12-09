@@ -51,20 +51,6 @@ fn dump_scsr<I: IndexType>(prefix: &str, csr: &BatchMutableSingleCsr<I>) {
 }
 
 fn dump_table(prefix: &str, tbl: &ColTable) {
-    let mut col_names = vec!["".to_string(); tbl.header.len()];
-    for (name, idx) in tbl.header.iter() {
-        col_names[*idx] = name.clone();
-    }
-
-    SharedStringVec::dump_vec(format!("{}_col_names", prefix).as_str(), &col_names);
-
-    let mut col_types = vec![];
-    for i in 0..tbl.col_num() {
-        col_types.push(tbl.get_column_by_index(i).get_type());
-    }
-
-    SharedVec::<DataType>::dump_vec(format!("{}_col_types", prefix).as_str(), &col_types);
-
     for i in 0..tbl.col_num() {
         let col = tbl.get_column_by_index(i);
         let col_type = col.get_type();
@@ -161,24 +147,17 @@ fn dump_table(prefix: &str, tbl: &ColTable) {
 }
 
 fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
-    let graph = GraphDB::deserialize(input_dir.as_str(), partition, None).unwrap();
+    let graph = GraphDB::<usize, usize>::deserialize(input_dir.as_str(), partition, None).unwrap();
 
     let vertex_label_num = graph.vertex_label_num;
     let output_partition_dir = format!("{}/graph_data_bin/partition_{}", output_dir, partition);
     fs::create_dir_all(output_partition_dir.as_str()).unwrap();
     for vl in 0..vertex_label_num {
-        let vn = graph.vertex_map.vertex_num(vl as LabelId);
-        let mut vvec = Vec::<usize>::with_capacity(vn);
-        for vi in 0..vn {
-            vvec.push(
-                graph
-                    .vertex_map
-                    .get_global_id(vl as LabelId, vi)
-                    .unwrap(),
-            );
-        }
         let vm_bin_path = format!("{}/vm_{}", output_partition_dir, vl as usize);
-        Indexer::dump(vm_bin_path.as_str(), &vvec);
+        Indexer::dump(vm_bin_path.as_str(), &graph.vertex_map.index_to_global_id[vl]);
+
+        let vmc_bin_path = format!("{}/vmc_{}", output_partition_dir, vl as usize);
+        Indexer::dump(vmc_bin_path.as_str(), &graph.vertex_map.index_to_corner_global_id[vl]);
 
         let vp_prefix = format!("{}/vp_{}", output_partition_dir, vl as usize);
         dump_table(&vp_prefix, &graph.vertex_prop_table[vl]);
@@ -239,8 +218,7 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                             tbl,
                         );
                     }
-                
-                
+
                     let ie_idx = graph.edge_label_to_index(
                         dst_label as LabelId,
                         src_label as LabelId,
@@ -287,7 +265,6 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                             tbl,
                         );
                     }
-                
                 }
             }
         }
@@ -312,6 +289,12 @@ fn main() {
                 .required(true)
                 .takes_value(true)
                 .index(2),
+            Arg::with_name("partition_id")
+                .short("p")
+                .long_help("The partition of output graph data")
+                .required(true)
+                .takes_value(true)
+                .index(3),
         ])
         .get_matches();
 
@@ -323,10 +306,12 @@ fn main() {
         .value_of("output_graph_data_dir")
         .unwrap()
         .to_string();
+    let partition_id: usize = matches
+        .value_of("partition_id")
+        .unwrap()
+        .to_string()
+        .parse()
+        .unwrap();
 
-    let partition_num = get_partition_num(&input_dir);
-
-    for i in 0..partition_num {
-        convert_graph(&input_dir, &output_dir, i);
-    }
+    convert_graph(&input_dir, &output_dir, partition_id);
 }

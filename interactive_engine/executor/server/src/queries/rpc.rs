@@ -1,24 +1,15 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::io::Write;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::process::Command;
-use std::ptr::write;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
-use std::{env, fs};
 
-use shm_graph::graph::Direction;
 use shm_graph::graph_db::GraphDB;
 use shm_graph::graph_modifier::*;
-use shm_graph::ldbc_parser::LDBCVertexParser;
-use shm_graph::schema::InputSchema;
 
-use dlopen::wrapper::{Container, WrapperApi};
 use futures::Stream;
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
@@ -26,14 +17,13 @@ use pegasus::api::function::FnResult;
 use pegasus::api::FromStream;
 use pegasus::errors::{ErrorKind, JobExecError};
 use pegasus::resource::DistributedParResourceMaps;
-use pegasus::result::{FromStreamExt, ResultSink};
+use pegasus::result::FromStreamExt;
 use pegasus::{Configuration, JobConf, ServerConf};
 use pegasus_network::config::ServerAddr;
-use pegasus_network::{get_msg_sender, get_recv_register, InboxRegister, NetData};
+use pegasus_network::{get_msg_sender, get_recv_register};
 use prost::Message;
 use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio_stream::iter;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
@@ -347,12 +337,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                         }
                         drop(graph);
                         let mut graph = self.graph_db.write().unwrap();
-                        apply_write_operations(
-                            &mut graph,
-                            write_operations,
-                            self.workers,
-                            self.servers.len(),
-                        );
+                        apply_write_operations(&mut graph, write_operations, self.servers.len());
 
                         if !bytes_result.is_empty() {
                             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -408,7 +393,7 @@ impl Stream for TcpIncoming {
     }
 }
 
-fn parse_conf_req(mut req: pb::JobConfig) -> JobConf {
+fn parse_conf_req(req: pb::JobConfig) -> JobConf {
     let mut conf = JobConf::new(req.job_name);
     if req.job_id != 0 {
         conf.job_id = req.job_id;

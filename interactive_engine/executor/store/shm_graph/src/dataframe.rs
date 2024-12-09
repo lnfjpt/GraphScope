@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::fmt::Debug;
 
 use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
@@ -258,7 +257,7 @@ fn read_column<R: ReadExt>(reader: &mut R) -> std::io::Result<Box<dyn HeapColumn
         0 => {
             let data_len = reader.read_u64()? as usize;
             let mut data = Vec::<i32>::with_capacity(data_len);
-            for i in 0..data_len {
+            for _ in 0..data_len {
                 data.push(reader.read_i32()?);
             }
             Box::new(I32HColumn { data })
@@ -266,7 +265,7 @@ fn read_column<R: ReadExt>(reader: &mut R) -> std::io::Result<Box<dyn HeapColumn
         2 => {
             let data_len = reader.read_u64()? as usize;
             let mut data = Vec::<i64>::with_capacity(data_len);
-            for i in 0..data_len {
+            for _ in 0..data_len {
                 data.push(reader.read_i64()?);
             }
             Box::new(I64HColumn { data })
@@ -274,7 +273,7 @@ fn read_column<R: ReadExt>(reader: &mut R) -> std::io::Result<Box<dyn HeapColumn
         3 => {
             let data_len = reader.read_u64()? as usize;
             let mut data = Vec::<u64>::with_capacity(data_len);
-            for i in 0..data_len {
+            for _ in 0..data_len {
                 data.push(reader.read_u64()?);
             }
             Box::new(U64HColumn { data })
@@ -282,7 +281,7 @@ fn read_column<R: ReadExt>(reader: &mut R) -> std::io::Result<Box<dyn HeapColumn
         4 => {
             let data_len = reader.read_u64()? as usize;
             let mut data = Vec::<usize>::with_capacity(data_len);
-            for i in 0..data_len {
+            for _ in 0..data_len {
                 data.push(reader.read_u64()? as usize);
             }
             Box::new(IDHColumn { data })
@@ -294,31 +293,31 @@ fn read_column<R: ReadExt>(reader: &mut R) -> std::io::Result<Box<dyn HeapColumn
 
 fn write_column<W: WriteExt>(column: &Box<dyn HeapColumn>, writer: &mut W) -> std::io::Result<()> {
     if let Some(int32_column) = column.as_any().downcast_ref::<I32HColumn>() {
-        writer.write_u8(0);
-        writer.write_u64(column.len() as u64);
+        writer.write_u8(0)?;
+        writer.write_u64(column.len() as u64)?;
         for i in int32_column.data.iter() {
-            writer.write_i32(*i);
+            writer.write_i32(*i)?;
         }
     }
     if let Some(int64_column) = column.as_any().downcast_ref::<I64HColumn>() {
-        writer.write_u8(2);
-        writer.write_u64(column.len() as u64);
+        writer.write_u8(2)?;
+        writer.write_u64(column.len() as u64)?;
         for i in int64_column.data.iter() {
-            writer.write_i64(*i);
+            writer.write_i64(*i)?;
         }
     }
     if let Some(uint64_column) = column.as_any().downcast_ref::<U64HColumn>() {
-        writer.write_u8(3);
-        writer.write_u64(column.len() as u64);
+        writer.write_u8(3)?;
+        writer.write_u64(column.len() as u64)?;
         for i in uint64_column.data.iter() {
-            writer.write_u64(*i);
+            writer.write_u64(*i)?;
         }
     }
     if let Some(id_column) = column.as_any().downcast_ref::<IDHColumn>() {
-        writer.write_u8(4);
-        writer.write_u64(column.len() as u64);
+        writer.write_u8(4)?;
+        writer.write_u64(column.len() as u64)?;
         for i in id_column.data.iter() {
-            writer.write_u64(*i as u64);
+            writer.write_u64(*i as u64)?;
         }
     }
     Ok(())
