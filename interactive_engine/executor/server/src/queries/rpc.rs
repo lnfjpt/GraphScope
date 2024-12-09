@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -238,26 +238,30 @@ impl RPCServerConfig {
 }
 
 pub async fn start_all(
-    rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, workers: u32,
+    rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, pool_size: u32, workers: u32,
     servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_id = server_config.server_id();
-    start_rpc_sever(server_id, rpc_config, query_register, workers, &servers, graph_db).await?;
+    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db)
+        .await?;
     Ok(())
 }
 
 pub async fn start_rpc_sever(
-    server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, workers: u32,
+    server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, pool_size: u32, workers: u32,
     servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let service = JobServiceImpl {
+    let mut service = JobServiceImpl {
         query_register,
         workers,
         server_id,
+        pool_size,
         servers: servers.clone(),
         report: true,
         graph_db,
+        subprocess: Some(Arc::new(RwLock::new(VecDeque::new()))),
     };
+    service.start_subprocess();
     let server = RPCJobServer::new(rpc_config, service);
     server
         .run(server_id, StandaloneServiceListener {})
@@ -272,9 +276,32 @@ pub struct JobServiceImpl {
     query_register: QueryRegister,
     workers: u32,
     server_id: u64,
+    pool_size: u32,
     servers: Vec<u64>,
     report: bool,
     graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
+    subprocess: Option<Arc<RwLock<VecDeque<(u32, std::process::Child)>>>>,
+}
+
+impl JobServiceImpl {
+    pub fn start_subprocess(&mut self) {
+        if let Some(subprocess) = &self.subprocess {
+            let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
+            for i in 0..self.pool_size {
+                let mut child = Command::new("/mnt/nas/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
+                    .env("RUST_LOG", "INFO")
+                    .arg("-s")
+                    .arg("/root/server.toml")
+                    .arg("-q")
+                    .arg("/root/queries.yaml")
+                    .arg("-n")
+                    .arg("test")
+                    .spawn()
+                    .expect("Failed to execute command");
+                subprocess_write.push_back((i, child));
+            }
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -356,34 +383,24 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                         apply_write_operations(&mut graph, write_operations, self.servers.len());
 
                 let start = Instant::now();
-                let mut child = Command::new("/mnt/nas/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
-                    .env("RUST_LOG", "INFO")
-                    .arg("-s")
-                    .arg("/root/server.toml")
-                    .arg("-q")
-                    .arg("/root/queries.yaml")
-                    .arg("-n")
-                    .arg("test")
-                    .spawn()
-                    .expect("Failed to execute command");
-                let stdin = child.stdin.as_mut().expect("Failed to open stdin");
-                std::thread::sleep(Duration::from_millis(5000));
-                write!(stdin, "test");
-                drop(stdin);
-                if let Some(stdout) = child.stdout.take() {
-                    let reader = BufReader::new(stdout);
-                    for line in reader.lines() {
-                        match line {
-                            Ok(line) => println!("{}", line),
-                            Err(e) => eprintln!("Error reading line: {}", e),
+                if let Some(subprocess) = &self.subprocess {
+                    let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
+                    let (ref mut index, ref mut child) = subprocess_write.front_mut().expect("subprocess queue is empty");
+                    let stdin = child.stdin.as_mut().expect("Failed to open stdin");
+                    std::thread::sleep(Duration::from_millis(50000));
+                    write!(stdin, "test");
+                    drop(stdin);
+                    if let Some(stdout) = child.stdout.take() {
+                        let reader = BufReader::new(stdout);
+                        for line in reader.lines() {
+                            match line {
+                                Ok(line) => println!("{}", line),
+                                Err(e) => eprintln!("Error reading line: {}", e),
+                            }
                         }
                     }
+                    let _ = child.wait().expect("Child process wasn't running");
                 }
-                let _ = child.wait().expect("Child process wasn't running");
-                println!(
-                    "Finished run query, time: {}",
-                    start.elapsed().as_millis()
-                );
 
                 // if let Some(queries) = self.query_register.get_new_query(&query_name) {
                 //     let resource_maps = DistributedParResourceMaps::default(
