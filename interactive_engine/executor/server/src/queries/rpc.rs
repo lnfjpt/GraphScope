@@ -289,6 +289,7 @@ impl JobServiceImpl {
             let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
             for i in 0..self.pool_size {
                 let mut child = Command::new("/mnt/nas/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
+                    .stdin(Stdio::piped())
                     .env("RUST_LOG", "INFO")
                     .arg("-s")
                     .arg("/root/server.toml")
@@ -394,7 +395,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                         let reader = BufReader::new(stdout);
                         for line in reader.lines() {
                             match line {
-                                Ok(line) => println!("{}", line),
+                                Ok(line) => println!("{}", lœœine),
                                 Err(e) => eprintln!("Error reading line: {}", e),
                             }
                         }
