@@ -297,6 +297,8 @@ impl JobServiceImpl {
                     .arg("/root/queries.yaml")
                     .arg("-n")
                     .arg("test")
+                    .arg("-o")
+                    .arg(format!("{}", i))
                     .spawn()
                     .expect("Failed to execute command");
                 subprocess_write.push_back((i, child));

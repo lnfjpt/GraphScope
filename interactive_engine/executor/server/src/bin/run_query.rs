@@ -38,7 +38,7 @@ pub struct Config {
     query_name: String,
     #[structopt(short = "p", long = "params", default_value = "")]
     parameters: String,
-    #[structopt(short = "o", long = "port_offset", default_value = "")]
+    #[structopt(short = "o", long = "port_offset", default_value = "0")]
     offset: u16,
 }
 
