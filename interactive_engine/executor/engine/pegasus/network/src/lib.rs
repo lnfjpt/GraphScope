@@ -59,7 +59,7 @@ pub fn start_up<D: ServerDetect + 'static, A: ToSocketAddrs>(
         .spawn(move || {
             while !is_shutdown(server_id) {
                 mgr.refresh();
-                std::thread::sleep(Duration::from_secs(2));
+                std::thread::sleep(Duration::from_millis(2));
             }
             info!("net-manager-{} exit;", server_id);
         })

@@ -29,6 +29,12 @@ impl<D> BufferRecycleHook<D> {
     }
 }
 
+impl<D> Drop for BufferRecycleHook<D> {
+    fn drop(&mut self) {
+        println!("Drop recycle hook");
+    }
+}
+
 pub struct Buffer<D> {
     inner: VecDeque<D>,
     recycle_hooks: Vec<BufferRecycleHook<D>>,
