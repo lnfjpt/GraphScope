@@ -39,6 +39,8 @@ pub struct Config {
     queries_config: String,
     #[structopt(short = "p", long = "partition_id", default_value = "0")]
     partition_id: usize,
+    #[structopt(short = "t", long = "pool_size", default_value = "0")]
+    pool_size: u32
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -73,6 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config: Config = Config::from_args();
 
     let graph_data_str = config.graph_data.to_str().unwrap();
+    let pool_size = config.pool_size;
 
     let start = Instant::now();
     let name = "/SHM_GRAPH_STORE";
@@ -146,7 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rpc_config,
         server_conf,
         query_register,
-        0,
+        pool_size,
         workers,
         servers,
         Some(shared_graph),
