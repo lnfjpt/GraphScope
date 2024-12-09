@@ -246,7 +246,7 @@ impl<D: Data> ExchangeByDataPush<D> {
                         self.blocks
                             .get_mut_or_insert(&tag)
                             .push_back(BlockEntry::Single((target, x)));
-                        trace_worker!("output[{:?}] blocked when push data of {:?} ;", self.port, tag);
+                        info_worker!("output[{:?}] blocked when push data of {:?} ;", self.port, tag);
                         break;
                     }
                 }
@@ -256,7 +256,7 @@ impl<D: Data> ExchangeByDataPush<D> {
 
         if has_block {
             if !batch.is_empty() || batch.is_last() {
-                trace_worker!(
+                info_worker!(
                     "output[{:?}] blocking on push batch(len={}) of {:?} ;",
                     self.port,
                     batch.len(),

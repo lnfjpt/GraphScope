@@ -175,6 +175,8 @@ impl ServerAddr {
         self.port
     }
 
+    pub fn set_port(&mut self, new_port: u16) { self.port = new_port }
+
     pub fn to_socket_addr(&self) -> Result<SocketAddr, NetError> {
         let socket_addrs_iter = (self.hostname.as_str(), self.port).to_socket_addrs()?;
         let mut ipv4_addrs = vec![];
