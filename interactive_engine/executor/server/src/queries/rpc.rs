@@ -395,7 +395,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                         let reader = BufReader::new(stdout);
                         for line in reader.lines() {
                             match line {
-                                Ok(line) => println!("{}", lœœine),
+                                Ok(line) => println!("{}", line),
                                 Err(e) => eprintln!("Error reading line: {}", e),
                             }
                         }
