@@ -85,8 +85,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // is_load = true;
     }
     let start = Instant::now();
-    let shared_graph =
-        Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, config.partition_id)));
     println!("open graph takes: {} s", start.elapsed().as_secs_f64());
 
     let servers_config =
@@ -147,6 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rpc_config,
         server_conf,
         query_register,
+        0,
         workers,
         servers,
         Some(shared_graph),
