@@ -1,11 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-<<<<<<< HEAD
 use shm_graph::graph_db::GraphDB;
-=======
-use bmcsr::graph_db::GraphDB;
->>>>>>> 2765f545f (update run_query)
 #[cfg(feature = "use_mimalloc")]
 use mimalloc::MiMalloc;
 use pegasus::{Configuration, ServerConf};
