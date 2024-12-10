@@ -2,12 +2,9 @@ use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::net::SocketAddr;
 use std::pin::Pin;
-<<<<<<< HEAD
-=======
 use std::process::{Command, Stdio};
 use std::io::{BufReader, BufRead, self};
 use std::ptr::write;
->>>>>>> c32118c96 (update subprocess)
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
