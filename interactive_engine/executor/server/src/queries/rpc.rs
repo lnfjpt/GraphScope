@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::process::{Command, Stdio};
 use std::io::{BufReader, BufRead, self};
+use std::path::PathBuf;
 use std::ptr::write;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -236,17 +237,17 @@ impl RPCServerConfig {
 
 pub async fn start_all(
     rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, pool_size: u32, workers: u32,
-    servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
+    servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, graph_schema_path: PathBuf
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_id = server_config.server_id();
-    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db)
+    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db, graph_schema_path)
         .await?;
     Ok(())
 }
 
 pub async fn start_rpc_sever(
     server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, pool_size: u32, workers: u32,
-    servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
+    servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, graph_schema_path: PathBuf
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut service = JobServiceImpl {
         query_register,
@@ -257,6 +258,7 @@ pub async fn start_rpc_sever(
         report: true,
         graph_db,
         subprocess: Some(Arc::new(RwLock::new(VecDeque::new()))),
+        graph_schema_path
     };
     service.start_subprocess();
     let server = RPCJobServer::new(rpc_config, service);
@@ -278,6 +280,7 @@ pub struct JobServiceImpl {
     report: bool,
     graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
     subprocess: Option<Arc<RwLock<VecDeque<(u32, std::process::Child)>>>>,
+    graph_schema_path: PathBuf
 }
 
 impl JobServiceImpl {
