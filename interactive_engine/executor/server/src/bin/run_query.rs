@@ -10,6 +10,8 @@ use std::io::{self, BufRead};
 
 #[cfg(feature = "use_mimalloc")]
 use mimalloc::MiMalloc;
+use shm_graph::schema::CsrGraphSchema;
+use shm_graph::graph_db::GraphDB;
 use pegasus::{Configuration, ServerConf};
 use rpc_server::queries::register::{QueryApi, QueryRegister};
 use rpc_server::queries::rpc::RPCServerConfig;
@@ -30,6 +32,8 @@ static GLOBAL_MIMALLOC: GlobalMiMalloc = GlobalMiMalloc;
 
 #[derive(Debug, Clone, StructOpt, Default)]
 pub struct Config {
+    #[structopt(short = "i", long = "schema_path")]
+    schema_path: PathBuf,
     #[structopt(short = "s", long = "servers_config")]
     servers_config: PathBuf,
     #[structopt(short = "q", long = "queries_config", default_value = "")]
@@ -56,6 +60,10 @@ pub struct ServerConfig {
 fn main() {
     pegasus_common::logs::init_log();
     let config: Config = Config::from_args();
+
+    let schema_path = config.schema_path;
+    let graph_schema = CsrGraphSchema::from_json_file(&schema_path)?;
+    let name = "/SHM_GRAPH_STORE";
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
@@ -113,10 +121,12 @@ fn main() {
     let msg_sender_map = get_msg_sender();
     let recv_register_map = get_recv_register();
 
+    let shm_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, graph_schema, config.partition_id)));
     while true {
         let stdin = io::stdin();
         let reader = stdin.lock();
         for query_name in reader.lines() {
+            let shared_graph = shm_graph.read()
             if let Ok(query_name) = query_name {
                 if let Some(queries) = query_register.get_new_query(&query_name) {
                     let mut conf = pegasus::JobConf::new(query_name);
@@ -130,6 +140,7 @@ fn main() {
                                 || {
                                     query.Query(
                                         conf.clone(),
+                                        &shared_graph,
                                         params.clone(),
                                         msg_sender_map.clone(),
                                         recv_register_map.clone(),

@@ -41,7 +41,9 @@ pub struct Config {
     #[structopt(short = "p", long = "partition_id", default_value = "0")]
     partition_id: usize,
     #[structopt(short = "t", long = "pool_size", default_value = "0")]
-    pool_size: u32
+    pool_size: u32,
+    #[structopt(short = "c", long = "schema_path")]
+    schema_path: PathBuf
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -77,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graph_data_str = config.graph_data.to_str().unwrap();
     let pool_size = config.pool_size;
+    let graph_schema_path = config.schema_path.clone();
 
     let start = Instant::now();
     let name = "/SHM_GRAPH_STORE";
@@ -88,6 +91,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // is_load = true;
     }
     let start = Instant::now();
+    let schema = GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
+    schema.to_json_file(&graph_schema_path)?;
+    println!("load graph takes: {} s", start.elapsed().as_secs_f64());
+    // let start = Instant::now();
+    // let shared_graph =
+    //     Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, schema, config.partition_id)));
     println!("open graph takes: {} s", start.elapsed().as_secs_f64());
 
     let servers_config =
@@ -152,6 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         workers,
         servers,
         Some(shared_graph),
+        graph_schema_path
     ));
 
     if let Some(proxy_endpoint) = proxy_endpoint {
