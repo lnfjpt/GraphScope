@@ -246,6 +246,27 @@ impl HeapColumn for IDHColumn {
         self
     }
 }
+
+fn create_column(data_type: DataType) -> Box<dyn HeapColumn> {
+    match data_type {
+        DataType::Int32 => {
+            Box::new(I32HColumn::new())
+        }
+        DataType::Int64 => {
+            Box::new(I64HColumn::new())
+        }
+        DataType::UInt64 => {
+            Box::new(U64HColumn::new())
+        }
+        DataType::ID => {
+            Box::new(IDHColumn::new())
+        }
+        _ => {
+            panic!("type not impl {:?}", data_type);
+            Box::new(I32HColumn::new())
+        }
+    }
+}
 pub struct ColumnMetadata {
     data: Box<dyn HeapColumn>,
     column_name: String,
@@ -426,5 +447,25 @@ impl DataFrame {
 
     pub fn take_columns(&mut self) -> Vec<ColumnMetadata> {
         std::mem::replace(&mut self.columns, Vec::new())
+    }
+
+    pub fn new(header: &[(String, DataType)]) -> Self {
+        let mut columns = vec![];
+        for (name, dt) in header.iter() {
+            columns.push(
+                ColumnMetadata {
+                    data: create_column(dt),
+                    column_name: name.clone(),
+                    data_type: dt,
+                }
+            )
+        }
+    }
+
+    pub fn append(&mut self, row: Vec<Item>) {
+        assert_eq!(row.len(), self.columns.len());
+        for col_i in 0..self.columns.len() {
+            self.columns[col_i].data.push(row[col_i]);
+        }
     }
 }

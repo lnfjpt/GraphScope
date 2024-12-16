@@ -7,7 +7,7 @@ use std::{
     fs::{File, OpenOptions},
     io::{Write, Read},
 };
-use libc::{c_int, c_void, MAP_SHARED, PROT_READ, PROT_WRITE, shm_open, ftruncate, mmap, munmap, close, O_CREAT, O_RDWR, O_RDONLY, stat, off_t, fstat, S_IRUSR, S_IWUSR, S_IXUSR};
+use libc::{c_int, c_void, MAP_SHARED, PROT_READ, PROT_WRITE, shm_open, ftruncate, mmap, munmap, mremap, close, O_CREAT, O_RDWR, O_RDONLY, stat, off_t, fstat, S_IRUSR, S_IWUSR, S_IXUSR, MREMAP_MAYMOVE};
 
 pub struct PtrWrapper<T> {
     pub inner: *const T,
@@ -242,6 +242,24 @@ where
 
     pub fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr.inner
+    }
+
+    pub fn resize(&mut self, new_len: usize) {
+        let old_file_size = self.len() * std::mem::size_of::<T>();
+        let new_file_size = new_len * std::mem::size_of::<T>();
+        if new_file_size == old_file_size {
+            return ;
+        } else {
+            let result = unsafe { ftruncate(self.fd, new_file_size as i64) };
+            if result == -1 {
+                println!("ftruncate failed, {}", std::io::Error::last_os_error());
+            }
+            let new_addr = unsafe {
+                mremap(self.ptr.inner as *mut c_void, old_file_size, new_file_size, MREMAP_MAYMOVE) as *mut T
+            };
+            self.ptr.inner = new_addr;
+            self.size = new_len;
+        }
     }
 }
 

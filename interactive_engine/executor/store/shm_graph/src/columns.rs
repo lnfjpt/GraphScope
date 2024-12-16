@@ -407,6 +407,7 @@ pub trait Column {
     fn as_any(&self) -> &dyn Any;
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>);
+    fn resize(&mut self, new_size: usize);
 }
 
 pub trait ColumnBuilder {
@@ -454,6 +455,10 @@ impl Column for NullColumn {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {}
+
+    fn resize(&mut self, new_size: usize) {
+        self.size = new_size;
+    }
 }
 
 pub struct Int32Column {
@@ -495,6 +500,14 @@ impl Column for Int32Column {
         for (from, to) in indices.iter() {
             mut_data[*to] = mut_data[*from];
         }
+    }
+
+    fn resize(&mut self, new_size: usize) {
+        let name = self.data.name().to_string();
+        let mut mut_data = SharedMutVec::<i32>::open(name.as_str());
+        mut_data.resize(new_size);
+        
+        self.data = SharedVec::<i32>::open(name.as_str());
     }
 }
 
@@ -594,6 +607,14 @@ impl Column for UInt32Column {
             mut_data[*to] = mut_data[*from];
         }
     }
+
+    fn resize(&mut self, new_size: usize) {
+        let name = self.data.name().to_string();
+        let mut mut_data = SharedMutVec::<u32>::open(name.as_str());
+        mut_data.resize(new_size);
+        
+        self.data = SharedVec::<u32>::open(name.as_str());
+    }
 }
 
 pub struct Int64Column {
@@ -636,6 +657,14 @@ impl Column for Int64Column {
         for (from, to) in indices.iter() {
             mut_data[*to] = mut_data[*from];
         }
+    }
+
+    fn resize(&mut self, new_size: usize) {
+        let name = self.data.name().to_string();
+        let mut mut_data = SharedMutVec::<i64>::open(name.as_str());
+        mut_data.resize(new_size);
+        
+        self.data = SharedVec::<i64>::open(name.as_str());
     }
 }
 
@@ -734,6 +763,14 @@ impl Column for UInt64Column {
         for (from, to) in indices.iter() {
             mut_data[*to] = mut_data[*from];
         }
+    }
+
+    fn resize(&mut self, new_size: usize) {
+        let name = self.data.name().to_string();
+        let mut mut_data = SharedMutVec::<u64>::open(name.as_str());
+        mut_data.resize(new_size);
+        
+        self.data = SharedVec::<u64>::open(name.as_str());
     }
 }
 
@@ -835,6 +872,14 @@ impl Column for IDColumn {
             mut_data[*to] = mut_data[*from];
         }
     }
+
+    fn resize(&mut self, new_size: usize) {
+        let name = self.data.name().to_string();
+        let mut mut_data = SharedMutVec::<DefaultId>::open(name.as_str());
+        mut_data.resize(new_size);
+        
+        self.data = SharedVec::<DefaultId>::open(name.as_str());
+    }
 }
 
 pub struct DoubleColumn {
@@ -878,6 +923,14 @@ impl Column for DoubleColumn {
             mut_data[*to] = mut_data[*from];
         }
     }
+
+    fn resize(&mut self, new_size: usize) {
+        let name = self.data.name().to_string();
+        let mut mut_data = SharedMutVec::<f64>::open(name.as_str());
+        mut_data.resize(new_size);
+        
+        self.data = SharedVec::<f64>::open(name.as_str());
+    }
 }
 
 pub struct StringColumn {
@@ -917,6 +970,10 @@ impl Column for StringColumn {
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
         panic!("reshuffle not support for string column");
+    }
+
+    fn resize(&mut self, new_size: usize) {
+        panic!("resize not support for string column");
     }
 }
 
@@ -967,6 +1024,14 @@ impl Column for LCStringColumn {
         for (from, to) in indices.iter() {
             mut_data[*to] = mut_data[*from];
         }
+    }
+
+    fn resize(&mut self, new_size: usize) {
+        let name = self.index.name().to_string();
+        let mut mut_data = SharedMutVec::<u16>::open(name.as_str());
+        mut_data.resize(new_size);
+        
+        self.index = SharedVec::<u16>::open(name.as_str());
     }
 }
 
@@ -1021,6 +1086,14 @@ impl Column for DateColumn {
             mut_data[*to] = mut_data[*from];
         }
     }
+
+    fn resize(&mut self, new_size: usize) {
+        let name = self.data.name().to_string();
+        let mut mut_data = SharedMutVec::<Date>::open(name.as_str());
+        mut_data.resize(new_size);
+        
+        self.data = SharedVec::<Date>::open(name.as_str());
+    }
 }
 
 pub struct DateTimeColumn {
@@ -1065,6 +1138,14 @@ impl Column for DateTimeColumn {
         for (from, to) in indices.iter() {
             mut_data[*to] = mut_data[*from];
         }
+    }
+
+    fn resize(&mut self, new_size: usize) {
+        let name = self.data.name().to_string();
+        let mut mut_data = SharedMutVec::<DateTime>::open(name.as_str());
+        mut_data.resize(new_size);
+        
+        self.data = SharedVec::<DateTime>::open(name.as_str());
     }
 }
 

@@ -100,4 +100,38 @@ impl <K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
         }
         num
     }
+
+    pub fn insert_batch(&mut self, id_list: &Vec<K>) -> Vec<usize> {
+        assert!(self.keys.len() + id_list.len() < self.indices.len());
+
+        let mut mut_keys = SharedMutVec::<K>::open(self.keys.name());
+        let mut mut_indices = SharedMutVec::<usize>::open(self.indices.name());
+
+        let old_keys_num = mut_keys.len();
+        mut_keys.resize(old_keys_num + id_list.len());
+
+        let indices_len = mut_indices.len();
+
+        let mut cur_lid = old_keys_num;
+
+        let mut ret = vec![];
+
+        for v in id_list.iter() {
+            let hash = hash_integer(v.index());
+            let mut index = (hash as usize) % indices_len;
+            while mut_indices[index] != usize::MAX && mut_keys[mut_indices[index]] == *v  {
+                index = (index + 1) % indices_len;
+            }
+            if mut_keys[mut_indices[index]] == usize::MAX {
+                mut_indices[index] = cur_lid;
+                mut_keys[cur_lid] = *v;
+                cur_lid += 1;
+            }
+            ret.push(mut_indices[index]);
+        }
+
+        mut_keys.resize(cur_lid);
+
+        ret
+    }
 }

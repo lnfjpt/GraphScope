@@ -106,4 +106,12 @@ where
         self.corner_indexers[label as usize].erase_indices(&corner_to_remove);
         self.labeled_num[label as usize] -= n;
     }
+
+    pub fn insert_native_vertices(&mut self, label: LabelId, id_list: &Vec<G>) -> Vec<usize> {
+        self.indexers[label as usize].insert_batch(id_list)
+    }
+
+    pub fn insert_corner_vertices(&mut self, label: LabelId, id_list: &Vec<G>) {
+        self.corner_indexers[label as usize].insert_batch(id_list);
+    }
 }

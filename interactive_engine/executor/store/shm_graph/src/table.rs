@@ -181,6 +181,12 @@ impl Table {
             self.columns[col_i].reshuffle(indices);
         }
     }
+
+    pub fn resize(&mut self, new_size: usize) {
+        for col_i in 0..self.col_num() {
+            self.columns[col_i].resize(new_size)
+        }
+    }
 }
 
 unsafe impl Sync for Table {}
