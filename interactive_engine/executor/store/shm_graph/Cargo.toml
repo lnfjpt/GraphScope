@@ -23,3 +23,5 @@ abomonation_derive = "0.5"
 csv = "1.1"
 rayon = "1.5.1"
 libc = "0.2.167"
+regex = "1.7.1"
+rust-htslib = { version = "0.46.0", default-features = false, features = ["bzip2", "lzma"] }
