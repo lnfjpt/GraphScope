@@ -405,6 +405,8 @@ pub trait Column {
     fn get(&self, index: usize) -> Option<RefItem>;
     fn len(&self) -> usize;
     fn as_any(&self) -> &dyn Any;
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>);
 }
 
 pub trait ColumnBuilder {
@@ -450,6 +452,8 @@ impl Column for NullColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {}
 }
 
 pub struct Int32Column {
@@ -484,6 +488,13 @@ impl Column for Int32Column {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        let mut mut_data = SharedMutVec::<i32>::open(self.data.name());
+        for (from, to) in indices.iter() {
+            mut_data[*to] = mut_data[*from];
+        }
     }
 }
 
@@ -576,6 +587,13 @@ impl Column for UInt32Column {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        let mut mut_data = SharedMutVec::<u32>::open(self.data.name());
+        for (from, to) in indices.iter() {
+            mut_data[*to] = mut_data[*from];
+        }
+    }
 }
 
 pub struct Int64Column {
@@ -611,6 +629,13 @@ impl Column for Int64Column {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        let mut mut_data = SharedMutVec::<i64>::open(self.data.name());
+        for (from, to) in indices.iter() {
+            mut_data[*to] = mut_data[*from];
+        }
     }
 }
 
@@ -702,6 +727,13 @@ impl Column for UInt64Column {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        let mut mut_data = SharedMutVec::<u64>::open(self.data.name());
+        for (from, to) in indices.iter() {
+            mut_data[*to] = mut_data[*from];
+        }
     }
 }
 
@@ -796,6 +828,13 @@ impl Column for IDColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        let mut mut_data = SharedMutVec::<DefaultId>::open(self.data.name());
+        for (from, to) in indices.iter() {
+            mut_data[*to] = mut_data[*from];
+        }
+    }
 }
 
 pub struct DoubleColumn {
@@ -832,6 +871,13 @@ impl Column for DoubleColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        let mut mut_data = SharedMutVec::<f64>::open(self.data.name());
+        for (from, to) in indices.iter() {
+            mut_data[*to] = mut_data[*from];
+        }
+    }
 }
 
 pub struct StringColumn {
@@ -867,6 +913,10 @@ impl Column for StringColumn {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        panic!("reshuffle not support for string column");
     }
 }
 
@@ -910,6 +960,13 @@ impl Column for LCStringColumn {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        let mut mut_data = SharedMutVec::<u16>::open(self.index.name());
+        for (from, to) in indices.iter() {
+            mut_data[*to] = mut_data[*from];
+        }
     }
 }
 
@@ -957,6 +1014,13 @@ impl Column for DateColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        let mut mut_data = SharedMutVec::<Date>::open(self.data.name());
+        for (from, to) in indices.iter() {
+            mut_data[*to] = mut_data[*from];
+        }
+    }
 }
 
 pub struct DateTimeColumn {
@@ -994,6 +1058,13 @@ impl Column for DateTimeColumn {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        let mut mut_data = SharedMutVec::<DateTime>::open(self.data.name());
+        for (from, to) in indices.iter() {
+            mut_data[*to] = mut_data[*from];
+        }
     }
 }
 

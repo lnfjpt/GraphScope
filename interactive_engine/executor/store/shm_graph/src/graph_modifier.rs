@@ -1,11 +1,10 @@
-use std::collections::HashMap;
 // use std::any::Any;
-// use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 // use std::fs::File;
 // use std::io::{BufReader, Write};
 // use std::path::{Path, PathBuf};
-// use std::str::FromStr;
+use std::str::FromStr;
 // use std::time::Instant;
 //
 // use csv::ReaderBuilder;
@@ -17,17 +16,19 @@ use rayon::prelude::*;
 //
 // use crate::bmscsr::BatchMutableSingleCsr;
 // use crate::col_table::{parse_properties, parse_properties_by_mappings, ColTable};
+use crate::csr::Csr;
+use crate::scsr::SCsr;
+use crate::csr_trait::CsrTrait;
 use crate::columns::*;
-// use crate::csr::CsrTrait;
 // use crate::date::Date;
 // use crate::date_time::DateTime;
 // use crate::error::GDBResult;
 use crate::graph::Direction;
-// use crate::graph::IndexType;
+use crate::graph::IndexType;
 use crate::graph_db::GraphDB;
 // use crate::graph_loader::{get_files_list, get_files_list_beta};
 // use crate::ldbc_parser::{LDBCEdgeParser, LDBCVertexParser};
-// use crate::schema::{CsrGraphSchema, InputSchema, Schema};
+use crate::schema::{CsrGraphSchema, InputSchema, Schema};
 use crate::dataframe::*;
 use crate::types::LabelId;
 // use crate::types::DefaultId;
@@ -537,9 +538,9 @@ unsafe impl Send for AliasData {}
 unsafe impl Sync for AliasData {}
 
 pub fn apply_write_operations(
-    graph: &mut GraphDB<usize, usize>, mut write_operations: Vec<WriteOperation>, servers: usize,
+    graph: &mut GraphDB<usize, usize>, mut write_operations: Vec<WriteOperation>, parallel: u32, servers: usize,
 ) {
-    // let mut merged_delete_vertices_data: HashMap<LabelId, Vec<u64>> = HashMap::new();
+    let mut merged_delete_vertices_data: HashMap<LabelId, Vec<u64>> = HashMap::new();
     for mut write_op in write_operations.drain(..) {
         match write_op.write_type() {
             WriteType::Insert => {
@@ -577,53 +578,52 @@ pub fn apply_write_operations(
                 // }
             }
             WriteType::Delete => {
-                info!("delete not implemented...");
-                // if let Some(mut vertex_mappings) = write_op.take_vertex_mappings() {
-                //     let vertex_label = vertex_mappings.vertex_label();
-                //     let inputs = vertex_mappings.take_inputs();
-                //     let column_mappings = vertex_mappings.column_mappings();
-                //     for mut input in inputs.into_iter() {
-                //         match input.data_source() {
-                //             DataSource::Memory => {
-                //                 let mut id_col = -1;
-                //                 for column_mapping in column_mappings {
-                //                     let column = column_mapping.column();
-                //                     let column_index = column.index();
-                //                     let property_name = column_mapping.property_name();
-                //                     if property_name == "id" {
-                //                         id_col = column_index;
-                //                         break;
-                //                     }
-                //                 }
-                //                 if input.data_source() == DataSource::Memory {
-                //                     let mut memory_data = input.take_memory_data().unwrap();
-                //                     let mut data = memory_data.take_columns();
-                //                     let mut vertex_id_column = data
-                //                         .get_mut(id_col as usize)
-                //                         .expect("Failed to get id column");
-                //                     let mut data = vertex_id_column.take_data();
-                //                     if let Some(uint64_column) =
-                //                         data.as_any().downcast_ref::<UInt64Column>()
-                //                     {
-                //                         if let Some(mut combined_data) =
-                //                             merged_delete_vertices_data.get_mut(&vertex_label)
-                //                         {
-                //                             combined_data.append(&mut uint64_column.data.clone())
-                //                         } else {
-                //                             merged_delete_vertices_data
-                //                                 .insert(vertex_label, uint64_column.data.clone());
-                //                         }
-                //                     } else {
-                //                         panic!("Unknown data type");
-                //                     }
-                //                 }
-                //                 continue;
-                //             }
-                //             _ => {}
-                //         }
-                //         delete_vertices(graph, vertex_label, &input, column_mappings, parallel, servers);
-                //     }
-                // }
+                if let Some(mut vertex_mappings) = write_op.take_vertex_mappings() {
+                    let vertex_label = vertex_mappings.vertex_label();
+                    let inputs = vertex_mappings.take_inputs();
+                    let column_mappings = vertex_mappings.column_mappings();
+                    for mut input in inputs.into_iter() {
+                        match input.data_source() {
+                            DataSource::Memory => {
+                                let mut id_col = -1;
+                                for column_mapping in column_mappings {
+                                    let column = column_mapping.column();
+                                    let column_index = column.index();
+                                    let property_name = column_mapping.property_name();
+                                    if property_name == "id" {
+                                        id_col = column_index;
+                                        break;
+                                    }
+                                }
+                                if input.data_source() == DataSource::Memory {
+                                    let mut memory_data = input.take_memory_data().unwrap();
+                                    let mut data = memory_data.take_columns();
+                                    let mut vertex_id_column = data
+                                        .get_mut(id_col as usize)
+                                        .expect("Failed to get id column");
+                                    let mut data = vertex_id_column.take_data();
+                                    if let Some(uint64_column) =
+                                        data.as_any().downcast_ref::<U64HColumn>()
+                                    {
+                                        if let Some(mut combined_data) =
+                                            merged_delete_vertices_data.get_mut(&vertex_label)
+                                        {
+                                            combined_data.append(&mut uint64_column.data.clone())
+                                        } else {
+                                            merged_delete_vertices_data
+                                                .insert(vertex_label, uint64_column.data.clone());
+                                        }
+                                    } else {
+                                        panic!("Unknown data type");
+                                    }
+                                }
+                                continue;
+                            }
+                            _ => {}
+                        }
+                        // delete_vertices(graph, vertex_label, &input, column_mappings, parallel, servers);
+                    }
+                }
                 // if let Some(edge_mappings) = write_op.take_edge_mappings() {
                 //     let src_label = edge_mappings.src_label();
                 //     let edge_label = edge_mappings.edge_label();
@@ -833,12 +833,12 @@ pub fn apply_write_operations(
             }
         };
     }
-    // for (vertex_label, vertex_ids) in merged_delete_vertices_data.into_iter() {
-    //     let column_mappings =
-    //         vec![ColumnMappings::new(0, "id".to_string(), DataType::ID, "id".to_string())];
-    //     let input = Input::memory(DataFrame::new_vertices_ids(vertex_ids));
-    //     delete_vertices(graph, vertex_label, &input, &column_mappings, parallel, servers);
-    // }
+    for (vertex_label, vertex_ids) in merged_delete_vertices_data.into_iter() {
+        let column_mappings =
+            vec![ColumnMappings::new(0, "id".to_string(), DataType::ID, "id".to_string())];
+        let input = Input::memory(DataFrame::new_vertices_ids(vertex_ids));
+        delete_vertices(graph, vertex_label, &input, &column_mappings, parallel, servers);
+    }
 }
 //
 // fn insert_vertices<G, I>(
@@ -1019,73 +1019,74 @@ pub fn apply_write_operations(
 //     }
 // }
 //
-// pub fn delete_vertices(
-//     graph: &mut GraphDB<usize, usize>, vertex_label: LabelId, input: &Input,
-//     column_mappings: &Vec<ColumnMappings>, parallel: u32, servers: usize,
-// ) {
-//     let mut column_map = HashMap::new();
-//     for column_mapping in column_mappings {
-//         let column = column_mapping.column();
-//         let column_index = column.index();
-//         let data_type = column.data_type();
-//         let property_name = column_mapping.property_name();
-//         column_map.insert(property_name.clone(), (column_index, data_type));
-//     }
-//     let mut id_col = -1;
-//     if let Some((column_index, _)) = column_map.get("id") {
-//         id_col = *column_index;
-//     }
-//     match input.data_source() {
-//         DataSource::File => {
-//             if let Some(file_input) = input.file_input() {
-//                 let file_location = &file_input.location;
-//                 let path = Path::new(file_location);
-//                 let input_dir = path
-//                     .parent()
-//                     .unwrap_or(Path::new(""))
-//                     .to_str()
-//                     .unwrap()
-//                     .to_string();
-//                 let filename = path
-//                     .file_name()
-//                     .expect("Can not find filename")
-//                     .to_str()
-//                     .unwrap_or("")
-//                     .to_string();
-//                 let filenames = vec![filename];
-//                 let mut modifier = GraphModifier::new(input_dir);
-//                 if file_input.header_row {
-//                     modifier.skip_header();
-//                 }
-//                 modifier.parallel(parallel);
-//                 modifier.partitions(servers);
-//                 modifier
-//                     .apply_vertices_delete_with_filename(graph, vertex_label, &filenames, id_col)
-//                     .unwrap();
-//             }
-//         }
-//         DataSource::Memory => {
-//             if let Some(memory_data) = input.memory_data() {
-//                 let data = memory_data.columns();
-//                 let vertex_id_column = data
-//                     .get(id_col as usize)
-//                     .expect("Failed to get id column");
-//                 if let Some(uint64_column) = vertex_id_column
-//                     .data()
-//                     .as_any()
-//                     .downcast_ref::<UInt64Column>()
-//                 {
-//                     let data = uint64_column
-//                         .data
-//                         .iter()
-//                         .map(|&x| x as usize)
-//                         .collect();
-//                     delete_vertices_by_ids(graph, vertex_label, &data, parallel);
-//                 }
-//             }
-//         }
-//     }
-// }
+pub fn delete_vertices(
+    graph: &mut GraphDB<usize, usize>, vertex_label: LabelId, input: &Input,
+    column_mappings: &Vec<ColumnMappings>, parallel: u32, servers: usize,
+) {
+    let mut column_map = HashMap::new();
+    for column_mapping in column_mappings {
+        let column = column_mapping.column();
+        let column_index = column.index();
+        let data_type = column.data_type();
+        let property_name = column_mapping.property_name();
+        column_map.insert(property_name.clone(), (column_index, data_type));
+    }
+    let mut id_col = -1;
+    if let Some((column_index, _)) = column_map.get("id") {
+        id_col = *column_index;
+    }
+    match input.data_source() {
+        DataSource::File => {
+            panic!("not expect to reach here...");
+            // if let Some(file_input) = input.file_input() {
+            //     let file_location = &file_input.location;
+            //     let path = Path::new(file_location);
+            //     let input_dir = path
+            //         .parent()
+            //         .unwrap_or(Path::new(""))
+            //         .to_str()
+            //         .unwrap()
+            //         .to_string();
+            //     let filename = path
+            //         .file_name()
+            //         .expect("Can not find filename")
+            //         .to_str()
+            //         .unwrap_or("")
+            //         .to_string();
+            //     let filenames = vec![filename];
+            //     let mut modifier = GraphModifier::new(input_dir);
+            //     if file_input.header_row {
+            //         modifier.skip_header();
+            //     }
+            //     modifier.parallel(parallel);
+            //     modifier.partitions(servers);
+            //     modifier
+            //         .apply_vertices_delete_with_filename(graph, vertex_label, &filenames, id_col)
+            //         .unwrap();
+            // }
+        }
+        DataSource::Memory => {
+            if let Some(memory_data) = input.memory_data() {
+                let data = memory_data.columns();
+                let vertex_id_column = data
+                    .get(id_col as usize)
+                    .expect("Failed to get id column");
+                if let Some(uint64_column) = vertex_id_column
+                    .data()
+                    .as_any()
+                    .downcast_ref::<U64HColumn>()
+                {
+                    let data = uint64_column
+                        .data
+                        .iter()
+                        .map(|&x| x as usize)
+                        .collect();
+                    delete_vertices_by_ids(graph, vertex_label, &data, parallel);
+                }
+            }
+        }
+    }
+}
 //
 // pub fn delete_edges(
 //     graph: &mut GraphDB<usize, usize>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
@@ -1165,127 +1166,100 @@ pub fn apply_write_operations(
 //     }
 // }
 //
-// pub fn delete_vertices_by_ids<G, I>(
-//     graph: &mut GraphDB<G, I>, vertex_label: LabelId, global_ids: &Vec<G>, parallel: u32,
-// ) where
-//     I: Send + Sync + IndexType,
-//     G: FromStr + Send + Sync + IndexType + Eq,
-// {
-//     let mut lids = HashSet::new();
-//     let mut oids = HashSet::new();
-//     for v in global_ids.iter() {
-//         if v.index() as u64 == u64::MAX {
-//             continue;
-//         }
-//         if let Some(internal_id) = graph.vertex_map.get_internal_id(*v) {
-//             if internal_id.1.index() < graph.get_vertices_num(vertex_label) {
-//                 lids.insert(internal_id.1);
-//             } else {
-//                 oids.insert(internal_id.1);
-//             }
-//         }
-//     }
-//     let vertex_label_num = graph.vertex_label_num;
-//     let edge_label_num = graph.edge_label_num;
-//     for e_label_i in 0..edge_label_num {
-//         for src_label_i in 0..vertex_label_num {
-//             if graph
-//                 .graph_schema
-//                 .get_edge_header(src_label_i as LabelId, e_label_i as LabelId, vertex_label as LabelId)
-//                 .is_none()
-//             {
-//                 continue;
-//             }
-//             let index = graph.edge_label_to_index(
-//                 src_label_i as LabelId,
-//                 vertex_label as LabelId,
-//                 e_label_i as LabelId,
-//                 Direction::Outgoing,
-//             );
-//             let mut ie_csr =
-//                 std::mem::replace(&mut graph.ie[index], Box::new(BatchMutableSingleCsr::new()));
-//             let mut ie_prop = graph.ie_edge_prop_table.remove(&index);
-//             let mut oe_csr =
-//                 std::mem::replace(&mut graph.oe[index], Box::new(BatchMutableSingleCsr::new()));
-//             let mut oe_prop = graph.oe_edge_prop_table.remove(&index);
-//             let mut ie_to_delete = Vec::new();
-//             for v in lids.iter() {
-//                 if *v < ie_csr.vertex_num() {
-//                     if let Some(ie_list) = ie_csr.get_edges(*v) {
-//                         for e in ie_list {
-//                             ie_to_delete.push((*e, *v));
-//                         }
-//                     }
-//                 }
-//             }
-//             ie_csr.delete_vertices(&lids);
-//             if let Some(table) = oe_prop.as_mut() {
-//                 oe_csr.parallel_delete_edges_with_props(&ie_to_delete, false, table, parallel, Some(&oids));
-//             } else {
-//                 oe_csr.parallel_delete_edges(&ie_to_delete, false, parallel, Some(&oids));
-//             }
-//             graph.ie[index] = ie_csr;
-//             if let Some(table) = ie_prop {
-//                 graph.ie_edge_prop_table.insert(index, table);
-//             }
-//             graph.oe[index] = oe_csr;
-//             if let Some(table) = oe_prop {
-//                 graph.oe_edge_prop_table.insert(index, table);
-//             }
-//         }
-//         for dst_label_i in 0..vertex_label_num {
-//             if graph
-//                 .graph_schema
-//                 .get_edge_header(vertex_label as LabelId, e_label_i as LabelId, dst_label_i as LabelId)
-//                 .is_none()
-//             {
-//                 continue;
-//             }
-//             let index = graph.edge_label_to_index(
-//                 vertex_label as LabelId,
-//                 dst_label_i as LabelId,
-//                 e_label_i as LabelId,
-//                 Direction::Outgoing,
-//             );
-//             let mut ie_csr =
-//                 std::mem::replace(&mut graph.ie[index], Box::new(BatchMutableSingleCsr::new()));
-//             let mut ie_prop = graph.ie_edge_prop_table.remove(&index);
-//             let mut oe_csr =
-//                 std::mem::replace(&mut graph.oe[index], Box::new(BatchMutableSingleCsr::new()));
-//             let mut oe_prop = graph.oe_edge_prop_table.remove(&index);
-//             let mut oe_to_delete = Vec::new();
-//             for v in lids.iter() {
-//                 if *v < oe_csr.vertex_num() {
-//                     if let Some(oe_list) = oe_csr.get_edges(*v) {
-//                         for e in oe_list {
-//                             oe_to_delete.push((*v, *e));
-//                         }
-//                     }
-//                 }
-//             }
-//             oe_csr.delete_vertices(&lids);
-//             if let Some(table) = ie_prop.as_mut() {
-//                 ie_csr.parallel_delete_edges_with_props(&oe_to_delete, true, table, parallel, Some(&oids));
-//             } else {
-//                 ie_csr.parallel_delete_edges(&oe_to_delete, true, parallel, Some(&oids));
-//             }
-//             graph.ie[index] = ie_csr;
-//             if let Some(table) = ie_prop {
-//                 graph.ie_edge_prop_table.insert(index, table);
-//             }
-//             graph.oe[index] = oe_csr;
-//             if let Some(table) = oe_prop {
-//                 graph.oe_edge_prop_table.insert(index, table);
-//             }
-//         }
-//     }
-//
-//     // delete vertices
-//     for v in lids.iter() {
-//         graph.vertex_map.remove_vertex(vertex_label, v);
-//     }
-// }
-//
+pub fn delete_vertices_by_ids<G, I>(
+    graph: &mut GraphDB<G, I>, vertex_label: LabelId, global_ids: &Vec<G>, parallel: u32,
+) where
+    I: Send + Sync + IndexType,
+    G: FromStr + Send + Sync + IndexType + Eq,
+{
+    let mut lids = HashSet::new();
+    let mut oids = HashSet::new();
+    for v in global_ids.iter() {
+        if v.index() as u64 == u64::MAX {
+            continue;
+        }
+        if let Some(internal_id) = graph.vertex_map.get_internal_id(*v) {
+            if internal_id.1.index() < graph.get_vertices_num(vertex_label) {
+                lids.insert(internal_id.1);
+            } else {
+                oids.insert(internal_id.1);
+            }
+        }
+    }
+    let vertex_label_num = graph.vertex_label_num;
+    let edge_label_num = graph.edge_label_num;
+    for e_label_i in 0..edge_label_num {
+        for src_label_i in 0..vertex_label_num {
+            if graph
+                .graph_schema
+                .get_edge_header(src_label_i as LabelId, e_label_i as LabelId, vertex_label as LabelId)
+                .is_none()
+            {
+                continue;
+            }
+            let index = graph.edge_label_to_index(
+                src_label_i as LabelId,
+                vertex_label as LabelId,
+                e_label_i as LabelId,
+                Direction::Outgoing,
+            );
+            let mut ie_to_delete = Vec::new();
+            if let Some(ie_csr) = graph.ie.get_mut(&index) {
+                for v in lids.iter() {
+                    if *v < ie_csr.vertex_num() {
+                        if let Some(ie_list) = ie_csr.get_edges(*v) {
+                            for e in ie_list {
+                                ie_to_delete.push((e, *v));
+                            }
+                        }
+                    }
+                }
+                ie_csr.delete_vertices(&lids);
+            }
+            if let Some(oe_csr) = graph.oe.get_mut(&index) {
+                oe_csr.parallel_delete_edges(&ie_to_delete, false, graph.oe_edge_prop_table.get_mut(&index), parallel, Some(&oids));
+            }
+        }
+        for dst_label_i in 0..vertex_label_num {
+            if graph
+                .graph_schema
+                .get_edge_header(vertex_label as LabelId, e_label_i as LabelId, dst_label_i as LabelId)
+                .is_none()
+            {
+                continue;
+            }
+            let index = graph.edge_label_to_index(
+                vertex_label as LabelId,
+                dst_label_i as LabelId,
+                e_label_i as LabelId,
+                Direction::Outgoing,
+            );
+            let mut oe_to_delete = Vec::new();
+            if let Some(oe_csr) = graph.oe.get_mut(&index) {
+                for v in lids.iter() {
+                    if *v < oe_csr.vertex_num() {
+                        if let Some(oe_list) = oe_csr.get_edges(*v) {
+                            for e in oe_list {
+                                oe_to_delete.push((*v, e));
+                            }
+                        }
+                    }
+                }
+                oe_csr.delete_vertices(&lids);
+            }
+            if let Some(ie_csr) = graph.ie.get_mut(&index) {
+                ie_csr.parallel_delete_edges(&oe_to_delete, true, graph.ie_edge_prop_table.get_mut(&index), parallel, Some(&oids));
+            }
+        }
+    }
+
+    // delete vertices
+    graph.vertex_map.remove_vertices(vertex_label, &lids);
+    // for v in lids.iter() {
+    //     graph.vertex_map.remove_vertex(vertex_label, v);
+    // }
+}
+
 pub fn set_vertices(
     graph: &mut GraphDB<usize, usize>, vertex_label: LabelId, mut input: Input,
     column_mappings: &Vec<ColumnMappings>,

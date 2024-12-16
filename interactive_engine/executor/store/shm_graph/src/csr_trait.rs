@@ -1,6 +1,7 @@
-use std::any::Any;
+use std::marker::PhantomData;
+use std::{any::Any, collections::HashSet};
 
-use crate::graph::IndexType;
+use crate::{graph::IndexType, table::Table};
 pub struct NbrIter<I> {
     start: *const I,
     end: *const I,
@@ -65,6 +66,57 @@ pub trait CsrTrait<I: IndexType>: Send + Sync {
     fn get_edges(&self, u: I) -> Option<NbrIter<I>>;
     fn get_edges_with_offset(&self, u: I) -> Option<NbrOffsetIter<I>>;
 
+    fn delete_vertices(&mut self, vertices: &HashSet<I>);
+    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, table: Option<&mut Table>, p: u32,
+nbr_vertices: Option<&HashSet<I>>);
+
     fn as_any(&self) -> &dyn Any;
     fn as_mut_any(&mut self) -> &mut dyn Any;
 }
+pub struct SafePtr<I>(*const I, PhantomData<I>);
+
+unsafe impl<I> Send for SafePtr<I> {}
+
+unsafe impl<I> Sync for SafePtr<I> {}
+
+impl<I> Clone for SafePtr<I> {
+    fn clone(&self) -> Self {
+        SafePtr(self.0.clone(), PhantomData)
+    }
+}
+
+impl<I> Copy for SafePtr<I> {}
+
+impl<I> SafePtr<I> {
+    pub fn new(ptr: &I) -> Self {
+        Self { 0: ptr as *const I, 1: PhantomData }
+    }
+
+    pub fn get_ref(&self) -> &I {
+        unsafe { &*self.0 }
+    }
+}
+
+pub struct SafeMutPtr<I>(*mut I, PhantomData<I>);
+
+unsafe impl<I> Send for SafeMutPtr<I> {}
+
+unsafe impl<I> Sync for SafeMutPtr<I> {}
+
+impl<I> SafeMutPtr<I> {
+    pub fn new(ptr: &mut I) -> Self {
+        Self { 0: ptr as *mut I, 1: PhantomData }
+    }
+
+    pub fn get_mut(&self) -> &mut I {
+        unsafe { &mut *self.0 }
+    }
+}
+
+impl<I> Clone for SafeMutPtr<I> {
+    fn clone(&self) -> Self {
+        SafeMutPtr(self.0.clone(), PhantomData)
+    }
+}
+
+impl<I> Copy for SafeMutPtr<I> {}

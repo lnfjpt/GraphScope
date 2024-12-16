@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::marker::PhantomData;
 
 use crate::graph::*;
@@ -88,5 +89,21 @@ where
 
     pub fn actual_vertices_num(&self, label: LabelId) -> usize {
         self.vertices_num[label as usize]
+    }
+
+    pub fn remove_vertices(&mut self, label: LabelId, id_list: &HashSet<I>) {
+        let native_num = self.labeled_num[label as usize];
+        let mut native_to_remove = vec![];
+        let mut corner_to_remove = vec![];
+        for v in id_list.iter() {
+            if v.index() < native_num {
+                native_to_remove.push(v.index());
+            } else {
+                corner_to_remove.push(<I as IndexType>::max().index() - v.index() - 1);
+            }
+        }
+        let n = self.indexers[label as usize].erase_indices(&native_to_remove);
+        self.corner_indexers[label as usize].erase_indices(&corner_to_remove);
+        self.labeled_num[label as usize] -= n;
     }
 }

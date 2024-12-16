@@ -9,7 +9,7 @@ use std::{
 };
 use libc::{c_int, c_void, MAP_SHARED, PROT_READ, PROT_WRITE, shm_open, ftruncate, mmap, munmap, close, O_CREAT, O_RDWR, O_RDONLY, stat, off_t, fstat, S_IRUSR, S_IWUSR, S_IXUSR};
 
-struct PtrWrapper<T> {
+pub struct PtrWrapper<T> {
     pub inner: *const T,
 }
 
@@ -27,6 +27,14 @@ impl<T> SharedVec<T>
 where
     T: Copy + Sized,
 {
+    pub fn new() -> Self {
+        Self {
+            fd: -1,
+            name: "".to_string(),
+            ptr: PtrWrapper { inner: ptr::null() },
+            size: 0,
+        }
+    }
     pub fn load(path: &str, name: &str) -> Self {
         let cstr_name = CString::new(name).unwrap();
         let fd: RawFd = unsafe { shm_open(cstr_name.as_ptr(), O_CREAT | O_RDWR, S_IRUSR | S_IWUSR) };
@@ -125,6 +133,10 @@ where
     pub fn as_ptr(&self) -> *const T {
         self.ptr.inner
     }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
 }
 
 impl<T: Copy + Sized> Drop for SharedVec<T> {
@@ -145,7 +157,7 @@ impl<T: Copy + Sized> Index<usize> for SharedVec<T> {
     }
 }
 
-struct MutPtrWrapper<T> {
+pub struct MutPtrWrapper<T> {
     pub inner: *mut T,
 }
 
@@ -183,6 +195,27 @@ where
         }
     }
 
+    pub fn open(name: &str) -> Self {
+        let cstr_name = CString::new(name).unwrap();
+        let fd: RawFd = unsafe {
+            shm_open(cstr_name.as_ptr(), O_RDWR, S_IRUSR | S_IWUSR)
+        };
+        let mut st: stat = unsafe { std::mem::zeroed() };
+        unsafe { fstat(fd, &mut st); }
+        let file_size = st.st_size as usize;
+
+        let addr = unsafe {
+            mmap(ptr::null_mut(), file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) as *mut T
+        };
+
+        Self {
+            fd,
+            name: name.to_string(),
+            ptr: MutPtrWrapper { inner: addr },
+            size: file_size / std::mem::size_of::<T>(),
+        }
+    }
+
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -205,6 +238,10 @@ where
 
     pub fn len(&self) -> usize {
         self.size
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.ptr.inner
     }
 }
 

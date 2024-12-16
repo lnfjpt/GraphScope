@@ -175,6 +175,12 @@ impl Table {
         self.columns[col_id] = col;
         self.header.insert(col_name.to_string(), col_id);
     }
+
+    pub fn reshuffle_rows(&mut self, indices: &Vec<(usize, usize)>) {
+        for col_i in 0..self.col_num() {
+            self.columns[col_i].reshuffle(indices);
+        }
+    }
 }
 
 unsafe impl Sync for Table {}

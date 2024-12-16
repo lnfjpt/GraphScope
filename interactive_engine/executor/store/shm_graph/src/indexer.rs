@@ -1,4 +1,4 @@
-use crate::vector::SharedVec;
+use crate::vector::{MutPtrWrapper, SharedMutVec, SharedVec};
 use crate::graph::IndexType;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -87,5 +87,17 @@ impl <K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
 
     pub fn len(&self) -> usize {
         self.keys.len()
+    }
+
+    pub fn erase_indices(&mut self, indices: &Vec<usize>) -> usize {
+        let mut mut_keys = SharedMutVec::<K>::open(self.keys.name());
+        let mut num = 0_usize;
+        for v in indices.iter() {
+            if mut_keys.len() <= *v && mut_keys[*v] != <K as IndexType>::max() {
+                mut_keys[*v] = <K as IndexType>::max();
+                num += 1;
+            }
+        }
+        num
     }
 }

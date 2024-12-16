@@ -97,8 +97,8 @@ let output_dir = matches
     let partition_num = get_partition_num(&graph_data_dir);
 
     let mut v_files = HashMap::<LabelId, File>::new();
-    for i in 0..partition_num {
-        let db = GraphDB::<usize, usize>::open(graph_data_dir.as_str(), i);
-        output_vertices(&db, &output_dir, &mut v_files);
-    }
+    // for i in 0..partition_num {
+    //     let db = GraphDB::<usize, usize>::open(graph_data_dir.as_str(), i);
+    //     output_vertices(&db, &output_dir, &mut v_files);
+    // }
 }
