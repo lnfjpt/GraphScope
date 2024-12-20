@@ -249,18 +249,10 @@ impl HeapColumn for IDHColumn {
 
 fn create_column(data_type: DataType) -> Box<dyn HeapColumn> {
     match data_type {
-        DataType::Int32 => {
-            Box::new(I32HColumn::new())
-        }
-        DataType::Int64 => {
-            Box::new(I64HColumn::new())
-        }
-        DataType::UInt64 => {
-            Box::new(U64HColumn::new())
-        }
-        DataType::ID => {
-            Box::new(IDHColumn::new())
-        }
+        DataType::Int32 => Box::new(I32HColumn::new()),
+        DataType::Int64 => Box::new(I64HColumn::new()),
+        DataType::UInt64 => Box::new(U64HColumn::new()),
+        DataType::ID => Box::new(IDHColumn::new()),
         _ => {
             panic!("type not impl {:?}", data_type);
         }
@@ -451,17 +443,13 @@ impl DataFrame {
     pub fn new(header: &[(String, DataType)]) -> Self {
         let mut columns = vec![];
         for (name, dt) in header.iter() {
-            columns.push(
-                ColumnMetadata {
-                    data: create_column(*dt),
-                    column_name: name.clone(),
-                    data_type: *dt,
-                }
-            )
+            columns.push(ColumnMetadata {
+                data: create_column(*dt),
+                column_name: name.clone(),
+                data_type: *dt,
+            })
         }
-        Self {
-            columns
-        }
+        Self { columns }
     }
 
     pub fn append(&mut self, row: Vec<Item>) {

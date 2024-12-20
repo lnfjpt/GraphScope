@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bmcsr::csr::SafeMutPtr;
@@ -20,7 +20,7 @@ pub struct SCsr<I: Copy + Sized> {
 
 impl<I: IndexType> SCsr<I> {
     pub fn new() -> Self {
-        Self { nbr_list: SharedVec::<I>::new(), meta: SharedVec::<usize>::new(), }
+        Self { nbr_list: SharedVec::<I>::new(), meta: SharedVec::<usize>::new() }
     }
 
     pub fn load(prefix: &str, name: &str) {
@@ -128,13 +128,15 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         let safe_nbr_list = SafeMutPtr::new(&mut self.nbr_list);
 
         let deleted_counter = AtomicUsize::new(0);
-        delete_map.par_iter().for_each(|(v, delete_set)| {
-            let nbr = safe_nbr_list.get_mut()[v.index()];
-            if nbr != <I as IndexType>::max() && delete_set.contains(&nbr) {
-                safe_nbr_list.get_mut()[v.index()] = <I as IndexType>::max();
-                deleted_counter.fetch_add(1, Ordering::Relaxed);
-            }
-        });
+        delete_map
+            .par_iter()
+            .for_each(|(v, delete_set)| {
+                let nbr = safe_nbr_list.get_mut()[v.index()];
+                if nbr != <I as IndexType>::max() && delete_set.contains(&nbr) {
+                    safe_nbr_list.get_mut()[v.index()] = <I as IndexType>::max();
+                    deleted_counter.fetch_add(1, Ordering::Relaxed);
+                }
+            });
 
         self.meta[1] -= deleted_counter.load(Ordering::Relaxed);
         vec![]
@@ -153,7 +155,7 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         let nbrs_slice = self.nbr_list.as_mut_slice();
         let deleted_counter = AtomicUsize::new(0);
 
-        nbrs_slice.par_iter_mut().for_each(| nbr| {
+        nbrs_slice.par_iter_mut().for_each(|nbr| {
             if *nbr != <I as IndexType>::max() {
                 if neighbors.contains(nbr) {
                     *nbr = <I as IndexType>::max();
@@ -166,7 +168,11 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         vec![]
     }
 
-    fn insert_edges(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&crate::dataframe::DataFrame>, reverse: bool, edges_prop: Option<&mut Table>) {
+    fn insert_edges(
+        &mut self, vertex_num: usize, edges: &Vec<(I, I)>,
+        insert_edges_prop: Option<&crate::dataframe::DataFrame>, reverse: bool,
+        edges_prop: Option<&mut Table>,
+    ) {
         self.nbr_list.resize(vertex_num);
 
         let mut insert_counter = 0;

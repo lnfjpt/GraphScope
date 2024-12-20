@@ -16,11 +16,11 @@
 // use std::fs::File;
 // use std::io::BufReader;
 // use std::path::{Path, PathBuf};
-// 
+//
 // use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 // use csv::{ReaderBuilder, StringRecord};
 // use rust_htslib::bgzf::Reader as GzReader;
-// 
+//
 // use crate::columns::{DataType, Item};
 // use crate::error::GDBResult;
 // use crate::graph::IndexType;
@@ -31,51 +31,51 @@
 // pub struct Iter<'a, T> {
 //     inner: Box<dyn Iterator<Item = T> + 'a + Send>,
 // }
-// 
+//
 // impl<'a, T> Iter<'a, T> {
 //     pub fn from_iter<I: Iterator<Item = T> + 'a + Send>(iter: I) -> Self {
 //         Iter { inner: Box::new(iter) }
 //     }
-// 
+//
 //     pub fn from_iter_box(iter: Box<dyn Iterator<Item = T> + 'a + Send>) -> Self {
 //         Iter { inner: iter }
 //     }
 // }
-// 
+//
 // impl<'a, T> Iterator for Iter<'a, T> {
 //     type Item = T;
-// 
+//
 //     #[inline(always)]
 //     fn next(&mut self) -> Option<Self::Item> {
 //         self.inner.next()
 //     }
-// 
+//
 //     #[inline(always)]
 //     fn size_hint(&self) -> (usize, Option<usize>) {
 //         self.inner.size_hint()
 //     }
-// 
+//
 //     #[inline(always)]
 //     fn count(self) -> usize {
 //         self.inner.count()
 //     }
 // }
-// 
+//
 // unsafe impl<'a, T> Send for Iter<'a, T> {}
-// 
+//
 // pub struct Range<I: IndexType> {
 //     begin: I,
 //     end: I,
 // }
-// 
+//
 // pub struct RangeIterator<I: IndexType> {
 //     cur: I,
 //     end: I,
 // }
-// 
+//
 // impl<I: IndexType> Iterator for RangeIterator<I> {
 //     type Item = I;
-// 
+//
 //     fn next(&mut self) -> Option<Self::Item> {
 //         if self.cur == self.end {
 //             None
@@ -86,32 +86,32 @@
 //         }
 //     }
 // }
-// 
+//
 // impl<I: IndexType> Range<I> {
 //     pub fn new(begin: I, end: I) -> Self {
 //         Range { begin, end }
 //     }
-// 
+//
 //     pub fn into_iter(self) -> RangeIterator<I> {
 //         RangeIterator { cur: self.begin.clone(), end: self.end.clone() }
 //     }
 // }
-// 
+//
 // pub struct LabeledIterator<L: Copy + Send, I: Iterator + Send> {
 //     labels: Vec<L>,
 //     iterators: Vec<I>,
 //     cur: usize,
 // }
-// 
+//
 // impl<L: Copy + Send, I: Iterator + Send> LabeledIterator<L, I> {
 //     pub fn new(labels: Vec<L>, iterators: Vec<I>) -> Self {
 //         Self { labels, iterators, cur: 0 }
 //     }
 // }
-// 
+//
 // impl<L: Copy + Send, I: Iterator + Send> Iterator for LabeledIterator<L, I> {
 //     type Item = (L, I::Item);
-// 
+//
 //     fn next(&mut self) -> Option<Self::Item> {
 //         loop {
 //             if self.cur == self.labels.len() {
@@ -125,24 +125,24 @@
 //         }
 //     }
 // }
-// 
+//
 // unsafe impl<L: Copy + Send, I: Iterator + Send> Send for LabeledIterator<L, I> {}
-// 
+//
 // pub struct LabeledRangeIterator<L: Copy + Send, I: Copy + Send + IndexType> {
 //     labels: Vec<L>,
 //     iterators: Vec<RangeIterator<I>>,
 //     cur: usize,
 // }
-// 
+//
 // impl<L: Copy + Send, I: Copy + Send + IndexType> LabeledRangeIterator<L, I> {
 //     pub fn new(labels: Vec<L>, iterators: Vec<RangeIterator<I>>) -> Self {
 //         Self { labels, iterators, cur: 0 }
 //     }
 // }
-// 
+//
 // impl<L: Copy + Send, I: Copy + Send + IndexType> Iterator for LabeledRangeIterator<L, I> {
 //     type Item = (L, I);
-// 
+//
 //     fn next(&mut self) -> Option<Self::Item> {
 //         loop {
 //             if self.cur == self.labels.len() {
@@ -155,7 +155,7 @@
 //             }
 //         }
 //     }
-// 
+//
 //     fn nth(&mut self, n: usize) -> Option<Self::Item> {
 //         let mut remaining = n;
 //         while remaining != 0 {
@@ -175,7 +175,7 @@
 //         None
 //     }
 // }
-// 
+//
 pub fn get_partition(id: &u64, workers: usize, num_servers: usize) -> u64 {
     let id_usize = *id as usize;
     let magic_num = id_usize / num_servers;
@@ -193,7 +193,7 @@ pub fn get_2d_partition(id_hi: u64, id_low: u64, workers: usize, num_servers: us
     let worker_id = id_low % workers as u64;
     server_id * workers as u64 + worker_id
 }
-// 
+//
 // pub fn parse_vertex_id_from_file(
 //     vertex_label: LabelId, id_col: i32, file_locations: Vec<String>, skip_header: bool, delim: u8, id: u32,
 //     parallel: u32,
@@ -213,7 +213,7 @@ pub fn get_2d_partition(id_hi: u64, id_low: u64, workers: usize, num_servers: us
 //             .to_string()];
 //         let parser = LDBCVertexParser::<usize>::new(vertex_label, id_col as usize);
 //         let files = get_files_list(&input_dir, &filename).unwrap();
-// 
+//
 //         for file in files.iter() {
 //             if let Some(path_str) = file.clone().to_str() {
 //                 if path_str.ends_with(".csv.gz") {
@@ -259,7 +259,7 @@ pub fn get_2d_partition(id_hi: u64, id_low: u64, workers: usize, num_servers: us
 //     }
 //     id_list
 // }
-// 
+//
 // pub fn parse_properties(
 //     record: &StringRecord, header: &[(String, DataType)], selected: &[i32],
 // ) -> GDBResult<Vec<Item>> {
@@ -303,4 +303,4 @@ pub fn get_2d_partition(id_hi: u64, id_low: u64, workers: usize, num_servers: us
 //     }
 //     Ok(properties)
 // }
-// 
+//

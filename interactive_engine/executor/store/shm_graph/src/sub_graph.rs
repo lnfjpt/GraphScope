@@ -1,8 +1,8 @@
 use crate::csr::Csr;
-use crate::scsr::SCsr;
-use crate::table::Table;
 use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter};
 use crate::graph::IndexType;
+use crate::scsr::SCsr;
+use crate::table::Table;
 use crate::types::{DefaultId, InternalId, LabelId};
 use crate::vertex_map::VertexMap;
 
@@ -20,8 +20,8 @@ pub struct SubGraph<'a, G: Send + Sync + IndexType = DefaultId, I: Send + Sync +
 
 impl<'a, G: Send + Sync + IndexType, I: Send + Sync + IndexType> SubGraph<'a, G, I> {
     pub fn new(
-        csr: &'a Csr<I>, vm: &'a VertexMap<G, I>, src_label: LabelId, dst_label: LabelId,
-        e_label: LabelId, vertex_data: &'a Table, edge_data: Option<&'a Table>,
+        csr: &'a Csr<I>, vm: &'a VertexMap<G, I>, src_label: LabelId, dst_label: LabelId, e_label: LabelId,
+        vertex_data: &'a Table, edge_data: Option<&'a Table>,
     ) -> Self {
         SubGraph { csr, vm, src_label, dst_label, e_label, vertex_data, edge_data }
     }

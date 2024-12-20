@@ -170,9 +170,8 @@ where
                             edge_label,
                             dst_label,
                         );
-                        let oe_name_prefix = format!("{}_oe_{}_{}_{}", name, src_label,
-                            edge_label,
-                            dst_label);
+                        let oe_name_prefix =
+                            format!("{}_oe_{}_{}_{}", name, src_label, edge_label, dst_label);
                         if graph_schema.is_single_oe(
                             src_label as LabelId,
                             edge_label as LabelId,
@@ -190,14 +189,13 @@ where
                             edge_label,
                             dst_label,
                         );
-                        let oep_name_prefix = format!(
-                            "{}_oep_{}_{}_{}",
-                            name,
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
-                        if let Some(header) = graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                        let oep_name_prefix =
+                            format!("{}_oep_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                        if let Some(header) = graph_schema.get_edge_header(
+                            src_label as LabelId,
+                            edge_label as LabelId,
+                            dst_label as LabelId,
+                        ) {
                             if !header.is_empty() {
                                 Table::load(oep_prefix.as_str(), header, oep_name_prefix.as_str());
                             }
@@ -210,9 +208,8 @@ where
                             edge_label,
                             dst_label,
                         );
-                        let ie_name_prefix = format!("{}_ie_{}_{}_{}", name, src_label,
-                            edge_label,
-                            dst_label);
+                        let ie_name_prefix =
+                            format!("{}_ie_{}_{}_{}", name, src_label, edge_label, dst_label);
                         if graph_schema.is_single_ie(
                             src_label as LabelId,
                             edge_label as LabelId,
@@ -230,14 +227,13 @@ where
                             edge_label,
                             dst_label,
                         );
-                        let iep_name_prefix = format!(
-                            "{}_iep_{}_{}_{}",
-                            name,
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
-                        if let Some(header) = graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                        let iep_name_prefix =
+                            format!("{}_iep_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                        if let Some(header) = graph_schema.get_edge_header(
+                            src_label as LabelId,
+                            edge_label as LabelId,
+                            dst_label as LabelId,
+                        ) {
                             if !header.is_empty() {
                                 Table::load(iep_prefix.as_str(), header, iep_name_prefix.as_str());
                             }
@@ -284,13 +280,7 @@ where
                         let index = src_label * vertex_label_num * edge_label_num
                             + dst_label * edge_label_num
                             + edge_label;
-                        let oe_prefix = format!(
-                            "{}_oe_{}_{}_{}",
-                            name,
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
+                        let oe_prefix = format!("{}_oe_{}_{}_{}", name, src_label, edge_label, dst_label,);
                         if graph_schema.is_single_oe(
                             src_label as LabelId,
                             edge_label as LabelId,
@@ -301,32 +291,19 @@ where
                             oe.insert(index, Box::new(Csr::open(oe_prefix.as_str())));
                         }
 
-                        let oep_prefix = format!(
-                            "{}_oep_{}_{}_{}",
-                            name,
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
-                        if let Some(header) = graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                        let oep_prefix =
+                            format!("{}_oep_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                        if let Some(header) = graph_schema.get_edge_header(
+                            src_label as LabelId,
+                            edge_label as LabelId,
+                            dst_label as LabelId,
+                        ) {
                             if !header.is_empty() {
-                                oe_edge_prop_table.insert(
-                                    index,
-                                    Table::open(
-                                        oep_prefix.as_str(),
-                                        header,
-                                    ),
-                                );
+                                oe_edge_prop_table.insert(index, Table::open(oep_prefix.as_str(), header));
                             }
                         }
 
-                        let ie_prefix = format!(
-                            "{}_ie_{}_{}_{}",
-                            name,
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
+                        let ie_prefix = format!("{}_ie_{}_{}_{}", name, src_label, edge_label, dst_label,);
                         if graph_schema.is_single_ie(
                             src_label as LabelId,
                             edge_label as LabelId,
@@ -337,22 +314,15 @@ where
                             ie.insert(index, Box::new(Csr::open(ie_prefix.as_str())));
                         }
 
-                        let iep_prefix = format!(
-                            "{}_iep_{}_{}_{}",
-                            name,
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
-                        if let Some(header) = graph_schema.get_edge_header(src_label as LabelId, edge_label as LabelId, dst_label as LabelId) {
+                        let iep_prefix =
+                            format!("{}_iep_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                        if let Some(header) = graph_schema.get_edge_header(
+                            src_label as LabelId,
+                            edge_label as LabelId,
+                            dst_label as LabelId,
+                        ) {
                             if !header.is_empty() {
-                                ie_edge_prop_table.insert(
-                                    index,
-                                    Table::open(
-                                        iep_prefix.as_str(),
-                                        header,
-                                    ),
-                                );
+                                ie_edge_prop_table.insert(index, Table::open(iep_prefix.as_str(), header));
                             }
                         }
                     }

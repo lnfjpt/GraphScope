@@ -26,8 +26,14 @@ where
 {
     pub fn load(prefix: &str, num_labels: usize, name: &str) {
         for i in 0..num_labels {
-            Indexer::<G>::load(format!("{}/vm_{}", prefix, i).as_str(), format!("{}_vm_{}", name, i).as_str());
-            Indexer::<G>::load(format!("{}/vmc_{}", prefix, i).as_str(), format!("{}_vmc_{}", name, i).as_str());
+            Indexer::<G>::load(
+                format!("{}/vm_{}", prefix, i).as_str(),
+                format!("{}_vm_{}", name, i).as_str(),
+            );
+            Indexer::<G>::load(
+                format!("{}/vmc_{}", prefix, i).as_str(),
+                format!("{}_vmc_{}", name, i).as_str(),
+            );
         }
     }
 

@@ -527,8 +527,7 @@ unsafe impl Send for AliasData {}
 unsafe impl Sync for AliasData {}
 
 pub fn apply_write_operations(
-    graph: &mut GraphDB<usize, usize>, mut write_operations: Vec<WriteOperation>,
-    servers: usize,
+    graph: &mut GraphDB<usize, usize>, mut write_operations: Vec<WriteOperation>, servers: usize,
 ) {
     let mut merged_delete_vertices_data: HashMap<LabelId, Vec<u64>> = HashMap::new();
     for mut write_op in write_operations.drain(..) {
@@ -992,9 +991,8 @@ pub fn delete_edges(
     }
 }
 
-pub fn delete_vertices_by_ids<G, I>(
-    graph: &mut GraphDB<G, I>, vertex_label: LabelId, global_ids: &Vec<G>,
-) where
+pub fn delete_vertices_by_ids<G, I>(graph: &mut GraphDB<G, I>, vertex_label: LabelId, global_ids: &Vec<G>)
+where
     I: Send + Sync + IndexType,
     G: FromStr + Send + Sync + IndexType + Eq,
 {
@@ -1371,12 +1369,7 @@ pub struct GraphModifier {
 
 impl GraphModifier {
     pub fn new<D: AsRef<Path>>(input_dir: D) -> GraphModifier {
-        Self {
-            input_dir: input_dir.as_ref().to_path_buf(),
-            partitions: 1,
-            delim: b'|',
-            skip_header: false,
-        }
+        Self { input_dir: input_dir.as_ref().to_path_buf(), partitions: 1, delim: b'|', skip_header: false }
     }
 
     pub fn with_delimiter(mut self, delim: u8) -> Self {
@@ -1393,13 +1386,8 @@ impl GraphModifier {
     }
 
     fn parallel_delete_impl<G, I>(
-        &self, 
-        graph: &mut GraphDB<G, I>,
-        src_label: LabelId,
-        edge_label: LabelId,
-        dst_label: LabelId,
-        edge_file_strings: &Vec<String>,
-        input_header: &[(String, DataType)], 
+        &self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
+        edge_file_strings: &Vec<String>, input_header: &[(String, DataType)],
     ) where
         G: FromStr + Send + Sync + IndexType + Eq,
         I: Send + Sync + IndexType,
@@ -1589,152 +1577,166 @@ impl GraphModifier {
         &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
         filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32, mappings: &Vec<i32>,
     ) -> GDBResult<()>
-        where
-            I: Send + Sync + IndexType,
-            G: FromStr + Send + Sync + IndexType + Eq,
+    where
+        I: Send + Sync + IndexType,
+        G: FromStr + Send + Sync + IndexType + Eq,
     {
-            let mut parser = LDBCEdgeParser::<G>::new(src_label, dst_label, edge_label);
-            parser.with_endpoint_col_id(src_id_col as usize, dst_id_col as usize);
-    
-            let edge_files_prefix = self.input_dir.clone();
-            let edge_files = get_files_list(&edge_files_prefix, filenames);
-            if edge_files.is_err() {
-                warn!(
-                    "Get vertex files {:?}/{:?} failed: {:?}",
-                    &edge_files_prefix,
-                    filenames,
-                    edge_files.err().unwrap()
-                );
-                return Ok(());
-            }
-            let edge_files = edge_files.unwrap();
-            let mut edges = vec![];
-            let graph_header = graph
-                .graph_schema
-                .get_edge_header(src_label, edge_label, dst_label)
-                .unwrap();
-            let is_src_static = graph.graph_schema.is_static_vertex(src_label);
-            let is_dst_static = graph.graph_schema.is_static_vertex(dst_label);
-            let prop_table = if graph_header.is_empty() {
-                for file in edge_files {
-                    process_csv_rows(
-                        &file,
-                        |record| {
-                            let edge_meta = parser.parse_edge_meta(&record);
-                            if is_src_static && is_dst_static {
+        let mut parser = LDBCEdgeParser::<G>::new(src_label, dst_label, edge_label);
+        parser.with_endpoint_col_id(src_id_col as usize, dst_id_col as usize);
+
+        let edge_files_prefix = self.input_dir.clone();
+        let edge_files = get_files_list(&edge_files_prefix, filenames);
+        if edge_files.is_err() {
+            warn!(
+                "Get vertex files {:?}/{:?} failed: {:?}",
+                &edge_files_prefix,
+                filenames,
+                edge_files.err().unwrap()
+            );
+            return Ok(());
+        }
+        let edge_files = edge_files.unwrap();
+        let mut edges = vec![];
+        let graph_header = graph
+            .graph_schema
+            .get_edge_header(src_label, edge_label, dst_label)
+            .unwrap();
+        let is_src_static = graph.graph_schema.is_static_vertex(src_label);
+        let is_dst_static = graph.graph_schema.is_static_vertex(dst_label);
+        let prop_table = if graph_header.is_empty() {
+            for file in edge_files {
+                process_csv_rows(
+                    &file,
+                    |record| {
+                        let edge_meta = parser.parse_edge_meta(&record);
+                        if is_src_static && is_dst_static {
+                            edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                        } else if is_src_static && !is_dst_static {
+                            if edge_meta.dst_global_id.index() % self.partitions == graph.partition {
                                 edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
-                            } else if is_src_static && !is_dst_static {
-                                if edge_meta.dst_global_id.index() % self.partitions == graph.partition {
-                                    edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
-                                }
-                            } else if !is_src_static && is_dst_static {
-                                if edge_meta.src_global_id.index() % self.partitions == graph.partition {
-                                    edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
-                                }
-                            } else if !is_src_static && !is_dst_static {
-                                if edge_meta.src_global_id.index() % self.partitions == graph.partition
-                                    || edge_meta.dst_global_id.index() % self.partitions == graph.partition {
-                                    edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
-                                }
                             }
-                        },
-                        self.skip_header,
-                        self.delim,
-                    );
-                }
-                None
-            } else {
-                let mut prop_table = DataFrame::new(graph_header);
-                for file in edge_files {
-                    process_csv_rows(
-                        &file,
-                        |record| {
-                            let edge_meta = parser.parse_edge_meta(&record);
-                            if is_src_static && is_dst_static {
+                        } else if !is_src_static && is_dst_static {
+                            if edge_meta.src_global_id.index() % self.partitions == graph.partition {
+                                edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                            }
+                        } else if !is_src_static && !is_dst_static {
+                            if edge_meta.src_global_id.index() % self.partitions == graph.partition
+                                || edge_meta.dst_global_id.index() % self.partitions == graph.partition
+                            {
+                                edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                            }
+                        }
+                    },
+                    self.skip_header,
+                    self.delim,
+                );
+            }
+            None
+        } else {
+            let mut prop_table = DataFrame::new(graph_header);
+            for file in edge_files {
+                process_csv_rows(
+                    &file,
+                    |record| {
+                        let edge_meta = parser.parse_edge_meta(&record);
+                        if is_src_static && is_dst_static {
+                            edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                            if let Ok(properties) =
+                                parse_properties_by_mappings(&record, &graph_header, mappings)
+                            {
+                                prop_table.append(properties);
+                            }
+                        } else if is_src_static && !is_dst_static {
+                            if edge_meta.dst_global_id.index() % self.partitions == graph.partition {
                                 edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
                                 if let Ok(properties) =
                                     parse_properties_by_mappings(&record, &graph_header, mappings)
                                 {
                                     prop_table.append(properties);
                                 }
-                            } else if is_src_static && !is_dst_static {
-                                if edge_meta.dst_global_id.index() % self.partitions == graph.partition {
-                                    edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
-                                    if let Ok(properties) =
-                                        parse_properties_by_mappings(&record, &graph_header, mappings)
-                                    {
-                                        prop_table.append(properties);
-                                    }
-                                }
-                            } else if !is_src_static && is_dst_static {
-                                if edge_meta.src_global_id.index() % self.partitions == graph.partition {
-                                    edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
-                                    if let Ok(properties) =
-                                        parse_properties_by_mappings(&record, &graph_header, mappings)
-                                    {
-                                        prop_table.append(properties);
-                                    }
-                                }
-                            } else if !is_src_static && !is_dst_static {
-                                if edge_meta.src_global_id.index() % self.partitions == graph.partition
-                                    || edge_meta.dst_global_id.index() % self.partitions == graph.partition {
-                                    edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
-                                    if let Ok(properties) =
-                                        parse_properties_by_mappings(&record, &graph_header, mappings)
-                                    {
-                                        prop_table.append(properties);
-                                    }
+                            }
+                        } else if !is_src_static && is_dst_static {
+                            if edge_meta.src_global_id.index() % self.partitions == graph.partition {
+                                edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                                if let Ok(properties) =
+                                    parse_properties_by_mappings(&record, &graph_header, mappings)
+                                {
+                                    prop_table.append(properties);
                                 }
                             }
-                        },
-                        self.skip_header,
-                        self.delim,
-                    )
-                }
-                Some(prop_table)
-            };
+                        } else if !is_src_static && !is_dst_static {
+                            if edge_meta.src_global_id.index() % self.partitions == graph.partition
+                                || edge_meta.dst_global_id.index() % self.partitions == graph.partition
+                            {
+                                edges.push((edge_meta.src_global_id, edge_meta.dst_global_id));
+                                if let Ok(properties) =
+                                    parse_properties_by_mappings(&record, &graph_header, mappings)
+                                {
+                                    prop_table.append(properties);
+                                }
+                            }
+                        }
+                    },
+                    self.skip_header,
+                    self.delim,
+                )
+            }
+            Some(prop_table)
+        };
 
-            let mut corner_src_vertices = HashSet::new();
-            let mut corner_dst_vertices = HashSet::new();
-            for (src, dst) in edges.iter() {
-                if src.index() % self.partitions != graph.partition {
-                    corner_src_vertices.insert(*src);
-                }
-                if dst.index() % self.partitions != graph.partition {
-                    corner_dst_vertices.insert(*dst);
-                }
+        let mut corner_src_vertices = HashSet::new();
+        let mut corner_dst_vertices = HashSet::new();
+        for (src, dst) in edges.iter() {
+            if src.index() % self.partitions != graph.partition {
+                corner_src_vertices.insert(*src);
             }
-            graph.vertex_map.insert_corner_vertices(src_label, &corner_src_vertices.into_iter().collect::<Vec<G>>());
-            graph.vertex_map.insert_corner_vertices(dst_label, &corner_dst_vertices.into_iter().collect::<Vec<G>>());
-    
-            let mut parsed_edges = vec![];
-            for (src, dst) in edges.into_iter() {
-                let (_, src_lid) = graph.vertex_map.get_internal_id(src).unwrap();
-                let (_, dst_lid) = graph.vertex_map.get_internal_id(dst).unwrap();
-                parsed_edges.push((src_lid, dst_lid));
+            if dst.index() % self.partitions != graph.partition {
+                corner_dst_vertices.insert(*dst);
             }
-            let new_src_num = graph.vertex_map.vertex_num(src_label);
-
-            let index = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
-            if let Some(csr) = graph.oe.get_mut(&index) {
-                csr.insert_edges(
-                    new_src_num, 
-                    &parsed_edges, 
-                    prop_table.as_ref(), 
-                    false, 
-                    graph.oe_edge_prop_table.get_mut(&index));
-            }
-    
-            let new_dst_num = graph.vertex_map.vertex_num(dst_label);
-            if let Some(csr) = graph.ie.get_mut(&index) {
-                csr.insert_edges(
-                    new_dst_num, 
-                    &parsed_edges, 
-                    prop_table.as_ref(), 
-                    true, 
-                    graph.ie_edge_prop_table.get_mut(&index));
-            }
-
-            Ok(())
         }
+        graph.vertex_map.insert_corner_vertices(
+            src_label,
+            &corner_src_vertices
+                .into_iter()
+                .collect::<Vec<G>>(),
+        );
+        graph.vertex_map.insert_corner_vertices(
+            dst_label,
+            &corner_dst_vertices
+                .into_iter()
+                .collect::<Vec<G>>(),
+        );
+
+        let mut parsed_edges = vec![];
+        for (src, dst) in edges.into_iter() {
+            let (_, src_lid) = graph.vertex_map.get_internal_id(src).unwrap();
+            let (_, dst_lid) = graph.vertex_map.get_internal_id(dst).unwrap();
+            parsed_edges.push((src_lid, dst_lid));
+        }
+        let new_src_num = graph.vertex_map.vertex_num(src_label);
+
+        let index = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
+        if let Some(csr) = graph.oe.get_mut(&index) {
+            csr.insert_edges(
+                new_src_num,
+                &parsed_edges,
+                prop_table.as_ref(),
+                false,
+                graph.oe_edge_prop_table.get_mut(&index),
+            );
+        }
+
+        let new_dst_num = graph.vertex_map.vertex_num(dst_label);
+        if let Some(csr) = graph.ie.get_mut(&index) {
+            csr.insert_edges(
+                new_dst_num,
+                &parsed_edges,
+                prop_table.as_ref(),
+                true,
+                graph.ie_edge_prop_table.get_mut(&index),
+            );
+        }
+
+        Ok(())
+    }
 }

@@ -3,8 +3,8 @@ use std::any::Any;
 use std::borrow::Cow;
 use std::fmt::{Debug, Formatter};
 
-use serde::{Deserialize, Serialize};
 use csv::StringRecord;
+use serde::{Deserialize, Serialize};
 
 use dyn_type::object::RawType;
 use dyn_type::CastError;
@@ -14,11 +14,11 @@ use pegasus_common::io::{ReadExt, WriteExt};
 
 use crate::dataframe::*;
 use crate::dataframe::{HeapColumn, I32HColumn, I64HColumn};
-use crate::date::{Date, parse_date};
-use crate::date_time::{DateTime, parse_datetime};
+use crate::date::{parse_date, Date};
+use crate::date_time::{parse_datetime, DateTime};
+use crate::error::GDBResult;
 use crate::types::DefaultId;
 use crate::vector::{SharedStringVec, SharedVec};
-use crate::error::GDBResult;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum DataType {
@@ -402,7 +402,6 @@ impl<'a> RefItem<'a> {
     }
 }
 
-
 pub fn parse_properties_by_mappings(
     record: &StringRecord, header: &[(String, DataType)], mappings: &Vec<i32>,
 ) -> GDBResult<Vec<Item>> {
@@ -461,11 +460,9 @@ pub trait Column {
     fn set(&mut self, index: usize, val: Item);
     fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>);
 
-    fn inplace_parallel_chunk_move(&mut self,
-        new_size: usize,
-        old_offsets: &[usize],
-        old_degree: &[i32],
-        new_offsets: &[usize]);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    );
 }
 
 pub struct NullColumn {
@@ -515,11 +512,9 @@ impl Column for NullColumn {
 
     fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {}
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
     }
 }
 
@@ -602,12 +597,11 @@ impl Column for Int32Column {
         }
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
-        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.data
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -683,12 +677,11 @@ impl Column for UInt32Column {
         panic!("not implemented...");
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
-        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.data
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -772,12 +765,11 @@ impl Column for Int64Column {
         }
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
-        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.data
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -861,12 +853,11 @@ impl Column for UInt64Column {
         }
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
-        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.data
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -950,12 +941,11 @@ impl Column for IDColumn {
         }
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
-        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.data
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -1031,12 +1021,11 @@ impl Column for DoubleColumn {
         panic!("not implemented...");
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
-        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.data
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -1095,11 +1084,9 @@ impl Column for StringColumn {
         panic!("not implemented...");
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
         panic!("not implemented...");
     }
 }
@@ -1173,12 +1160,11 @@ impl Column for LCStringColumn {
         panic!("not implemented...");
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
-        self.index.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.index
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -1264,12 +1250,11 @@ impl Column for DateColumn {
         panic!("not implemented...");
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
-        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.data
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -1345,12 +1330,11 @@ impl Column for DateTimeColumn {
         panic!("not implemented...");
     }
 
-    fn inplace_parallel_chunk_move(&mut self,
-            new_size: usize,
-            old_offsets: &[usize],
-            old_degree: &[i32],
-            new_offsets: &[usize]) {
-        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.data
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 

@@ -5,10 +5,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rayon::prelude::*;
 
 use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter, SafeMutPtr};
+use crate::dataframe::DataFrame;
 use crate::graph::IndexType;
 use crate::table::Table;
 use crate::vector::SharedVec;
-use crate::dataframe::DataFrame;
 
 pub struct Csr<I: Copy + Sized> {
     neighbors: SharedVec<I>,
@@ -125,44 +125,47 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
         let safe_degree_list = SafeMutPtr::new(&mut self.degree);
         let delete_counter = AtomicUsize::new(0);
 
-        let shuffle_indices: Vec<(usize, usize)> = delete_map.par_iter().flat_map(|(v, delete_set)| {
-            let mut ret = vec![];
-            let deg = safe_degree_list.get_mut()[v.index()];
-            let mut found = 0;
-            if deg != 0 {
-                let mut from = offsets_slice[v.index()];
-                let mut last = from + deg as usize - 1;
+        let shuffle_indices: Vec<(usize, usize)> = delete_map
+            .par_iter()
+            .flat_map(|(v, delete_set)| {
+                let mut ret = vec![];
+                let deg = safe_degree_list.get_mut()[v.index()];
+                let mut found = 0;
+                if deg != 0 {
+                    let mut from = offsets_slice[v.index()];
+                    let mut last = from + deg as usize - 1;
 
-                loop {
-                    while (from < last) && !delete_set.contains(&self.neighbors[from]) {
+                    loop {
+                        while (from < last) && !delete_set.contains(&self.neighbors[from]) {
+                            from += 1;
+                        }
+                        if delete_set.contains(&self.neighbors[from]) {
+                            found += 1;
+                        }
+                        if from >= last {
+                            break;
+                        }
+                        while (from < last) && delete_set.contains(&self.neighbors[last]) {
+                            last -= 1;
+                            found += 1;
+                        }
+                        if from >= last {
+                            break;
+                        }
+                        ret.push((last, from));
                         from += 1;
-                    }
-                    if delete_set.contains(&self.neighbors[from]) {
-                        found += 1;
-                    }
-                    if from >= last {
-                        break;
-                    }
-                    while (from < last) && delete_set.contains(&self.neighbors[last]) {
                         last -= 1;
-                        found += 1;
                     }
-                    if from >= last {
-                        break;
-                    }
-                    ret.push((last, from));
-                    from += 1;
-                    last -= 1;
-                }
 
-                if found > 0 {
-                    safe_degree_list.get_mut()[v.index()] -= found;
-                    delete_counter.fetch_add(found as usize, Ordering::Relaxed);
+                    if found > 0 {
+                        safe_degree_list.get_mut()[v.index()] -= found;
+                        delete_counter.fetch_add(found as usize, Ordering::Relaxed);
+                    }
                 }
-            }
-            ret
-        }).collect();
-        
+                ret
+            })
+            .collect();
+
         self.meta[0] -= delete_counter.load(Ordering::Relaxed);
         self.neighbors.parallel_move(&shuffle_indices);
 
@@ -186,50 +189,60 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
 
         let deleted_counter = AtomicUsize::new(0);
 
-        let shuffle_indices: Vec<(usize, usize)> = degree_slice.par_iter_mut().zip(offsets_slice.par_iter()).flat_map(|(deg, offset)| {
-            let mut ret = vec![];
-            if *deg > 0 {
-                let mut from = *offset;
-                let mut last = from + *deg as usize - 1;
-                let mut found = 0;
+        let shuffle_indices: Vec<(usize, usize)> = degree_slice
+            .par_iter_mut()
+            .zip(offsets_slice.par_iter())
+            .flat_map(|(deg, offset)| {
+                let mut ret = vec![];
+                if *deg > 0 {
+                    let mut from = *offset;
+                    let mut last = from + *deg as usize - 1;
+                    let mut found = 0;
 
-                loop {
-                    while (from < last) && !neighbors.contains(&self.neighbors[from]) {
+                    loop {
+                        while (from < last) && !neighbors.contains(&self.neighbors[from]) {
+                            from += 1;
+                        }
+                        if neighbors.contains(&self.neighbors[from]) {
+                            found += 1;
+                        }
+                        if from >= last {
+                            break;
+                        }
+                        while (from < last) && (neighbors.contains(&self.neighbors[last])) {
+                            last -= 1;
+                            found += 1;
+                        }
+                        if from >= last {
+                            break;
+                        }
+                        ret.push((last, from));
                         from += 1;
-                    }
-                    if neighbors.contains(&self.neighbors[from]) {
-                        found += 1;
-                    }
-                    if from >= last {
-                        break;
-                    }
-                    while (from < last) && (neighbors.contains(&self.neighbors[last])) {
                         last -= 1;
-                        found += 1;
                     }
-                    if from >= last {
-                        break;
+                    if found > 0 {
+                        *deg -= found;
+                        deleted_counter.fetch_add(found as usize, Ordering::Relaxed);
                     }
-                    ret.push((last, from));
-                    from += 1;
-                    last -= 1;
                 }
-                if found > 0 {
-                    *deg -= found;
-                    deleted_counter.fetch_add(found as usize, Ordering::Relaxed);
-                }
-            }
 
-            ret
-        }).collect();
+                ret
+            })
+            .collect();
 
         self.meta[0] -= deleted_counter.load(Ordering::Relaxed);
         self.neighbors.parallel_move(&shuffle_indices);
         shuffle_indices
     }
 
-    fn insert_edges(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>, reverse: bool, edges_prop: Option<&mut Table>) {
-        let mut new_degree: Vec<i32> = (0..vertex_num).into_par_iter().map(|_| 0).collect();
+    fn insert_edges(
+        &mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>,
+        reverse: bool, edges_prop: Option<&mut Table>,
+    ) {
+        let mut new_degree: Vec<i32> = (0..vertex_num)
+            .into_par_iter()
+            .map(|_| 0)
+            .collect();
         if reverse {
             for e in edges.iter() {
                 if e.1.index() < vertex_num {
@@ -269,9 +282,11 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
         );
 
         self.degree.resize(vertex_num);
-        self.degree.as_mut_slice()[old_vertex_num..vertex_num].par_iter_mut().for_each(|deg| {
-            *deg = 0;
-        });
+        self.degree.as_mut_slice()[old_vertex_num..vertex_num]
+            .par_iter_mut()
+            .for_each(|deg| {
+                *deg = 0;
+            });
 
         if let Some(it) = insert_edges_prop {
             if let Some(ep) = edges_prop {
@@ -322,9 +337,13 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
         }
 
         self.offsets.resize(vertex_num);
-        self.offsets.as_mut_slice().par_iter_mut().zip(new_offsets.par_iter()).for_each(|(a, b)| {
-            *a = *b;
-        });
+        self.offsets
+            .as_mut_slice()
+            .par_iter_mut()
+            .zip(new_offsets.par_iter())
+            .for_each(|(a, b)| {
+                *a = *b;
+            });
         self.meta[0] = new_edges_num;
     }
 

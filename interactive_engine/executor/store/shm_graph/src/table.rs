@@ -203,12 +203,16 @@ impl Table {
         }
     }
 
-    pub fn inplace_parallel_chunk_move(&mut self, new_size: usize,
-        old_offsets: &[usize],
-        old_degree: &[i32],
-        new_offsets: &[usize]) {
+    pub fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
         for col_id in 0..self.columns.len() {
-            self.columns[col_id].inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+            self.columns[col_id].inplace_parallel_chunk_move(
+                new_size,
+                old_offsets,
+                old_degree,
+                new_offsets,
+            );
         }
     }
 }

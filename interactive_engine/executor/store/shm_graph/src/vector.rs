@@ -1,7 +1,7 @@
 use crate::csr_trait::SafeMutPtr;
 use libc::{
-    c_void, close, fstat, ftruncate, mmap, mremap, munmap, shm_open, stat, MAP_SHARED,
-    MREMAP_MAYMOVE, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, S_IRUSR, S_IWUSR,
+    c_void, close, fstat, ftruncate, mmap, mremap, munmap, shm_open, stat, MAP_SHARED, MREMAP_MAYMOVE,
+    O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, S_IRUSR, S_IWUSR,
 };
 use rayon::prelude::*;
 use std::collections::HashSet;
@@ -183,10 +183,7 @@ where
     pub fn resize_without_keep_data(&mut self, new_len: usize) {
         if new_len != self.size {
             unsafe {
-                munmap(
-                    self.ptr.inner as *mut c_void,
-                    self.size * std::mem::size_of::<T>(),
-                );
+                munmap(self.ptr.inner as *mut c_void, self.size * std::mem::size_of::<T>());
             }
             let file_size = new_len * std::mem::size_of::<T>();
             let ret = unsafe { ftruncate(self.fd, file_size as i64) };
@@ -194,14 +191,7 @@ where
                 println!("ftruncate failed, {}", std::io::Error::last_os_error());
             }
             self.ptr.inner = unsafe {
-                mmap(
-                    ptr::null_mut(),
-                    file_size,
-                    PROT_READ | PROT_WRITE,
-                    MAP_SHARED,
-                    self.fd,
-                    0,
-                ) as *mut T
+                mmap(ptr::null_mut(), file_size, PROT_READ | PROT_WRITE, MAP_SHARED, self.fd, 0) as *mut T
             };
             if self.ptr.inner as *mut c_void == libc::MAP_FAILED {
                 println!("mmap failed, {}", std::io::Error::last_os_error());
@@ -254,11 +244,7 @@ where
         });
     }
     pub fn inplace_parallel_chunk_move(
-        &mut self,
-        new_size: usize,
-        old_offsets: &[usize],
-        old_degree: &[i32],
-        new_offsets: &[usize],
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
     ) {
         assert!(old_degree.len() == old_offsets.len());
         let self_slice = self.as_slice();

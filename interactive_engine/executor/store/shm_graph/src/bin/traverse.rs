@@ -1,14 +1,14 @@
-use shm_graph::graph_db::GraphDB;
 use clap::{App, Arg};
-use shm_graph::types::*;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use shm_graph::columns::DataType;
+use shm_graph::graph_db::GraphDB;
+use shm_graph::ldbc_parser::LDBCVertexParser;
 use shm_graph::schema::{CsrGraphSchema, Schema};
+use shm_graph::types::*;
 use std::collections::HashMap;
 use std::fs::File;
-use shm_graph::ldbc_parser::LDBCVertexParser;
-use shm_graph::columns::DataType;
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 fn get_partition_num(graph_data_dir: &String) -> usize {
     let root_dir = PathBuf::from_str(graph_data_dir.as_str()).unwrap();
@@ -45,7 +45,10 @@ fn output_vertices(graph: &GraphDB, output_dir: &String, files: &mut HashMap<Lab
             let file = files.get_mut(&v_label).unwrap();
 
             for v in graph.get_all_vertices(v_label) {
-                let global_id = graph.vertex_map.get_global_id(v_label, v.get_index()).unwrap();
+                let global_id = graph
+                    .vertex_map
+                    .get_global_id(v_label, v.get_index())
+                    .unwrap();
                 let id = LDBCVertexParser::<DefaultId>::get_original_id(global_id);
                 write!(file, "\"{}\"", id.to_string()).unwrap();
                 for c in header {
@@ -53,7 +56,10 @@ fn output_vertices(graph: &GraphDB, output_dir: &String, files: &mut HashMap<Lab
                         write!(
                             file,
                             "|\"{}\"",
-                            graph.vertex_prop_table[v_label as usize].get_item(c.0.as_str(), v.get_index()).unwrap().to_string()
+                            graph.vertex_prop_table[v_label as usize]
+                                .get_item(c.0.as_str(), v.get_index())
+                                .unwrap()
+                                .to_string()
                         )
                         .unwrap();
                     }
@@ -79,7 +85,8 @@ fn main() {
             Arg::with_name("graph_name")
                 .short("n")
                 .long_help("The name of graph")
-                .required(true).takes_value(true)
+                .required(true)
+                .takes_value(true)
                 .index(2),
             Arg::with_name("output_dir")
                 .short("o")
@@ -105,7 +112,10 @@ fn main() {
 
     let partition_num = get_partition_num(&graph_data_dir);
 
-    let schema_path = PathBuf::from_str(graph_data_dir.as_str()).unwrap().join(DIR_GRAPH_SCHEMA).join(FILE_SCHEMA);
+    let schema_path = PathBuf::from_str(graph_data_dir.as_str())
+        .unwrap()
+        .join(DIR_GRAPH_SCHEMA)
+        .join(FILE_SCHEMA);
     let graph_schema = CsrGraphSchema::from_json_file(schema_path).unwrap();
 
     let mut v_files = HashMap::<LabelId, File>::new();
