@@ -284,8 +284,8 @@ impl CsrGraphSchema {
     pub fn add_vertex_index_prop(
         &mut self, index_name: String, vertex_label: LabelId, data_type: DataType,
     ) -> Option<usize> {
-        if let Some(mut prop_meta) = self.vertex_prop_meta.get_mut(&vertex_label) {
-            if let Some(mut prop_list) = self.vertex_prop_vec.get_mut(&vertex_label) {
+        if let Some(prop_meta) = self.vertex_prop_meta.get_mut(&vertex_label) {
+            if let Some(prop_list) = self.vertex_prop_vec.get_mut(&vertex_label) {
                 if let Some((_, index_label)) = prop_meta.get(&index_name) {
                     return Some(*index_label);
                 } else {
@@ -303,11 +303,11 @@ impl CsrGraphSchema {
         &mut self, index_name: String, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
         data_type: DataType,
     ) -> Option<usize> {
-        if let Some(mut prop_meta) = self
+        if let Some(prop_meta) = self
             .edge_prop_meta
             .get_mut(&(src_label, edge_label, dst_label))
         {
-            if let Some(mut prop_list) = self
+            if let Some(prop_list) = self
                 .edge_prop_vec
                 .get_mut(&(src_label, edge_label, dst_label))
             {

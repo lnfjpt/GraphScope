@@ -1,17 +1,17 @@
-use crate::vector::{MutPtrWrapper, SharedMutVec, SharedVec};
 use crate::graph::IndexType;
+use crate::vector::SharedVec;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 const INITIAL_SIZE: usize = 16;
 const MAX_LOAD_FACTOR: f64 = 0.875;
-pub struct Indexer<K : Copy + Sized> {
+pub struct Indexer<K: Copy + Sized> {
     keys: SharedVec<K>,
     indices: SharedVec<usize>,
 }
 
-unsafe impl<K : Copy + Sized> Sync for Indexer<K> {}
-unsafe impl<K : Copy + Sized> Send for Indexer<K> {}
+unsafe impl<K: Copy + Sized> Sync for Indexer<K> {}
+unsafe impl<K: Copy + Sized> Send for Indexer<K> {}
 
 fn hash_integer<T: Hash>(value: T) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -19,10 +19,13 @@ fn hash_integer<T: Hash>(value: T) -> u64 {
     hasher.finish()
 }
 
-impl <K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
+impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
     pub fn load(prefix: &str, name: &str) {
         SharedVec::<K>::load(format!("{}_keys", prefix).as_str(), format!("{}_keys", name).as_str());
-        SharedVec::<usize>::load(format!("{}_indices", prefix).as_str(), format!("{}_indices", name).as_str());
+        SharedVec::<usize>::load(
+            format!("{}_indices", prefix).as_str(),
+            format!("{}_indices", name).as_str(),
+        );
     }
 
     pub fn open(prefix: &str) -> Self {
@@ -66,7 +69,11 @@ impl <K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
     }
 
     pub fn get_key(&self, index: usize) -> Option<K> {
-        self.keys.get(index)
+        if index < self.keys.len() {
+            Some(self.keys[index])
+        } else {
+            None
+        }
     }
 
     pub fn get_index(&self, key: K) -> Option<usize> {
@@ -74,11 +81,11 @@ impl <K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
         let len = self.indices.len();
         let mut index = (hash as usize) % len;
         loop {
-            let i = self.indices.get_unchecked(index);
+            let i = self.indices[index];
             if i == usize::MAX {
                 return None;
             }
-            if self.keys.get_unchecked(i) == key {
+            if self.keys[i] == key {
                 return Some(i);
             }
             index = (index + 1) % len;
@@ -90,11 +97,10 @@ impl <K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
     }
 
     pub fn erase_indices(&mut self, indices: &Vec<usize>) -> usize {
-        let mut mut_keys = SharedMutVec::<K>::open(self.keys.name());
         let mut num = 0_usize;
         for v in indices.iter() {
-            if mut_keys.len() <= *v && mut_keys[*v] != <K as IndexType>::max() {
-                mut_keys[*v] = <K as IndexType>::max();
+            if self.keys.len() <= *v && self.keys[*v] != <K as IndexType>::max() {
+                self.keys[*v] = <K as IndexType>::max();
                 num += 1;
             }
         }
@@ -104,13 +110,10 @@ impl <K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
     pub fn insert_batch(&mut self, id_list: &Vec<K>) -> Vec<usize> {
         assert!(self.keys.len() + id_list.len() < self.indices.len());
 
-        let mut mut_keys = SharedMutVec::<K>::open(self.keys.name());
-        let mut mut_indices = SharedMutVec::<usize>::open(self.indices.name());
+        let old_keys_num = self.keys.len();
+        self.keys.resize(old_keys_num + id_list.len());
 
-        let old_keys_num = mut_keys.len();
-        mut_keys.resize(old_keys_num + id_list.len());
-
-        let indices_len = mut_indices.len();
+        let indices_len = self.indices.len();
 
         let mut cur_lid = old_keys_num;
 
@@ -119,18 +122,18 @@ impl <K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
         for v in id_list.iter() {
             let hash = hash_integer(v.index());
             let mut index = (hash as usize) % indices_len;
-            while mut_indices[index] != usize::MAX && mut_keys[mut_indices[index]] == *v  {
+            while self.indices[index] != usize::MAX && self.keys[self.indices[index]] == *v {
                 index = (index + 1) % indices_len;
             }
-            if mut_keys[mut_indices[index]] == usize::MAX {
-                mut_indices[index] = cur_lid;
-                mut_keys[cur_lid] = *v;
+            if self.keys[self.indices[index]].index() == usize::MAX {
+                self.indices[index] = cur_lid;
+                self.keys[cur_lid] = *v;
                 cur_lid += 1;
             }
-            ret.push(mut_indices[index]);
+            ret.push(self.indices[index]);
         }
 
-        mut_keys.resize(cur_lid);
+        self.keys.resize(cur_lid);
 
         ret
     }

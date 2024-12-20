@@ -1,37 +1,41 @@
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bmcsr::csr::{SafeMutPtr, SafePtr};
+use rayon::prelude::*;
 
-use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter};
-use crate::vector::{SharedMutVec, SharedVec};
+use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter, SafeMutPtr};
 use crate::graph::IndexType;
 use crate::table::Table;
+use crate::vector::SharedVec;
+use crate::dataframe::DataFrame;
 
 pub struct Csr<I: Copy + Sized> {
     neighbors: SharedVec<I>,
     offsets: SharedVec<usize>,
     degree: SharedVec<i32>,
 
-    edge_num: usize,
+    // meta[0]: edge_num
+    meta: SharedVec<usize>,
 }
 
 impl<I: IndexType> Csr<I> {
     pub fn load(prefix: &str, name: &str) {
         SharedVec::<usize>::load(format!("{}_meta", prefix).as_str(), format!("{}_meta", name).as_str());
         SharedVec::<I>::load(format!("{}_nbrs", prefix).as_str(), format!("{}_nbrs", name).as_str());
-        SharedVec::<usize>::load(format!("{}_offsets", prefix).as_str(), format!("{}_offsets", name).as_str());
+        SharedVec::<usize>::load(
+            format!("{}_offsets", prefix).as_str(),
+            format!("{}_offsets", name).as_str(),
+        );
         SharedVec::<i32>::load(format!("{}_degree", prefix).as_str(), format!("{}_degree", name).as_str());
     }
 
     pub fn open(prefix: &str) -> Self {
-        let tmp_vec = SharedVec::<usize>::open(format!("{}_meta", prefix).as_str());
-
         Self {
             neighbors: SharedVec::<I>::open(format!("{}_nbrs", prefix).as_str()),
             offsets: SharedVec::<usize>::open(format!("{}_offsets", prefix).as_str()),
             degree: SharedVec::<i32>::open(format!("{}_degree", prefix).as_str()),
-            edge_num: tmp_vec.get_unchecked(0),
+            meta: SharedVec::<usize>::open(format!("{}_meta", prefix).as_str()),
         }
     }
 }
@@ -46,7 +50,7 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
     }
 
     fn edge_num(&self) -> usize {
-        self.edge_num
+        self.meta[0]
     }
 
     fn max_edge_offset(&self) -> usize {
@@ -58,7 +62,7 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
         if u >= self.degree.len() {
             0
         } else {
-            self.degree.get_unchecked(u) as usize
+            self.degree[u] as usize
         }
     }
 
@@ -67,8 +71,8 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
         if u >= self.offsets.len() {
             None
         } else {
-            let start = self.offsets.get_unchecked(u);
-            let deg = self.degree.get_unchecked(u) as usize;
+            let start = self.offsets[u];
+            let deg = self.degree[u] as usize;
             let start = unsafe { self.neighbors.as_ptr().add(start) };
             let end = unsafe { start.add(deg) };
             Some(NbrIter::new(start, end))
@@ -80,30 +84,18 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
         if u >= self.offsets.len() {
             None
         } else {
-            let start_offset = self.offsets.get_unchecked(u);
-            let deg = self.degree.get_unchecked(u) as usize;
+            let start_offset = self.offsets[u];
+            let deg = self.degree[u] as usize;
             let start = unsafe { self.neighbors.as_ptr().add(start_offset) };
             let end = unsafe { start.add(deg) };
             Some(NbrOffsetIter::new(start, end, start_offset))
         }
     }
 
-    fn delete_vertices(&mut self, vertices: &HashSet<I>) {
-        let mut mut_vec = SharedMutVec::<i32>::open(self.degree.name());
-        for vertex in vertices {
-            let vertex = vertex.index();
-            if vertex >= mut_vec.len() {
-                continue;
-            }
-            self.edge_num -= mut_vec[vertex] as usize;
-            mut_vec[vertex] = 0;
-        }
-    }
+    fn delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool) -> Vec<(usize, usize)> {
+        let offsets_slice = self.offsets.as_slice();
 
-    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, table: Option<&mut Table>, p: u32,
-    nbr_vertices: Option<&HashSet<I>>) {
         let mut delete_map = HashMap::<I, HashSet<I>>::new();
-        let mut keys = vec![];
         if reverse {
             for (src, dst) in edges.iter() {
                 if let Some(set) = delete_map.get_mut(&dst) {
@@ -113,7 +105,6 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
                         let mut set = HashSet::<I>::new();
                         set.insert(*src);
                         delete_map.insert(*dst, set);
-                        keys.push(*dst);
                     }
                 }
             }
@@ -126,198 +117,215 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
                         let mut set = HashSet::<I>::new();
                         set.insert(*dst);
                         delete_map.insert(*src, set);
-                        keys.push(*src);
                     }
                 }
             }
         }
-        keys.sort();
 
-        let mut degree_list = SharedMutVec::<i32>::open(self.degree.name());
-        let mut nbr_list = SharedMutVec::<I>::open(self.neighbors.name());
+        let safe_degree_list = SafeMutPtr::new(&mut self.degree);
+        let delete_counter = AtomicUsize::new(0);
 
-        let safe_offsets_ptr = SafePtr::new(&self.offsets);
-        let safe_degree_ptr = SafeMutPtr::new(&mut degree_list);
-        let safe_neighbors_ptr = SafeMutPtr::new(&mut nbr_list);
-        let safe_keys_ptr = SafePtr::new(&keys);
+        let shuffle_indices: Vec<(usize, usize)> = delete_map.par_iter().flat_map(|(v, delete_set)| {
+            let mut ret = vec![];
+            let deg = safe_degree_list.get_mut()[v.index()];
+            let mut found = 0;
+            if deg != 0 {
+                let mut from = offsets_slice[v.index()];
+                let mut last = from + deg as usize - 1;
 
-        let keys_size = keys.len();
-        let num_threads = p as usize;
-        let chunk_size = (keys_size + num_threads - 1) / num_threads;
-        let nbr_chunk_size = (self.degree.len() + num_threads - 1) / num_threads;
-
-        let mut thread_deleted_edges = vec![0_usize; num_threads];
-
-        let safe_delete_map_ptr = SafePtr::new(&delete_map);
-        let safe_tde_ptr = SafeMutPtr::new(&mut thread_deleted_edges);
-
-        if let Some(table) = table {
-            let safe_table_ptr = SafeMutPtr::new(table);
-
-            rayon::scope(|s| {
-                for i in 0..num_threads {
-                    let start_idx = i * chunk_size;
-                    let end_idx = keys_size.min(start_idx + chunk_size);
-                    let nbr_start_idx = i * nbr_chunk_size;
-                    let nbr_end_idx = self.offsets.len().min(nbr_start_idx + nbr_chunk_size);
-                    s.spawn(move |_| {
-                        let keys_ref = safe_keys_ptr.get_ref();
-                        let offsets_ref = safe_offsets_ptr.get_ref();
-                        let degree_ref = safe_degree_ptr.get_mut();
-                        let neighbors_ref = safe_neighbors_ptr.get_mut();
-                        let table_ref = safe_table_ptr.get_mut();
-                        let tde_ref = safe_tde_ptr.get_mut();
-                        let delete_map_ref = safe_delete_map_ptr.get_ref();
-                        let mut deleted_edges = 0;
-                        let mut shuffle_indices = vec![];
-                        for v_index in start_idx..end_idx {
-                            let v = keys_ref[v_index];
-                            let mut offset = offsets_ref[v.index()];
-                            let deg = degree_ref[v.index()];
-
-                            let set = delete_map_ref.get(&v).unwrap();
-                            let mut end = offset + deg as usize;
-                            while offset < (end - 1) {
-                                let nbr = neighbors_ref[offset];
-                                if set.contains(&nbr) {
-                                    neighbors_ref[offset] = neighbors_ref[end - 1];
-                                    // table_ref.move_row(end - 1, offset);
-                                    shuffle_indices.push((end - 1, offset));
-                                    end -= 1;
-                                } else {
-                                    offset += 1;
-                                }
-                            }
-                            let nbr = neighbors_ref[end - 1];
-                            if set.contains(&nbr) {
-                                end -= 1;
-                            }
-
-                            let new_deg = (end - offsets_ref[v.index()]) as i32;
-                            degree_ref[v.index()] = new_deg;
-
-                            deleted_edges += (deg - new_deg) as usize;
-                        }
-
-                        if let Some(nbr_set) = nbr_vertices {
-                            for index in nbr_start_idx..nbr_end_idx {
-                                let mut offset = offsets_ref[index];
-                                let deg = degree_ref[index];
-                                if deg == 0 {
-                                    continue;
-                                }
-
-                                let mut end = offset + deg as usize;
-                                while offset < (end - 1) {
-                                    let nbr = neighbors_ref[offset];
-                                    if nbr_set.contains(&nbr) {
-                                        neighbors_ref[offset] = neighbors_ref[end - 1];
-                                        // table_ref.move_row(end - 1, offset);
-                                        shuffle_indices.push((end - 1, offset));
-                                        end -= 1;
-                                    } else {
-                                        offset += 1;
-                                    }
-                                }
-                                let nbr = neighbors_ref[end - 1];
-                                if nbr_set.contains(&nbr) {
-                                    end -= 1;
-                                }
-
-                                let new_deg = (end - offsets_ref[index]) as i32;
-                                degree_ref[index] = new_deg;
-
-                                deleted_edges += (deg - new_deg) as usize;
-                            }
-                        }
-
-                        tde_ref[i] = deleted_edges;
-                        table_ref.reshuffle_rows(&shuffle_indices);
-                    });
+                loop {
+                    while (from < last) && !delete_set.contains(&self.neighbors[from]) {
+                        from += 1;
+                    }
+                    if delete_set.contains(&self.neighbors[from]) {
+                        found += 1;
+                    }
+                    if from >= last {
+                        break;
+                    }
+                    while (from < last) && delete_set.contains(&self.neighbors[last]) {
+                        last -= 1;
+                        found += 1;
+                    }
+                    if from >= last {
+                        break;
+                    }
+                    ret.push((last, from));
+                    from += 1;
+                    last -= 1;
                 }
-            });
+
+                if found > 0 {
+                    safe_degree_list.get_mut()[v.index()] -= found;
+                    delete_counter.fetch_add(found as usize, Ordering::Relaxed);
+                }
+            }
+            ret
+        }).collect();
+        
+        self.meta[0] -= delete_counter.load(Ordering::Relaxed);
+        self.neighbors.parallel_move(&shuffle_indices);
+
+        shuffle_indices
+    }
+
+    fn delete_vertices(&mut self, vertices: &HashSet<I>) {
+        for vertex in vertices {
+            let vertex = vertex.index();
+            if vertex >= self.degree.len() {
+                continue;
+            }
+            self.meta[0] -= self.degree[vertex] as usize;
+            self.degree[vertex] = 0;
+        }
+    }
+
+    fn delete_neighbors(&mut self, neighbors: &HashSet<I>) -> Vec<(usize, usize)> {
+        let offsets_slice = self.offsets.as_slice();
+        let degree_slice = self.degree.as_mut_slice();
+
+        let deleted_counter = AtomicUsize::new(0);
+
+        let shuffle_indices: Vec<(usize, usize)> = degree_slice.par_iter_mut().zip(offsets_slice.par_iter()).flat_map(|(deg, offset)| {
+            let mut ret = vec![];
+            if *deg > 0 {
+                let mut from = *offset;
+                let mut last = from + *deg as usize - 1;
+                let mut found = 0;
+
+                loop {
+                    while (from < last) && !neighbors.contains(&self.neighbors[from]) {
+                        from += 1;
+                    }
+                    if neighbors.contains(&self.neighbors[from]) {
+                        found += 1;
+                    }
+                    if from >= last {
+                        break;
+                    }
+                    while (from < last) && (neighbors.contains(&self.neighbors[last])) {
+                        last -= 1;
+                        found += 1;
+                    }
+                    if from >= last {
+                        break;
+                    }
+                    ret.push((last, from));
+                    from += 1;
+                    last -= 1;
+                }
+                if found > 0 {
+                    *deg -= found;
+                    deleted_counter.fetch_add(found as usize, Ordering::Relaxed);
+                }
+            }
+
+            ret
+        }).collect();
+
+        self.meta[0] -= deleted_counter.load(Ordering::Relaxed);
+        self.neighbors.parallel_move(&shuffle_indices);
+        shuffle_indices
+    }
+
+    fn insert_edges_beta(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>, reverse: bool, edges_prop: Option<&mut Table>) {
+        let mut new_degree: Vec<i32> = (0..vertex_num).into_par_iter().map(|_| 0).collect();
+        if reverse {
+            for e in edges.iter() {
+                if e.1.index() < vertex_num {
+                    new_degree[e.1.index()] += 1;
+                }
+            }
         } else {
-            rayon::scope(|s| {
-                for i in 0..num_threads {
-                    let start_idx = i * chunk_size;
-                    let end_idx = keys_size.min(start_idx + chunk_size);
-                    let nbr_start_idx = i * nbr_chunk_size;
-                    let nbr_end_idx = self.offsets.len().min(nbr_start_idx + nbr_chunk_size);
-
-                    s.spawn(move |_| {
-                        let keys_ref = safe_keys_ptr.get_ref();
-                        let offsets_ref = safe_offsets_ptr.get_ref();
-                        let degree_ref = safe_degree_ptr.get_mut();
-                        let neighbors_ref = safe_neighbors_ptr.get_mut();
-                        let tde_ref = safe_tde_ptr.get_mut();
-                        let delete_map_ref = safe_delete_map_ptr.get_ref();
-                        let mut deleted_edges = 0;
-                        for v_index in start_idx..end_idx {
-                            let v = keys_ref[v_index];
-                            let mut offset = offsets_ref[v.index()];
-                            let deg = degree_ref[v.index()];
-
-                            let set = delete_map_ref.get(&v).unwrap();
-                            let mut end = offset + deg as usize;
-                            while offset < (end - 1) {
-                                let nbr = neighbors_ref[offset];
-                                if set.contains(&nbr) {
-                                    neighbors_ref[offset] = neighbors_ref[end - 1];
-                                    end -= 1;
-                                } else {
-                                    offset += 1;
-                                }
-                            }
-                            let nbr = neighbors_ref[end - 1];
-                            if set.contains(&nbr) {
-                                end -= 1;
-                            }
-
-                            let new_deg = (end - offsets_ref[v.index()]) as i32;
-                            degree_ref[v.index()] = new_deg;
-
-                            deleted_edges += (deg - new_deg) as usize;
-                        }
-
-                        if let Some(nbr_set) = nbr_vertices {
-                            for index in nbr_start_idx..nbr_end_idx {
-                                let mut offset = offsets_ref[index];
-                                let deg = degree_ref[index];
-                                if deg == 0 {
-                                    continue;
-                                }
-
-                                let mut end = offset + deg as usize;
-                                while offset < (end - 1) {
-                                    let nbr = neighbors_ref[offset];
-                                    if nbr_set.contains(&nbr) {
-                                        neighbors_ref[offset] = neighbors_ref[end - 1];
-                                        end -= 1;
-                                    } else {
-                                        offset += 1;
-                                    }
-                                }
-                                let nbr = neighbors_ref[end - 1];
-                                if nbr_set.contains(&nbr) {
-                                    end -= 1;
-                                }
-
-                                let new_deg = (end - offsets_ref[index]) as i32;
-                                degree_ref[index] = new_deg;
-
-                                deleted_edges += (deg - new_deg) as usize;
-                            }
-                        }
-
-                        tde_ref[i] = deleted_edges;
-                    });
+            for e in edges.iter() {
+                if e.0.index() < vertex_num {
+                    new_degree[e.0.index()] += 1;
                 }
-            });
+            }
         }
 
-        for v in thread_deleted_edges.iter() {
-            self.edge_num -= *v;
+        let old_vertex_num = self.degree.len();
+        assert!(old_vertex_num <= vertex_num);
+
+        let mut new_offsets = Vec::<usize>::with_capacity(vertex_num);
+        new_offsets.push(0);
+        let mut cur_offset = 0_usize;
+        for v in 0..old_vertex_num {
+            cur_offset += (new_degree[v] + self.degree[v]) as usize;
+            new_offsets.push(cur_offset);
         }
+        for v in old_vertex_num..vertex_num {
+            cur_offset += new_degree[v] as usize;
+            new_offsets.push(cur_offset);
+        }
+
+        let new_edges_num = self.meta[0] + edges.len();
+
+        self.neighbors.inplace_parallel_chunk_move(
+            new_edges_num,
+            self.offsets.as_slice(),
+            self.degree.as_slice(),
+            new_offsets.as_slice(),
+        );
+
+        self.degree.resize(vertex_num);
+        self.degree.as_mut_slice()[old_vertex_num..vertex_num].par_iter_mut().for_each(|deg| {
+            *deg = 0;
+        });
+
+        if let Some(it) = insert_edges_prop {
+            if let Some(ep) = edges_prop {
+                ep.inplace_parallel_chunk_move(
+                    new_edges_num,
+                    self.offsets.as_slice(),
+                    self.degree.as_slice(),
+                    new_offsets.as_slice(),
+                );
+                let mut insert_offsets = Vec::with_capacity(edges.len());
+                if reverse {
+                    for (dst, src) in edges.iter() {
+                        let x = self.degree[src.index()] as usize;
+                        self.degree[src.index()] += 1;
+                        let offset = new_offsets[src.index()] + x;
+                        insert_offsets.push(offset);
+                        self.neighbors[offset] = *dst;
+                    }
+                } else {
+                    for (src, dst) in edges.iter() {
+                        let x = self.degree[src.index()] as usize;
+                        self.degree[src.index()] += 1;
+                        let offset = new_offsets[src.index()] + x;
+                        insert_offsets.push(offset);
+                        self.neighbors[offset] = *dst;
+                    }
+                }
+                ep.insert_batch(&insert_offsets, it);
+            } else {
+                panic!("not supposed to reach here...");
+            }
+        } else {
+            if reverse {
+                for (dst, src) in edges.iter() {
+                    let x = self.degree[src.index()] as usize;
+                    self.degree[src.index()] += 1;
+                    let offset = new_offsets[src.index()] + x;
+                    self.neighbors[offset] = *dst;
+                }
+            } else {
+                for (src, dst) in edges.iter() {
+                    let x = self.degree[src.index()] as usize;
+                    self.degree[src.index()] += 1;
+                    let offset = new_offsets[src.index()] + x;
+                    self.neighbors[offset] = *dst;
+                }
+            }
+        }
+
+        self.offsets.resize(vertex_num);
+        self.offsets.as_mut_slice().par_iter_mut().zip(new_offsets.par_iter()).for_each(|(a, b)| {
+            *a = *b;
+        });
+        self.meta[0] = new_edges_num;
     }
 
     fn as_any(&self) -> &dyn Any {

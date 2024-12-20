@@ -263,7 +263,6 @@ fn create_column(data_type: DataType) -> Box<dyn HeapColumn> {
         }
         _ => {
             panic!("type not impl {:?}", data_type);
-            Box::new(I32HColumn::new())
         }
     }
 }
@@ -454,18 +453,21 @@ impl DataFrame {
         for (name, dt) in header.iter() {
             columns.push(
                 ColumnMetadata {
-                    data: create_column(dt),
+                    data: create_column(*dt),
                     column_name: name.clone(),
-                    data_type: dt,
+                    data_type: *dt,
                 }
             )
+        }
+        Self {
+            columns
         }
     }
 
     pub fn append(&mut self, row: Vec<Item>) {
         assert_eq!(row.len(), self.columns.len());
-        for col_i in 0..self.columns.len() {
-            self.columns[col_i].data.push(row[col_i]);
+        for (i, v) in row.into_iter().enumerate() {
+            self.columns[i].data.push(v);
         }
     }
 }

@@ -1,7 +1,4 @@
-use std::fmt::format;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
 use bmcsr::col_table::ColTable;
 use bmcsr::columns::*;
@@ -15,24 +12,9 @@ use bmcsr::bmscsr::BatchMutableSingleCsr;
 use bmcsr::date::Date;
 use bmcsr::date_time::DateTime;
 use bmcsr::graph_db::GraphDB;
-use bmcsr::types::{DefaultId, LabelId, DIR_BINARY_DATA, NAME, VERSION};
+use bmcsr::types::{DefaultId, LabelId, NAME, VERSION};
 use shm_graph::indexer::Indexer;
 use shm_graph::vector::{SharedStringVec, SharedVec};
-
-fn get_partition_num(graph_data_dir: &String) -> usize {
-    let root_dir = PathBuf::from_str(graph_data_dir.as_str()).unwrap();
-    let partitions_dir = root_dir.join(DIR_BINARY_DATA);
-    let mut index = 0_usize;
-    loop {
-        let partition_dir = partitions_dir.join(format!("partition_{}", index));
-        let b = Path::new(partition_dir.to_str().unwrap()).is_dir();
-        if b {
-            index += 1;
-        } else {
-            return index;
-        }
-    }
-}
 
 fn dump_csr<I: IndexType>(prefix: &str, csr: &BatchMutableCsr<I>) {
     SharedVec::<I>::dump_vec(format!("{}_nbrs", prefix).as_str(), &csr.neighbors);
@@ -167,7 +149,7 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
     for src_label in 0..vertex_label_num {
         for edge_label in 0..edge_label_num {
             for dst_label in 0..vertex_label_num {
-                if let Some(header) = graph.graph_schema.get_edge_header(
+                if let Some(_) = graph.graph_schema.get_edge_header(
                     src_label as LabelId,
                     edge_label as LabelId,
                     dst_label as LabelId,

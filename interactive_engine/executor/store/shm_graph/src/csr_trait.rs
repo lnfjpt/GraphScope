@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 use std::{any::Any, collections::HashSet};
 
-use crate::{graph::IndexType, table::Table};
+use crate::dataframe::DataFrame;
+use crate::graph::IndexType;
+use crate::table::Table;
+
 pub struct NbrIter<I> {
     start: *const I,
     end: *const I,
@@ -66,9 +69,12 @@ pub trait CsrTrait<I: IndexType>: Send + Sync {
     fn get_edges(&self, u: I) -> Option<NbrIter<I>>;
     fn get_edges_with_offset(&self, u: I) -> Option<NbrOffsetIter<I>>;
 
+    fn delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool) -> Vec<(usize, usize)>;
+
     fn delete_vertices(&mut self, vertices: &HashSet<I>);
-    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, table: Option<&mut Table>, p: u32,
-nbr_vertices: Option<&HashSet<I>>);
+    fn delete_neighbors(&mut self, neighbors: &HashSet<I>) -> Vec<(usize, usize)>;
+
+    fn insert_edges_beta(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>, reverse: bool, edges_prop: Option<&mut Table>);
 
     fn as_any(&self) -> &dyn Any;
     fn as_mut_any(&mut self) -> &mut dyn Any;

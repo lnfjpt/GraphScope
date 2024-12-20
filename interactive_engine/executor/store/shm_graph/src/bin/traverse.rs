@@ -3,7 +3,7 @@ use clap::{App, Arg};
 use shm_graph::types::*;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use shm_graph::schema::Schema;
+use shm_graph::schema::{CsrGraphSchema, Schema};
 use std::collections::HashMap;
 use std::fs::File;
 use shm_graph::ldbc_parser::LDBCVertexParser;
@@ -67,38 +67,50 @@ fn output_vertices(graph: &GraphDB, output_dir: &String, files: &mut HashMap<Lab
 fn main() {
     env_logger::init();
     let matches = App::new(NAME)
-    .version(VERSION)
-    .about("Build graph storage on single machine.")
-    .args(&[
-        Arg::with_name("graph_data_dir")
-            .short("g")
-            .long_help("The directory to graph store")
-            .required(true)
-            .takes_value(true)
-            .index(1),
-        Arg::with_name("output_dir")
-            .short("o")
-            .long_help("The directory to place output files")
-            .required(true)
-            .takes_value(true)
-            .index(2),
-    ])
-    .get_matches();
+        .version(VERSION)
+        .about("Build graph storage on single machine.")
+        .args(&[
+            Arg::with_name("graph_data_dir")
+                .short("g")
+                .long_help("The directory to graph store")
+                .required(true)
+                .takes_value(true)
+                .index(1),
+            Arg::with_name("graph_name")
+                .short("n")
+                .long_help("The name of graph")
+                .required(true).takes_value(true)
+                .index(2),
+            Arg::with_name("output_dir")
+                .short("o")
+                .long_help("The directory to place output files")
+                .required(true)
+                .takes_value(true)
+                .index(3),
+        ])
+        .get_matches();
 
     let graph_data_dir = matches
-    .value_of("graph_data_dir")
-    .unwrap()
-    .to_string();
-let output_dir = matches
-    .value_of("output_dir")
-    .unwrap()
-    .to_string();
+        .value_of("graph_data_dir")
+        .unwrap()
+        .to_string();
+    let graph_name = matches
+        .value_of("graph_name")
+        .unwrap()
+        .to_string();
+    let output_dir = matches
+        .value_of("output_dir")
+        .unwrap()
+        .to_string();
 
     let partition_num = get_partition_num(&graph_data_dir);
 
+    let schema_path = PathBuf::from_str(graph_data_dir.as_str()).unwrap().join(DIR_GRAPH_SCHEMA).join(FILE_SCHEMA);
+    let graph_schema = CsrGraphSchema::from_json_file(schema_path).unwrap();
+
     let mut v_files = HashMap::<LabelId, File>::new();
-    // for i in 0..partition_num {
-    //     let db = GraphDB::<usize, usize>::open(graph_data_dir.as_str(), i);
-    //     output_vertices(&db, &output_dir, &mut v_files);
-    // }
+    for i in 0..partition_num {
+        let db = GraphDB::<usize, usize>::open(graph_name.as_str(), graph_schema.clone(), i);
+        output_vertices(&db, &output_dir, &mut v_files);
+    }
 }

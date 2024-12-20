@@ -1,31 +1,26 @@
 use std::any::Any;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bmcsr::csr::{SafeMutPtr, SafePtr};
-use rayon::iter::IntoParallelRefIterator;
+use bmcsr::csr::SafeMutPtr;
+use rayon::prelude::*;
 
 use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter};
 use crate::graph::IndexType;
-use crate::vector::{SharedMutVec, SharedVec, PtrWrapper, MutPtrWrapper};
 use crate::table::Table;
+use crate::vector::SharedVec;
 
 pub struct SCsr<I: Copy + Sized> {
     nbr_list: SharedVec<I>,
 
-    vertex_num: usize,
-    edge_num: usize,
-
-    vertex_capacity: usize,
+    // meta[0]: vertex_num
+    // meta[1]: edge_num
+    meta: SharedVec<usize>,
 }
 
 impl<I: IndexType> SCsr<I> {
     pub fn new() -> Self {
-        Self {
-            nbr_list: SharedVec::<I>::new(),
-            vertex_num: 0,
-            edge_num: 0,
-            vertex_capacity: 0,
-        }
+        Self { nbr_list: SharedVec::<I>::new(), meta: SharedVec::<usize>::new(), }
     }
 
     pub fn load(prefix: &str, name: &str) {
@@ -37,14 +32,12 @@ impl<I: IndexType> SCsr<I> {
         let tmp_vec = SharedVec::<usize>::open(format!("{}_meta", prefix).as_str());
         Self {
             nbr_list: SharedVec::<I>::open(format!("{}_nbrs", prefix).as_str()),
-            vertex_num: tmp_vec.get_unchecked(0),
-            edge_num: tmp_vec.get_unchecked(1),
-            vertex_capacity: tmp_vec.get_unchecked(2),
+            meta: SharedVec::<usize>::open(format!("{}_meta", prefix).as_str()),
         }
     }
 
     pub fn get_edge(&self, src: I) -> Option<I> {
-        let nbr = self.nbr_list.get_unchecked(src.index());
+        let nbr = self.nbr_list[src.index()];
         if nbr == <I as IndexType>::max() {
             None
         } else {
@@ -53,7 +46,7 @@ impl<I: IndexType> SCsr<I> {
     }
 
     pub fn get_edge_with_offset(&self, src: I) -> Option<(I, usize)> {
-        let nbr = self.nbr_list.get_unchecked(src.index());
+        let nbr = self.nbr_list[src.index()];
         if nbr == <I as IndexType>::max() {
             None
         } else {
@@ -68,23 +61,23 @@ unsafe impl<I: IndexType> Sync for SCsr<I> {}
 
 impl<I: IndexType> CsrTrait<I> for SCsr<I> {
     fn vertex_num(&self) -> I {
-        I::new(self.vertex_num)
+        I::new(self.meta[0])
     }
 
     fn edge_num(&self) -> usize {
-        self.edge_num
+        self.meta[1]
     }
 
     fn max_edge_offset(&self) -> usize {
-        self.vertex_num
+        self.nbr_list.len()
     }
 
     fn degree(&self, u: I) -> usize {
-        (self.nbr_list.get_unchecked(u.index()) == <I as IndexType>::max()) as usize
+        (self.nbr_list[u.index()] == <I as IndexType>::max()) as usize
     }
 
     fn get_edges(&self, u: I) -> Option<NbrIter<I>> {
-        if self.nbr_list.get_unchecked(u.index()) == <I as IndexType>::max() {
+        if self.nbr_list[u.index()] == <I as IndexType>::max() {
             None
         } else {
             Some(NbrIter::new(unsafe { self.nbr_list.as_ptr().add(u.index()) }, unsafe {
@@ -93,7 +86,7 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         }
     }
     fn get_edges_with_offset(&self, u: I) -> Option<NbrOffsetIter<I>> {
-        if self.nbr_list.get_unchecked(u.index()) == <I as IndexType>::max() {
+        if self.nbr_list[u.index()] == <I as IndexType>::max() {
             None
         } else {
             Some(NbrOffsetIter::new(
@@ -104,63 +97,123 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         }
     }
 
+    fn delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool) -> Vec<(usize, usize)> {
+        let mut delete_map = HashMap::<I, HashSet<I>>::new();
+        if reverse {
+            for (src, dst) in edges.iter() {
+                if let Some(set) = delete_map.get_mut(&dst) {
+                    set.insert(*src);
+                } else {
+                    if dst.index() < self.nbr_list.len() {
+                        let mut set = HashSet::<I>::new();
+                        set.insert(*src);
+                        delete_map.insert(*dst, set);
+                    }
+                }
+            }
+        } else {
+            for (src, dst) in edges.iter() {
+                if let Some(set) = delete_map.get_mut(&dst) {
+                    set.insert(*dst);
+                } else {
+                    if src.index() < self.nbr_list.len() {
+                        let mut set = HashSet::<I>::new();
+                        set.insert(*dst);
+                        delete_map.insert(*src, set);
+                    }
+                }
+            }
+        }
+
+        let safe_nbr_list = SafeMutPtr::new(&mut self.nbr_list);
+
+        let deleted_counter = AtomicUsize::new(0);
+        delete_map.par_iter().for_each(|(v, delete_set)| {
+            let nbr = safe_nbr_list.get_mut()[v.index()];
+            if nbr != <I as IndexType>::max() && delete_set.contains(&nbr) {
+                safe_nbr_list.get_mut()[v.index()] = <I as IndexType>::max();
+                deleted_counter.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+
+        self.meta[1] -= deleted_counter.load(Ordering::Relaxed);
+        vec![]
+    }
+
     fn delete_vertices(&mut self, vertices: &HashSet<I>) {
-        let mut mut_vec = SharedMutVec::<I>::open(self.nbr_list.name());
+        let vnum = self.vertex_num();
         for vertex in vertices {
-            if *vertex < self.vertex_num() {
-                mut_vec[vertex.index()] = <I as IndexType>::max();
+            if *vertex < vnum {
+                self.nbr_list[vertex.index()] = <I as IndexType>::max();
             }
         }
     }
 
-    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, table: Option<&mut Table>, p: u32,
-    nbr_vertices: Option<&HashSet<I>>) {
-        let edges_num = edges.len();
+    fn delete_neighbors(&mut self, neighbors: &HashSet<I>) -> Vec<(usize, usize)> {
+        let nbrs_slice = self.nbr_list.as_mut_slice();
+        let deleted_counter = AtomicUsize::new(0);
 
-        let mut mut_vec = SharedMutVec::<I>::open(self.nbr_list.name());
-        let safe_nbr_list_ptr = SafeMutPtr::new(&mut mut_vec);
-        let safe_edges_ptr = SafePtr::new(edges);
-
-        let num_threads = p as usize;
-        let chunk_size = (edges_num + num_threads - 1) / num_threads;
-        let vertex_num = self.vertex_num;
-
-        let nbr_chunk_size = (self.nbr_list.len() + num_threads - 1) / num_threads;
-        rayon::scope(|s| {
-            for i in 0..num_threads {
-                let start_idx = i * chunk_size;
-                let end_idx = edges_num.min(start_idx + chunk_size);
-                let nbr_start_idx = i * nbr_chunk_size;
-                let nbr_end_idx = self.nbr_list.len().min(nbr_start_idx + nbr_chunk_size);
-                s.spawn(move |_| {
-                    let edges_ref = safe_edges_ptr.get_ref();
-                    let nbr_list_ref = safe_nbr_list_ptr.get_mut();
-                    if reverse {
-                        for k in start_idx..end_idx {
-                            let v = edges_ref[k].1;
-                            if v.index() < vertex_num {
-                                nbr_list_ref[v.index()] = <I as IndexType>::max();
-                            }
-                        }
-                    } else {
-                        for k in start_idx..end_idx {
-                            let v = edges_ref[k].0;
-                            if v.index() < vertex_num {
-                                nbr_list_ref[v.index()] = <I as IndexType>::max();
-                            }
-                        }
-                    }
-
-                    if let Some(nbr_set) = nbr_vertices {
-                        for index in nbr_start_idx..nbr_end_idx {
-                            if nbr_set.contains(&nbr_list_ref[index]) {
-                                nbr_list_ref[index] = <I as IndexType>::max();
-                            }
-                        }
-                    }
-                });
+        nbrs_slice.par_iter_mut().for_each(| nbr| {
+            if *nbr != <I as IndexType>::max() {
+                if neighbors.contains(nbr) {
+                    *nbr = <I as IndexType>::max();
+                    deleted_counter.fetch_add(1, Ordering::Relaxed);
+                }
             }
         });
+
+        self.meta[1] -= deleted_counter.load(Ordering::Relaxed);
+        vec![]
+    }
+
+    fn insert_edges_beta(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&crate::dataframe::DataFrame>, reverse: bool, edges_prop: Option<&mut Table>) {
+        self.nbr_list.resize(vertex_num);
+
+        let mut insert_counter = 0;
+        if let Some(it) = insert_edges_prop {
+            let mut insert_offsets = Vec::with_capacity(edges.len());
+            if reverse {
+                for (dst, src) in edges.iter() {
+                    if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                        insert_counter += 1;
+                    }
+                    self.nbr_list[src.index()] = *dst;
+                    insert_offsets.push(src.index());
+                }
+            } else {
+                for (src, dst) in edges.iter() {
+                    if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                        insert_counter += 1;
+                    }
+                    self.nbr_list[src.index()] = *dst;
+                    insert_offsets.push(src.index());
+                }
+            }
+
+            if let Some(ep) = edges_prop {
+                ep.resize(vertex_num);
+                ep.insert_batch(&insert_offsets, it);
+            }
+        } else {
+            if reverse {
+                for (dst, src) in edges.iter() {
+                    if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                        insert_counter += 1;
+                    }
+                    self.nbr_list[src.index()] = *dst;
+                }
+            } else {
+                for (src, dst) in edges.iter() {
+                    if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                        insert_counter += 1;
+                    }
+                    self.nbr_list[src.index()] = *dst;
+                }
+            }
+        }
+
+        self.meta[0] = vertex_num;
+        self.meta[1] += insert_counter;
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use crate::columns::Column;
@@ -163,9 +163,6 @@ where
                         edge_label as LabelId,
                         dst_label as LabelId,
                     ) {
-                        let index = src_label * vertex_label_num * edge_label_num
-                            + dst_label * edge_label_num
-                            + edge_label;
                         let oe_prefix = format!(
                             "{}/oe_{}_{}_{}",
                             partition_prefix.as_str(),
@@ -270,7 +267,6 @@ where
 
         let edge_label_num = graph_schema.edge_type_to_id.len();
 
-        let csr_num = vertex_label_num * vertex_label_num * edge_label_num;
         let mut ie = HashMap::<usize, Box<dyn CsrTrait<I>>>::new();
         let mut oe = HashMap::<usize, Box<dyn CsrTrait<I>>>::new();
 

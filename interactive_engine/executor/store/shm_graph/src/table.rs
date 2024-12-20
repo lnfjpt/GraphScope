@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::usize;
 
+use crate::dataframe::DataFrame;
+
 use crate::columns::*;
 
 pub struct Table {
@@ -14,7 +16,6 @@ impl Table {
         let col_num = col_headers.len();
 
         for col_i in 0..col_num {
-            let col_name = col_headers[col_i].0.clone();
             let col_type = col_headers[col_i].1;
             let col_path = format!("{}_col_{}", prefix, col_i);
             let col_name = format!("{}_col_{}", name, col_i);
@@ -185,6 +186,29 @@ impl Table {
     pub fn resize(&mut self, new_size: usize) {
         for col_i in 0..self.col_num() {
             self.columns[col_i].resize(new_size)
+        }
+    }
+
+    pub fn insert_batch(&mut self, offsets: &Vec<usize>, df: &DataFrame) {
+        for col in df.columns().iter() {
+            let table_col_id = self.header.get(&col.column_name()).unwrap();
+            self.columns[*table_col_id].set_column_batch(offsets, col.data())
+        }
+    }
+
+    // TODO: parallelize
+    pub fn parallel_move(&mut self, indices: &Vec<(usize, usize)>) {
+        for col_id in 0..self.columns.len() {
+            self.columns[col_id].reshuffle(indices);
+        }
+    }
+
+    pub fn inplace_parallel_chunk_move(&mut self, new_size: usize,
+        old_offsets: &[usize],
+        old_degree: &[i32],
+        new_offsets: &[usize]) {
+        for col_id in 0..self.columns.len() {
+            self.columns[col_id].inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
         }
     }
 }

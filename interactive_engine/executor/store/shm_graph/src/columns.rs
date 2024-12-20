@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::fmt::{Debug, Formatter};
 
 use serde::{Deserialize, Serialize};
+use csv::StringRecord;
 
 use dyn_type::object::RawType;
 use dyn_type::CastError;
@@ -13,10 +14,11 @@ use pegasus_common::io::{ReadExt, WriteExt};
 
 use crate::dataframe::*;
 use crate::dataframe::{HeapColumn, I32HColumn, I64HColumn};
-use crate::date::Date;
-use crate::date_time::DateTime;
+use crate::date::{Date, parse_date};
+use crate::date_time::{DateTime, parse_datetime};
 use crate::types::DefaultId;
-use crate::vector::{SharedMutVec, SharedStringVec, SharedVec};
+use crate::vector::{SharedStringVec, SharedVec};
+use crate::error::GDBResult;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum DataType {
@@ -36,17 +38,17 @@ pub enum DataType {
 impl Encode for DataType {
     fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
         match *self {
-            DataType::NULL => writer.write_u8(0),
-            DataType::Int32 => writer.write_u8(1),
-            DataType::UInt32 => writer.write_u8(2),
-            DataType::Int64 => writer.write_u8(3),
-            DataType::UInt64 => writer.write_u8(4),
-            DataType::Double => writer.write_u8(5),
-            DataType::String => writer.write_u8(6),
-            DataType::Date => writer.write_u8(7),
-            DataType::DateTime => writer.write_u8(8),
-            DataType::LCString => writer.write_u8(9),
-            DataType::ID => writer.write_u8(10),
+            DataType::NULL => writer.write_u8(0)?,
+            DataType::Int32 => writer.write_u8(1)?,
+            DataType::UInt32 => writer.write_u8(2)?,
+            DataType::Int64 => writer.write_u8(3)?,
+            DataType::UInt64 => writer.write_u8(4)?,
+            DataType::Double => writer.write_u8(5)?,
+            DataType::String => writer.write_u8(6)?,
+            DataType::Date => writer.write_u8(7)?,
+            DataType::DateTime => writer.write_u8(8)?,
+            DataType::LCString => writer.write_u8(9)?,
+            DataType::ID => writer.write_u8(10)?,
         };
         Ok(())
     }
@@ -400,24 +402,70 @@ impl<'a> RefItem<'a> {
     }
 }
 
+
+pub fn parse_properties_by_mappings(
+    record: &StringRecord, header: &[(String, DataType)], mappings: &Vec<i32>,
+) -> GDBResult<Vec<Item>> {
+    let mut properties = vec![];
+    for (index, val) in record.iter().enumerate() {
+        if index < mappings.len() && mappings[index] >= 0 {
+            match header[mappings[index] as usize].1 {
+                DataType::Int32 => {
+                    properties.push(Item::Int32(val.parse::<i32>()?));
+                }
+                DataType::UInt32 => {
+                    properties.push(Item::UInt32(val.parse::<u32>()?));
+                }
+                DataType::Int64 => {
+                    properties.push(Item::Int64(val.parse::<i64>()?));
+                }
+                DataType::UInt64 => {
+                    properties.push(Item::UInt64(val.parse::<u64>()?));
+                }
+                DataType::String => {
+                    properties.push(Item::String(val.to_string()));
+                }
+                DataType::Date => {
+                    properties.push(Item::Date(parse_date(val)?));
+                }
+                DataType::DateTime => {
+                    properties.push(Item::DateTime(parse_datetime(val)));
+                }
+                DataType::Double => {
+                    properties.push(Item::Double(val.parse::<f64>()?));
+                }
+                DataType::NULL => {
+                    error!("Unexpected field type");
+                }
+                DataType::ID => {}
+                DataType::LCString => {
+                    properties.push(Item::String(val.to_string()));
+                }
+            }
+        }
+    }
+    Ok(properties)
+}
+
 pub trait Column {
     fn get_type(&self) -> DataType;
     fn get(&self, index: usize) -> Option<RefItem>;
     fn len(&self) -> usize;
+
     fn as_any(&self) -> &dyn Any;
+    fn as_mut_any(&mut self) -> &mut dyn Any;
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>);
     fn resize(&mut self, new_size: usize);
-}
-
-pub trait ColumnBuilder {
-    fn get_type(&self) -> DataType;
-    fn get(&self, index: usize) -> Option<RefItem>;
-    fn len(&self) -> usize;
-    fn as_any(&self) -> &dyn Any;
 
     fn set(&mut self, index: usize, val: Item);
-    fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>);
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>);
+
+    fn inplace_parallel_chunk_move(&mut self,
+        new_size: usize,
+        old_offsets: &[usize],
+        old_degree: &[i32],
+        new_offsets: &[usize]);
 }
 
 pub struct NullColumn {
@@ -453,11 +501,25 @@ impl Column for NullColumn {
     fn as_any(&self) -> &dyn Any {
         self
     }
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {}
 
     fn resize(&mut self, new_size: usize) {
         self.size = new_size;
+    }
+
+    fn set(&mut self, index: usize, val: Item) {}
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {}
+
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
     }
 }
 
@@ -469,6 +531,10 @@ unsafe impl Send for Int32Column {}
 unsafe impl Sync for Int32Column {}
 
 impl Int32Column {
+    pub fn create(name: &str, len: usize) -> Self {
+        Self { data: SharedVec::<i32>::create(name, len) }
+    }
+
     pub fn load(path: &str, name: &str) {
         SharedVec::<i32>::load(path, name);
     }
@@ -484,7 +550,11 @@ impl Column for Int32Column {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::Int32(x))
+        if index < self.data.len() {
+            Some(RefItem::Int32(self.data[index]))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
@@ -495,74 +565,49 @@ impl Column for Int32Column {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        let mut mut_data = SharedMutVec::<i32>::open(self.data.name());
         for (from, to) in indices.iter() {
-            mut_data[*to] = mut_data[*from];
+            self.data[*to] = self.data[*from];
         }
     }
 
     fn resize(&mut self, new_size: usize) {
-        let name = self.data.name().to_string();
-        let mut mut_data = SharedMutVec::<i32>::open(name.as_str());
-        mut_data.resize(new_size);
-        
-        self.data = SharedVec::<i32>::open(name.as_str());
-    }
-}
-
-pub struct Int32ColumnBuilder {
-    pub data: SharedMutVec<i32>,
-}
-
-impl Int32ColumnBuilder {
-    pub fn create(path: &str, size: usize) -> Self {
-        Self { data: SharedMutVec::<i32>::create(path, size) }
-    }
-
-    pub fn path(&self) -> &str {
-        self.data.name()
-    }
-}
-
-impl ColumnBuilder for Int32ColumnBuilder {
-    fn get_type(&self) -> DataType {
-        DataType::Int32
-    }
-
-    fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::Int32(x))
+        self.data.resize(new_size);
     }
 
     fn set(&mut self, index: usize, val: Item) {
         match val {
             Item::Int32(v) => {
-                self.data.set(index, v);
+                self.data[index] = v;
             }
             _ => {
-                self.data.set(index, 0);
+                self.data[index] = 0;
             }
         }
     }
 
-    fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>) {
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
         if col.as_any().is::<I32HColumn>() {
             let casted_col = col
                 .as_any()
                 .downcast_ref::<I32HColumn>()
                 .unwrap();
             for (index, i) in index.iter().enumerate() {
-                self.data.set(*i, casted_col.data[index]);
+                self.data[*i] = casted_col.data[index];
             }
         }
     }
 
-    fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -571,6 +616,10 @@ pub struct UInt32Column {
 }
 
 impl UInt32Column {
+    pub fn create(name: &str, len: usize) -> Self {
+        Self { data: SharedVec::<u32>::create(name, len) }
+    }
+
     pub fn load(path: &str, name: &str) {
         SharedVec::<u32>::load(path, name);
     }
@@ -590,7 +639,11 @@ impl Column for UInt32Column {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::UInt32(x))
+        if index < self.data.len() {
+            Some(RefItem::UInt32(self.data[index]))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
@@ -601,19 +654,41 @@ impl Column for UInt32Column {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        let mut mut_data = SharedMutVec::<u32>::open(self.data.name());
         for (from, to) in indices.iter() {
-            mut_data[*to] = mut_data[*from];
+            self.data[*to] = self.data[*from];
         }
     }
 
     fn resize(&mut self, new_size: usize) {
-        let name = self.data.name().to_string();
-        let mut mut_data = SharedMutVec::<u32>::open(name.as_str());
-        mut_data.resize(new_size);
-        
-        self.data = SharedVec::<u32>::open(name.as_str());
+        self.data.resize(new_size);
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::UInt32(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = 0;
+            }
+        }
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
+        panic!("not implemented...");
+    }
+
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -622,6 +697,10 @@ pub struct Int64Column {
 }
 
 impl Int64Column {
+    pub fn create(name: &str, len: usize) -> Self {
+        Self { data: SharedVec::<i64>::create(name, len) }
+    }
+
     pub fn load(path: &str, name: &str) {
         SharedVec::<i64>::load(path, name);
     }
@@ -641,7 +720,11 @@ impl Column for Int64Column {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::Int64(x))
+        if index < self.data.len() {
+            Some(RefItem::Int64(self.data[index]))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
@@ -652,74 +735,49 @@ impl Column for Int64Column {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        let mut mut_data = SharedMutVec::<i64>::open(self.data.name());
         for (from, to) in indices.iter() {
-            mut_data[*to] = mut_data[*from];
+            self.data[*to] = self.data[*from];
         }
     }
 
     fn resize(&mut self, new_size: usize) {
-        let name = self.data.name().to_string();
-        let mut mut_data = SharedMutVec::<i64>::open(name.as_str());
-        mut_data.resize(new_size);
-        
-        self.data = SharedVec::<i64>::open(name.as_str());
-    }
-}
-
-pub struct Int64ColumnBuilder {
-    pub data: SharedMutVec<i64>,
-}
-
-impl Int64ColumnBuilder {
-    pub fn create(path: &str, size: usize) -> Self {
-        Self { data: SharedMutVec::<i64>::create(path, size) }
-    }
-
-    pub fn path(&self) -> &str {
-        self.data.name()
-    }
-}
-
-impl ColumnBuilder for Int64ColumnBuilder {
-    fn get_type(&self) -> DataType {
-        DataType::Int64
-    }
-
-    fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::Int64(x))
+        self.data.resize(new_size);
     }
 
     fn set(&mut self, index: usize, val: Item) {
         match val {
             Item::Int64(v) => {
-                self.data.set(index, v);
+                self.data[index] = v;
             }
             _ => {
-                self.data.set(index, 0);
+                self.data[index] = 0;
             }
         }
     }
 
-    fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>) {
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
         if col.as_any().is::<I64HColumn>() {
             let casted_col = col
                 .as_any()
                 .downcast_ref::<I64HColumn>()
                 .unwrap();
             for (index, i) in index.iter().enumerate() {
-                self.data.set(*i, casted_col.data[index]);
+                self.data[*i] = casted_col.data[index];
             }
         }
     }
 
-    fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -728,6 +786,10 @@ pub struct UInt64Column {
 }
 
 impl UInt64Column {
+    pub fn create(name: &str, len: usize) -> Self {
+        Self { data: SharedVec::<u64>::create(name, len) }
+    }
+
     pub fn load(path: &str, name: &str) {
         SharedVec::<u64>::load(path, name);
     }
@@ -747,7 +809,11 @@ impl Column for UInt64Column {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::UInt64(x))
+        if index < self.data.len() {
+            Some(RefItem::UInt64(self.data[index]))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
@@ -758,74 +824,49 @@ impl Column for UInt64Column {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        let mut mut_data = SharedMutVec::<u64>::open(self.data.name());
         for (from, to) in indices.iter() {
-            mut_data[*to] = mut_data[*from];
+            self.data[*to] = self.data[*from];
         }
     }
 
     fn resize(&mut self, new_size: usize) {
-        let name = self.data.name().to_string();
-        let mut mut_data = SharedMutVec::<u64>::open(name.as_str());
-        mut_data.resize(new_size);
-        
-        self.data = SharedVec::<u64>::open(name.as_str());
-    }
-}
-
-pub struct UInt64ColumnBuilder {
-    pub data: SharedMutVec<u64>,
-}
-
-impl UInt64ColumnBuilder {
-    pub fn create(path: &str, size: usize) -> Self {
-        Self { data: SharedMutVec::<u64>::create(path, size) }
-    }
-
-    pub fn path(&self) -> &str {
-        self.data.name()
-    }
-}
-
-impl ColumnBuilder for UInt64ColumnBuilder {
-    fn get_type(&self) -> DataType {
-        DataType::UInt64
-    }
-
-    fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::UInt64(x))
+        self.data.resize(new_size);
     }
 
     fn set(&mut self, index: usize, val: Item) {
         match val {
             Item::UInt64(v) => {
-                self.data.set(index, v);
+                self.data[index] = v;
             }
             _ => {
-                self.data.set(index, 0);
+                self.data[index] = 0;
             }
         }
     }
 
-    fn set_column_batch(&mut self, index: &Vec<usize>, col: Box<dyn HeapColumn>) {
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
         if col.as_any().is::<U64HColumn>() {
             let casted_col = col
                 .as_any()
                 .downcast_ref::<U64HColumn>()
                 .unwrap();
             for (index, i) in index.iter().enumerate() {
-                self.data.set(*i, casted_col.data[index]);
+                self.data[*i] = casted_col.data[index];
             }
         }
     }
 
-    fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -834,6 +875,10 @@ pub struct IDColumn {
 }
 
 impl IDColumn {
+    pub fn create(name: &str, len: usize) -> Self {
+        Self { data: SharedVec::<DefaultId>::create(name, len) }
+    }
+
     pub fn load(path: &str, name: &str) {
         SharedVec::<DefaultId>::load(path, name);
     }
@@ -853,9 +898,11 @@ impl Column for IDColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data
-            .get(index)
-            .map(|x| RefItem::VertexId(x))
+        if index < self.data.len() {
+            Some(RefItem::VertexId(self.data[index]))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
@@ -866,19 +913,49 @@ impl Column for IDColumn {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        let mut mut_data = SharedMutVec::<DefaultId>::open(self.data.name());
         for (from, to) in indices.iter() {
-            mut_data[*to] = mut_data[*from];
+            self.data[*to] = self.data[*from];
         }
     }
 
     fn resize(&mut self, new_size: usize) {
-        let name = self.data.name().to_string();
-        let mut mut_data = SharedMutVec::<DefaultId>::open(name.as_str());
-        mut_data.resize(new_size);
-        
-        self.data = SharedVec::<DefaultId>::open(name.as_str());
+        self.data.resize(new_size);
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::VertexId(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = 0;
+            }
+        }
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
+        if col.as_any().is::<IDHColumn>() {
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<IDHColumn>()
+                .unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
+    }
+
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -887,6 +964,10 @@ pub struct DoubleColumn {
 }
 
 impl DoubleColumn {
+    pub fn create(name: &str, len: usize) -> Self {
+        Self { data: SharedVec::<f64>::create(name, len) }
+    }
+
     pub fn load(path: &str, name: &str) {
         SharedVec::<f64>::load(path, name);
     }
@@ -906,7 +987,11 @@ impl Column for DoubleColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::Double(x))
+        if index < self.data.len() {
+            Some(RefItem::Double(self.data[index]))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
@@ -917,19 +1002,41 @@ impl Column for DoubleColumn {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        let mut mut_data = SharedMutVec::<f64>::open(self.data.name());
         for (from, to) in indices.iter() {
-            mut_data[*to] = mut_data[*from];
+            self.data[*to] = self.data[*from];
         }
     }
 
     fn resize(&mut self, new_size: usize) {
-        let name = self.data.name().to_string();
-        let mut mut_data = SharedMutVec::<f64>::open(name.as_str());
-        mut_data.resize(new_size);
-        
-        self.data = SharedVec::<f64>::open(name.as_str());
+        self.data.resize(new_size);
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::Double(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = 0_f64;
+            }
+        }
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
+        panic!("not implemented...");
+    }
+
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -968,12 +1075,32 @@ impl Column for StringColumn {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
         panic!("reshuffle not support for string column");
     }
 
     fn resize(&mut self, new_size: usize) {
         panic!("resize not support for string column");
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        panic!("not implemented...");
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
+        panic!("not implemented...");
+    }
+
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        panic!("not implemented...");
     }
 }
 
@@ -1006,9 +1133,14 @@ impl Column for LCStringColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.index
-            .get(index)
-            .map(|i| RefItem::String(self.data.get_unchecked(i as usize)))
+        if index < self.data.len() {
+            Some(RefItem::String(
+                self.data
+                    .get_unchecked(self.index[index] as usize),
+            ))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
@@ -1019,19 +1151,34 @@ impl Column for LCStringColumn {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        let mut mut_data = SharedMutVec::<u16>::open(self.index.name());
         for (from, to) in indices.iter() {
-            mut_data[*to] = mut_data[*from];
+            self.index[*to] = self.index[*from];
         }
     }
 
     fn resize(&mut self, new_size: usize) {
-        let name = self.index.name().to_string();
-        let mut mut_data = SharedMutVec::<u16>::open(name.as_str());
-        mut_data.resize(new_size);
-        
-        self.index = SharedVec::<u16>::open(name.as_str());
+        self.index.resize(new_size);
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        panic!("not implemented...");
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
+        panic!("not implemented...");
+    }
+
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        self.index.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -1040,7 +1187,7 @@ impl Index<usize> for LCStringColumn {
 
     #[inline(always)]
     fn index(&self, index: usize) -> &Self::Output {
-        let idx = self.index.get_unchecked(index);
+        let idx = self.index[index];
         self.data.get_unchecked(idx as usize)
     }
 }
@@ -1050,6 +1197,10 @@ pub struct DateColumn {
 }
 
 impl DateColumn {
+    pub fn create(name: &str, len: usize) -> Self {
+        Self { data: SharedVec::<Date>::create(name, len) }
+    }
+
     pub fn load(path: &str, name: &str) {
         SharedVec::<Date>::load(path, name);
     }
@@ -1069,7 +1220,11 @@ impl Column for DateColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::Date(x))
+        if index < self.data.len() {
+            Some(RefItem::Date(self.data[index]))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
@@ -1080,19 +1235,41 @@ impl Column for DateColumn {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        let mut mut_data = SharedMutVec::<Date>::open(self.data.name());
         for (from, to) in indices.iter() {
-            mut_data[*to] = mut_data[*from];
+            self.data[*to] = self.data[*from];
         }
     }
 
     fn resize(&mut self, new_size: usize) {
-        let name = self.data.name().to_string();
-        let mut mut_data = SharedMutVec::<Date>::open(name.as_str());
-        mut_data.resize(new_size);
-        
-        self.data = SharedVec::<Date>::open(name.as_str());
+        self.data.resize(new_size);
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::Date(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = Date::empty();
+            }
+        }
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
+        panic!("not implemented...");
+    }
+
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -1101,6 +1278,10 @@ pub struct DateTimeColumn {
 }
 
 impl DateTimeColumn {
+    pub fn create(name: &str, len: usize) -> Self {
+        Self { data: SharedVec::<DateTime>::create(name, len) }
+    }
+
     pub fn load(path: &str, name: &str) {
         SharedVec::<DateTime>::load(path, name);
     }
@@ -1120,9 +1301,11 @@ impl Column for DateTimeColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data
-            .get(index)
-            .map(|x| RefItem::DateTime(x))
+        if index < self.data.len() {
+            Some(RefItem::DateTime(self.data[index]))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
@@ -1133,27 +1316,49 @@ impl Column for DateTimeColumn {
         self
     }
 
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        let mut mut_data = SharedMutVec::<DateTime>::open(self.data.name());
         for (from, to) in indices.iter() {
-            mut_data[*to] = mut_data[*from];
+            self.data[*to] = self.data[*from];
         }
     }
 
     fn resize(&mut self, new_size: usize) {
-        let name = self.data.name().to_string();
-        let mut mut_data = SharedMutVec::<DateTime>::open(name.as_str());
-        mut_data.resize(new_size);
-        
-        self.data = SharedVec::<DateTime>::open(name.as_str());
+        self.data.resize(new_size);
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::DateTime(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = DateTime::empty();
+            }
+        }
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
+        panic!("not implemented...");
+    }
+
+    fn inplace_parallel_chunk_move(&mut self,
+            new_size: usize,
+            old_offsets: &[usize],
+            old_degree: &[i32],
+            new_offsets: &[usize]) {
+        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
-pub fn create_column_builder(dt: DataType, path: &str, size: usize) -> Box<dyn ColumnBuilder> {
+pub fn create_column(dt: DataType, path: &str, size: usize) -> Box<dyn Column> {
     match dt {
-        DataType::Int32 => Box::new(Int32ColumnBuilder::create(path, size)),
-        DataType::Int64 => Box::new(Int64ColumnBuilder::create(path, size)),
-        DataType::UInt64 => Box::new(UInt64ColumnBuilder::create(path, size)),
+        DataType::Int32 => Box::new(Int32Column::create(path, size)),
+        DataType::Int64 => Box::new(Int64Column::create(path, size)),
+        DataType::UInt64 => Box::new(UInt64Column::create(path, size)),
         _ => {
             panic!("not implemented...");
         }
