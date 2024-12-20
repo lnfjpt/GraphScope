@@ -228,7 +228,7 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
         shuffle_indices
     }
 
-    fn insert_edges_beta(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>, reverse: bool, edges_prop: Option<&mut Table>) {
+    fn insert_edges(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>, reverse: bool, edges_prop: Option<&mut Table>) {
         let mut new_degree: Vec<i32> = (0..vertex_num).into_par_iter().map(|_| 0).collect();
         if reverse {
             for e in edges.iter() {

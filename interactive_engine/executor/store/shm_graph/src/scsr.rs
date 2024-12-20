@@ -166,7 +166,7 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         vec![]
     }
 
-    fn insert_edges_beta(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&crate::dataframe::DataFrame>, reverse: bool, edges_prop: Option<&mut Table>) {
+    fn insert_edges(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&crate::dataframe::DataFrame>, reverse: bool, edges_prop: Option<&mut Table>) {
         self.nbr_list.resize(vertex_num);
 
         let mut insert_counter = 0;

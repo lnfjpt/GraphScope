@@ -74,7 +74,7 @@ pub trait CsrTrait<I: IndexType>: Send + Sync {
     fn delete_vertices(&mut self, vertices: &HashSet<I>);
     fn delete_neighbors(&mut self, neighbors: &HashSet<I>) -> Vec<(usize, usize)>;
 
-    fn insert_edges_beta(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>, reverse: bool, edges_prop: Option<&mut Table>);
+    fn insert_edges(&mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>, reverse: bool, edges_prop: Option<&mut Table>);
 
     fn as_any(&self) -> &dyn Any;
     fn as_mut_any(&mut self) -> &mut dyn Any;

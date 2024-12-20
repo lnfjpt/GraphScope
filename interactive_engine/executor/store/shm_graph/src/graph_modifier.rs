@@ -1369,17 +1369,6 @@ pub struct GraphModifier {
     skip_header: bool,
 }
 
-struct CsrRep<I> {
-    src_label: LabelId,
-    edge_label: LabelId,
-    dst_label: LabelId,
-
-    ie_csr: Box<dyn CsrTrait<I>>,
-    ie_prop: Option<Table>,
-    oe_csr: Box<dyn CsrTrait<I>>,
-    oe_prop: Option<Table>,
-}
-
 impl GraphModifier {
     pub fn new<D: AsRef<Path>>(input_dir: D) -> GraphModifier {
         Self {
@@ -1403,48 +1392,9 @@ impl GraphModifier {
         self.skip_header = true;
     }
 
-    fn take_csr<G, I>(
-        &self, graph: &mut GraphDB<G, I>, src_label_i: LabelId, dst_label_i: LabelId, e_label_i: LabelId,
-    ) -> CsrRep<I>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
-    {
-        let index = graph.edge_label_to_index(src_label_i, dst_label_i, e_label_i, Direction::Outgoing);
-
-        CsrRep {
-            src_label: src_label_i,
-            edge_label: e_label_i,
-            dst_label: dst_label_i,
-
-            ie_csr: graph.ie.remove(&index).unwrap(),
-            ie_prop: graph.ie_edge_prop_table.remove(&index),
-            oe_csr: graph.oe.remove(&index).unwrap(),
-            oe_prop: graph.oe_edge_prop_table.remove(&index),
-        }
-    }
-
-    fn set_csr<G, I>(&self, graph: &mut GraphDB<G, I>, reps: CsrRep<I>)
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
-    {
-        let index =
-            graph.edge_label_to_index(reps.src_label, reps.dst_label, reps.edge_label, Direction::Outgoing);
-
-        graph.ie.insert(index, reps.ie_csr);
-        if let Some(table) = reps.ie_prop {
-            graph.ie_edge_prop_table.insert(index, table);
-        }
-        graph.oe.insert(index, reps.oe_csr);
-        if let Some(table) = reps.oe_prop {
-            graph.oe_edge_prop_table.insert(index, table);
-        }
-    }
-
-    fn parallel_delete_rep<G, I>(
+    fn parallel_delete_impl<G, I>(
         &self, 
-        graph: &mut GraphDB,
+        graph: &mut GraphDB<G, I>,
         src_label: LabelId,
         edge_label: LabelId,
         dst_label: LabelId,
@@ -1534,7 +1484,7 @@ impl GraphModifier {
             return ();
         }
 
-        let index = graph.edge_label_to_index(src_label_i, dst_label_i, e_label_i, Direction::Outgoing);
+        let index = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
         if let Some(csr) = graph.oe.get_mut(&index) {
             let shuffle_indices = csr.delete_edges(&delete_edge_set, false);
             if let Some(table) = graph.oe_edge_prop_table.get_mut(&index) {
@@ -1549,136 +1499,6 @@ impl GraphModifier {
         }
     }
 
-
-    /*
-    fn parallel_delete_rep<G, I>(
-        &self, input: &mut CsrRep<I>, graph: &GraphDB<G, I>, edge_file_strings: &Vec<String>,
-        input_header: &[(String, DataType)], delete_sets: &Vec<HashSet<I>>,
-    ) where
-        G: FromStr + Send + Sync + IndexType + Eq,
-        I: Send + Sync + IndexType,
-    {
-        let src_label = input.src_label;
-        let edge_label = input.edge_label;
-        let dst_label = input.dst_label;
-
-        let graph_header = graph
-            .graph_schema
-            .get_edge_header(src_label, edge_label, dst_label);
-        if graph_header.is_none() {
-            return ();
-        }
-
-        let src_delete_set = &delete_sets[src_label as usize];
-        let dst_delete_set = &delete_sets[dst_label as usize];
-        let mut delete_edge_set = Vec::new();
-
-        let mut src_col_id = 0;
-        let mut dst_col_id = 1;
-
-        for (index, (n, _)) in input_header.iter().enumerate() {
-            if n == "start_id" {
-                src_col_id = index;
-            }
-            if n == "end_id" {
-                dst_col_id = index;
-            }
-        }
-
-        let mut parser = LDBCEdgeParser::<G>::new(src_label, dst_label, edge_label);
-        parser.with_endpoint_col_id(src_col_id, dst_col_id);
-
-        let edge_files = get_files_list(&self.input_dir.clone(), edge_file_strings);
-        if edge_files.is_err() {
-            return ();
-        }
-
-        let is_src_static = graph.graph_schema.is_static_vertex(src_label);
-        let is_dst_static = graph.graph_schema.is_static_vertex(dst_label);
-        let edge_files = edge_files.unwrap();
-        for edge_file in edge_files.iter() {
-            process_csv_rows(
-                edge_file,
-                |record| {
-                    let edge_meta = parser.parse_edge_meta(&record);
-                    let mut keep_vertex = false;
-                    if is_src_static && is_dst_static {
-                        keep_vertex = true;
-                    } else if is_src_static && !is_dst_static {
-                        if edge_meta.dst_global_id.index() % self.partitions == graph.partition {
-                            keep_vertex = true;
-                        }
-                    } else if !is_src_static && is_dst_static {
-                        if edge_meta.src_global_id.index() % self.partitions == graph.partition {
-                            keep_vertex = true;
-                        }
-                    } else if !is_src_static && !is_dst_static {
-                        if edge_meta.src_global_id.index() % self.partitions == graph.partition
-                            || edge_meta.dst_global_id.index() % self.partitions == graph.partition
-                        {
-                            keep_vertex = true;
-                        }
-                    }
-                    if keep_vertex {
-                        if let Some((got_src_label, src_lid)) = graph
-                            .vertex_map
-                            .get_internal_id(edge_meta.src_global_id)
-                        {
-                            if let Some((got_dst_label, dst_lid)) = graph
-                                .vertex_map
-                                .get_internal_id(edge_meta.dst_global_id)
-                            {
-                                if got_src_label != src_label || got_dst_label != dst_label {
-                                    return;
-                                }
-                                if src_delete_set.contains(&src_lid) || dst_delete_set.contains(&dst_lid) {
-                                    return;
-                                }
-
-                                delete_edge_set.push((src_lid, dst_lid));
-                            }
-                        }
-                    }
-                },
-                self.skip_header,
-                self.delim,
-            );
-        }
-
-        if src_delete_set.is_empty() && dst_delete_set.is_empty() && delete_edge_set.is_empty() {
-            return ();
-        }
-
-        input.oe_csr.delete_vertices(src_delete_set);
-        let oe_shuffle_indices = input.oe_csr.delete_neighbors(dst_delete_set);
-        if !oe_shuffle_indices.is_empty() {
-            if let Some(table) = input.oe_prop.as_mut() {
-                table.parallel_move(&oe_shuffle_indices);
-            }
-        }
-        let oe_shuffle_indices = input.oe_csr.delete_edges(&delete_edge_set, false);
-        if !oe_shuffle_indices.is_empty() {
-            if let Some(table) = input.oe_prop.as_mut() {
-                table.parallel_move(&oe_shuffle_indices);
-            }
-        }
-
-        input.ie_csr.delete_vertices(dst_delete_set);
-        let ie_shuffle_indices = input.ie_csr.delete_neighbors(src_delete_set);
-        if !ie_shuffle_indices.is_empty() {
-            if let Some(table) = input.ie_prop.as_mut() {
-                table.parallel_move(&ie_shuffle_indices);
-            }
-        }
-        let ie_shuffle_indices = input.ie_csr.delete_edges(&delete_edge_set, true);
-        if !ie_shuffle_indices.is_empty() {
-            if let Some(table) = input.ie_prop.as_mut() {
-                table.parallel_move(&ie_shuffle_indices);
-            }
-        }
-    }
-     */
-
     pub fn apply_edges_delete_with_filename<G, I>(
         &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
         filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32,
@@ -1687,7 +1507,6 @@ impl GraphModifier {
         G: FromStr + Send + Sync + IndexType + Eq,
         I: Send + Sync + IndexType,
     {
-        // let mut input_resp = self.take_csr(graph, src_label, dst_label, edge_label);
         let mut input_header: Vec<(String, DataType)> = vec![];
         input_header.resize(
             std::cmp::max(src_id_col as usize, dst_id_col as usize) + 1,
@@ -1695,16 +1514,8 @@ impl GraphModifier {
         );
         input_header[src_id_col as usize] = ("start_id".to_string(), DataType::ID);
         input_header[dst_id_col as usize] = ("end_id".to_string(), DataType::ID);
-        self.parallel_delete_rep(graph, src_label, edge_label, dst_label, edge_file_strings, &input_header);
-        // let delete_sets = vec![HashSet::new(); graph.vertex_label_num as usize];
-        // self.parallel_delete_rep(
-        //     &mut input_resp,
-        //     graph,
-        //     filenames,
-        //     &input_header,
-        //     &delete_sets,
-        // );
-        // self.set_csr(graph, input_resp);
+        self.parallel_delete_impl(graph, src_label, edge_label, dst_label, filenames, &input_header);
+
         Ok(())
     }
 
@@ -1797,7 +1608,6 @@ impl GraphModifier {
                 return Ok(());
             }
             let edge_files = edge_files.unwrap();
-            let mut input_reps = self.take_csr(graph, src_label, dst_label, edge_label);
             let mut edges = vec![];
             let graph_header = graph
                 .graph_schema
@@ -1904,21 +1714,27 @@ impl GraphModifier {
                 parsed_edges.push((src_lid, dst_lid));
             }
             let new_src_num = graph.vertex_map.vertex_num(src_label);
-            input_reps.oe_csr.insert_edges_beta(
-                new_src_num, 
-                &parsed_edges, 
-                prop_table.as_ref(), 
-                false, 
-                input_reps.oe_prop.as_mut());
+
+            let index = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
+            if let Some(csr) = graph.oe.get_mut(&index) {
+                csr.insert_edges(
+                    new_src_num, 
+                    &parsed_edges, 
+                    prop_table.as_ref(), 
+                    false, 
+                    graph.oe_edge_prop_table.get_mut(&index));
+            }
     
             let new_dst_num = graph.vertex_map.vertex_num(dst_label);
-            input_reps.ie_csr.insert_edges_beta(
-                new_dst_num, 
-                &parsed_edges, 
-                prop_table.as_ref(), 
-                true, 
-                input_reps.ie_prop.as_mut());
-            self.set_csr(graph, input_reps);
+            if let Some(csr) = graph.ie.get_mut(&index) {
+                csr.insert_edges(
+                    new_dst_num, 
+                    &parsed_edges, 
+                    prop_table.as_ref(), 
+                    true, 
+                    graph.ie_edge_prop_table.get_mut(&index));
+            }
+
             Ok(())
         }
 }
