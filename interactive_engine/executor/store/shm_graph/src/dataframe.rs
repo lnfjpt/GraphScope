@@ -247,12 +247,72 @@ impl HeapColumn for IDHColumn {
     }
 }
 
+pub struct StringHColumn {
+    pub data: Vec<String>,
+}
+
+unsafe impl Send for StringHColumn {}
+unsafe impl Sync for StringHColumn {}
+
+impl StringHColumn {
+    pub fn new() -> Self {
+        Self { data: Vec::new() }
+    }
+
+    pub fn from(data: Vec<String>) -> StringHColumn {
+        StringHColumn { data }
+    }
+}
+
+impl HeapColumn for StringHColumn {
+    fn get_type(&self) -> DataType {
+        DataType::ID
+    }
+
+    fn get(&self, index: usize) -> Option<RefItem> {
+        self.data
+            .get(index)
+            .map(|x| RefItem::String(x.as_str()))
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::String(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = "".to_string();
+            }
+        }
+    }
+
+    fn push(&mut self, val: Item) {
+        match val {
+            Item::String(v) => {
+                self.data.push(v);
+            }
+            _ => {
+                self.data.push("".to_string());
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 fn create_column(data_type: DataType) -> Box<dyn HeapColumn> {
     match data_type {
         DataType::Int32 => Box::new(I32HColumn::new()),
         DataType::Int64 => Box::new(I64HColumn::new()),
         DataType::UInt64 => Box::new(U64HColumn::new()),
         DataType::ID => Box::new(IDHColumn::new()),
+        DataType::String => Box::new(StringHColumn::new()),
         _ => {
             panic!("type not impl {:?}", data_type);
         }
@@ -298,6 +358,14 @@ fn read_column<R: ReadExt>(reader: &mut R) -> std::io::Result<Box<dyn HeapColumn
             }
             Box::new(IDHColumn { data })
         }
+        5 => {
+            let data_len = reader.read_u64()? as usize;
+            let mut data = Vec::<String>::with_capacity(data_len);
+            for _ in 0..data_len {
+                data.push(String::read_from(reader)?);
+            }
+            Box::new(StringHColumn { data })
+        }
         _ => panic!("Unknown column type"),
     };
     Ok(data)
@@ -332,6 +400,13 @@ fn write_column<W: WriteExt>(column: &Box<dyn HeapColumn>, writer: &mut W) -> st
             writer.write_u64(*i as u64)?;
         }
     }
+    if let Some(id_column) = column.as_any().downcast_ref::<StringHColumn>() {
+        writer.write_u8(5)?;
+        writer.write_u64(column.len() as u64)?;
+        for i in id_column.data.iter() {
+            i.write_to(writer)?;
+        }
+    }
     Ok(())
 }
 
@@ -344,6 +419,8 @@ fn clone_column(input: &Box<dyn HeapColumn>) -> Box<dyn HeapColumn> {
         Box::new(U64HColumn { data: uint64_column.data.clone() })
     } else if let Some(id_column) = input.as_any().downcast_ref::<IDHColumn>() {
         Box::new(IDHColumn { data: id_column.data.clone() })
+    } else if let Some(string_column) = input.as_any().downcast_ref::<StringHColumn>() {
+        Box::new(StringHColumn { data: string_column.data.clone() })
     } else {
         panic!("Unknown column type")
     }

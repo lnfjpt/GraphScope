@@ -14,13 +14,6 @@ use std::os::fd::RawFd;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub struct PtrWrapper<T> {
-    pub inner: *const T,
-}
-
-unsafe impl<T> Send for PtrWrapper<T> {}
-unsafe impl<T> Sync for PtrWrapper<T> {}
-
 pub struct MutPtrWrapper<T> {
     pub inner: *mut T,
 }
@@ -205,38 +198,6 @@ impl<T> SharedVec<T>
 where
     T: Copy + Sized + Send + Sync,
 {
-    pub fn inplace_parallel_shuffle(&mut self, offsets: &Vec<usize>) {
-        let sl = unsafe { std::slice::from_raw_parts(self.ptr.inner, self.len()) };
-        let result_vec: Vec<T> = offsets.par_iter().map(|&idx| sl[idx]).collect();
-
-        self.resize(offsets.len());
-        let target_slice = unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr(), offsets.len()) };
-        result_vec
-            .par_iter()
-            .zip(target_slice.par_iter_mut())
-            .for_each(|(&b_item, a_item)| {
-                *a_item = b_item;
-            });
-    }
-
-    pub fn parallel_shuffle(&self, name: &str, offsets: &Vec<usize>) -> Self {
-        let num = offsets.len();
-        let mut ret = Self::create(name, num);
-        let ms = unsafe { std::slice::from_raw_parts_mut(ret.as_mut_ptr(), num) };
-        let sl = unsafe { std::slice::from_raw_parts(self.as_ptr(), self.len()) };
-
-        offsets
-            .par_iter()
-            .zip(ms.par_iter_mut())
-            .for_each(|(&idx, slot)| {
-                if idx < sl.len() {
-                    *slot = sl[idx];
-                }
-            });
-
-        ret
-    }
-
     pub fn parallel_move(&mut self, indices: &Vec<(usize, usize)>) {
         let safe_mut_slice = SafeMutPtr::new(self);
         indices.par_iter().for_each(|(from, to)| {
@@ -321,6 +282,7 @@ impl<T: Copy + Sized> IndexMut<usize> for SharedVec<T> {
 
 pub struct SharedStringVec {
     offset: SharedVec<usize>,
+    length: SharedVec<u16>,
     content: SharedVec<u8>,
 }
 
@@ -333,27 +295,30 @@ impl SharedStringVec {
     pub fn open(name: &str) -> Self {
         Self {
             offset: SharedVec::<usize>::open(format!("{}_offset", name).as_str()),
+            length: SharedVec::<u16>::open(format!("{}_length", name).as_str()),
             content: SharedVec::<u8>::open(format!("{}_content", name).as_str()),
         }
     }
 
     pub fn dump_vec(name: &str, str_vec: &Vec<String>) {
-        let mut offset_vec = Vec::<usize>::with_capacity(str_vec.len() + 1);
+        let mut offset_vec = Vec::<usize>::with_capacity(str_vec.len());
+        let mut length_vec = Vec::<u16>::with_capacity(str_vec.len());
         let mut content_vec = vec![];
-        offset_vec.push(0);
         for s in str_vec.iter() {
-            content_vec.write_all(s.as_bytes()).unwrap();
             offset_vec.push(content_vec.len());
+            length_vec.push(s.as_bytes().len() as u16);
+            content_vec.write_all(s.as_bytes()).unwrap();
         }
 
         SharedVec::<usize>::dump_vec(format!("{}_offset", name).as_str(), &offset_vec);
+        SharedVec::<u16>::dump_vec(format!("{}_length", name).as_str(), &length_vec);
         SharedVec::<u8>::dump_vec(format!("{}_content", name).as_str(), &content_vec);
     }
 
     pub fn get(&self, index: usize) -> Option<&str> {
-        if index < self.offset.len() - 1 {
+        if index < self.offset.len() {
             let begin = self.offset[index];
-            let end = self.offset[index + 1];
+            let end = begin + self.length[index] as usize;
             let begin_ptr = unsafe { self.content.as_ptr().add(begin) };
             let slice = unsafe { std::slice::from_raw_parts(begin_ptr, end - begin) };
             match std::str::from_utf8(slice) {
@@ -367,7 +332,7 @@ impl SharedStringVec {
 
     pub fn get_unchecked(&self, index: usize) -> &str {
         let begin = self.offset[index];
-        let end = self.offset[index + 1];
+        let end = begin + self.length[index] as usize;
         let begin_ptr = unsafe { self.content.as_ptr().add(begin) };
         let slice = unsafe { std::slice::from_raw_parts(begin_ptr, end - begin) };
         unsafe { std::str::from_utf8_unchecked(slice) }
@@ -378,6 +343,47 @@ impl SharedStringVec {
             0
         } else {
             self.offset.len() - 1
+        }
+    }
+
+    pub fn parallel_move(&mut self, indices: &Vec<(usize, usize)>) {
+        self.offset.parallel_move(indices);
+        self.length.parallel_move(indices);
+    }
+
+    pub fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        self.offset.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+        self.length.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    }
+
+    pub fn resize(&mut self, new_len: usize) {
+        let old_size = self.offset.len();
+        self.offset.resize(new_len);
+        self.length.resize(new_len);
+        if old_size < new_len {
+            for i in old_size..new_len {
+                self.length[i] = 0 as u16;
+            }
+        }
+    }
+
+    pub fn batch_set(&mut self, indices: &Vec<usize>, v: &Vec<String>) {
+        // TODO: parallelize
+        assert!(indices.len() == v.len());
+        let old_size = self.content.len();
+        let mut new_size = old_size;
+        for (i, idx) in indices.iter().enumerate() {
+            self.offset[*idx] = new_size;
+            self.length[*idx] = v[i].len() as u16;
+            new_size += v[i].len();
+        }
+
+        self.content.resize(new_size);
+        let mut sl = &mut self.content.as_mut_slice()[old_size..new_size];
+        for s in v.iter() {
+            sl.write_all(s.as_bytes()).unwrap();
         }
     }
 }

@@ -565,9 +565,7 @@ impl Column for Int32Column {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        for (from, to) in indices.iter() {
-            self.data[*to] = self.data[*from];
-        }
+        self.data.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
@@ -653,9 +651,7 @@ impl Column for UInt32Column {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        for (from, to) in indices.iter() {
-            self.data[*to] = self.data[*from];
-        }
+        self.data.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
@@ -733,9 +729,7 @@ impl Column for Int64Column {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        for (from, to) in indices.iter() {
-            self.data[*to] = self.data[*from];
-        }
+        self.data.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
@@ -821,9 +815,7 @@ impl Column for UInt64Column {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        for (from, to) in indices.iter() {
-            self.data[*to] = self.data[*from];
-        }
+        self.data.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
@@ -909,9 +901,7 @@ impl Column for IDColumn {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        for (from, to) in indices.iter() {
-            self.data[*to] = self.data[*from];
-        }
+        self.data.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
@@ -997,9 +987,7 @@ impl Column for DoubleColumn {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        for (from, to) in indices.iter() {
-            self.data[*to] = self.data[*from];
-        }
+        self.data.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
@@ -1069,11 +1057,11 @@ impl Column for StringColumn {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        panic!("reshuffle not support for string column");
+        self.data.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
-        panic!("resize not support for string column");
+        self.data.resize(new_size);
     }
 
     fn set(&mut self, index: usize, val: Item) {
@@ -1081,13 +1069,16 @@ impl Column for StringColumn {
     }
 
     fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
-        panic!("not implemented...");
+        if col.as_any().is::<StringHColumn>() {
+            let casted_col = col.as_any().downcast_ref::<StringHColumn>().unwrap();
+            self.data.batch_set(index, &casted_col.data);
+        }
     }
 
     fn inplace_parallel_chunk_move(
         &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
     ) {
-        panic!("not implemented...");
+        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
@@ -1143,9 +1134,7 @@ impl Column for LCStringColumn {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        for (from, to) in indices.iter() {
-            self.index[*to] = self.index[*from];
-        }
+        self.index.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
@@ -1226,9 +1215,7 @@ impl Column for DateColumn {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        for (from, to) in indices.iter() {
-            self.data[*to] = self.data[*from];
-        }
+        self.data.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
@@ -1306,9 +1293,7 @@ impl Column for DateTimeColumn {
     }
 
     fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
-        for (from, to) in indices.iter() {
-            self.data[*to] = self.data[*from];
-        }
+        self.data.parallel_move(indices);
     }
 
     fn resize(&mut self, new_size: usize) {
