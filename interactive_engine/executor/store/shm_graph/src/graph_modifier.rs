@@ -13,7 +13,6 @@ use rayon::prelude::*;
 use rust_htslib::bgzf::Reader as GzReader;
 
 use crate::columns::*;
-use crate::csr_trait::CsrTrait;
 use crate::dataframe::*;
 use crate::error::GDBResult;
 use crate::graph::Direction;
@@ -22,7 +21,6 @@ use crate::graph_db::GraphDB;
 use crate::graph_loader::get_files_list;
 use crate::ldbc_parser::{LDBCEdgeParser, LDBCVertexParser};
 use crate::schema::Schema;
-use crate::table::Table;
 use crate::types::LabelId;
 
 #[derive(Clone, Copy)]

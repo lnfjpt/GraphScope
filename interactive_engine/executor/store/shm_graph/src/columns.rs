@@ -18,7 +18,7 @@ use crate::date::{parse_date, Date};
 use crate::date_time::{parse_datetime, DateTime};
 use crate::error::GDBResult;
 use crate::types::DefaultId;
-use crate::vector::{SharedStringVec, SharedVec};
+use shm_container::{SharedStringVec, SharedVec};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum DataType {

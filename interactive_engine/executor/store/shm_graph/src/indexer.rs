@@ -1,5 +1,5 @@
 use crate::graph::IndexType;
-use crate::vector::SharedVec;
+use shm_container::SharedVec;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 

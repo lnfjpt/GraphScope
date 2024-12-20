@@ -2,13 +2,12 @@ use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bmcsr::csr::SafeMutPtr;
 use rayon::prelude::*;
 
-use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter};
+use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter, SafeMutPtr};
 use crate::graph::IndexType;
 use crate::table::Table;
-use crate::vector::SharedVec;
+use shm_container::SharedVec;
 
 pub struct SCsr<I: Copy + Sized> {
     nbr_list: SharedVec<I>,

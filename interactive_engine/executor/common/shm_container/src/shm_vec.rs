@@ -1,4 +1,4 @@
-use crate::csr_trait::SafeMutPtr;
+use crate::hack::SafeMutPtr;
 use libc::{
     c_void, close, fstat, ftruncate, mmap, mremap, munmap, shm_open, stat, MAP_SHARED, MREMAP_MAYMOVE,
     O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, S_IRUSR, S_IWUSR,
@@ -14,27 +14,23 @@ use std::os::fd::RawFd;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub struct MutPtrWrapper<T> {
-    pub inner: *mut T,
-}
-
-unsafe impl<T> Send for MutPtrWrapper<T> {}
-unsafe impl<T> Sync for MutPtrWrapper<T> {}
-
 pub struct SharedVec<T: Copy + Sized> {
     fd: RawFd,
     name: String,
 
-    ptr: MutPtrWrapper<T>,
+    addr: *mut T,
     size: usize,
 }
+
+unsafe impl<T: Copy + Sized> Sync for SharedVec<T> {}
+unsafe impl<T: Copy + Sized> Send for SharedVec<T> {}
 
 impl<T> SharedVec<T>
 where
     T: Copy + Sized,
 {
     pub fn new() -> Self {
-        Self { fd: -1, name: "".to_string(), ptr: MutPtrWrapper { inner: ptr::null_mut() }, size: 0 }
+        Self { fd: -1, name: "".to_string(), addr: ptr::null_mut(), size: 0 }
     }
 
     pub fn open(name: &str) -> Self {
@@ -60,7 +56,7 @@ where
         Self {
             fd,
             name: name.to_string(),
-            ptr: MutPtrWrapper { inner: addr },
+            addr,
             size: file_size / std::mem::size_of::<T>(),
         }
     }
@@ -83,7 +79,7 @@ where
             println!("mmap failed, {}", std::io::Error::last_os_error());
         }
 
-        Self { fd, name: name.to_string(), ptr: MutPtrWrapper { inner: addr }, size: len }
+        Self { fd, name: name.to_string(), addr, size: len }
     }
 
     pub fn load(path: &str, name: &str) -> Self {
@@ -115,11 +111,11 @@ where
             Self {
                 fd,
                 name: name.to_string(),
-                ptr: MutPtrWrapper { inner: addr },
+                addr,
                 size: input_file_size / std::mem::size_of::<T>(),
             }
         } else {
-            Self { fd, name: name.to_string(), ptr: MutPtrWrapper { inner: ptr::null_mut() }, size: 0 }
+            Self { fd, name: name.to_string(), addr: ptr::null_mut(), size: 0 }
         }
     }
 
@@ -135,19 +131,19 @@ where
     }
 
     pub fn as_ptr(&self) -> *const T {
-        self.ptr.inner
+        self.addr
     }
 
     pub fn as_mut_ptr(&mut self) -> *mut T {
-        self.ptr.inner
+        self.addr
     }
 
     pub fn as_slice(&self) -> &[T] {
-        unsafe { std::slice::from_raw_parts(self.ptr.inner, self.size) }
+        unsafe { std::slice::from_raw_parts(self.addr, self.size) }
     }
 
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.inner, self.size) }
+        unsafe { std::slice::from_raw_parts_mut(self.addr, self.size) }
     }
 
     pub fn name(&self) -> &str {
@@ -165,10 +161,10 @@ where
                 println!("ftruncate failed, {}", std::io::Error::last_os_error());
             }
             let new_addr = unsafe {
-                mremap(self.ptr.inner as *mut c_void, old_file_size, new_file_size, MREMAP_MAYMOVE)
+                mremap(self.addr as *mut c_void, old_file_size, new_file_size, MREMAP_MAYMOVE)
                     as *mut T
             };
-            self.ptr.inner = new_addr;
+            self.addr = new_addr;
             self.size = new_len;
         }
     }
@@ -176,17 +172,17 @@ where
     pub fn resize_without_keep_data(&mut self, new_len: usize) {
         if new_len != self.size {
             unsafe {
-                munmap(self.ptr.inner as *mut c_void, self.size * std::mem::size_of::<T>());
+                munmap(self.addr as *mut c_void, self.size * std::mem::size_of::<T>());
             }
             let file_size = new_len * std::mem::size_of::<T>();
             let ret = unsafe { ftruncate(self.fd, file_size as i64) };
             if ret == -1 {
                 println!("ftruncate failed, {}", std::io::Error::last_os_error());
             }
-            self.ptr.inner = unsafe {
+            self.addr = unsafe {
                 mmap(ptr::null_mut(), file_size, PROT_READ | PROT_WRITE, MAP_SHARED, self.fd, 0) as *mut T
             };
-            if self.ptr.inner as *mut c_void == libc::MAP_FAILED {
+            if self.addr as *mut c_void == libc::MAP_FAILED {
                 println!("mmap failed, {}", std::io::Error::last_os_error());
             }
             self.size = new_len;
@@ -258,7 +254,7 @@ where
 impl<T: Copy + Sized> Drop for SharedVec<T> {
     fn drop(&mut self) {
         unsafe {
-            munmap(self.ptr.inner as *mut c_void, self.size * std::mem::size_of::<T>());
+            munmap(self.addr as *mut c_void, self.size * std::mem::size_of::<T>());
             close(self.fd);
         }
     }
@@ -269,14 +265,14 @@ impl<T: Copy + Sized> Index<usize> for SharedVec<T> {
 
     #[inline(always)]
     fn index(&self, index: usize) -> &Self::Output {
-        unsafe { &*self.ptr.inner.add(index) }
+        unsafe { &*self.addr.add(index) }
     }
 }
 
 impl<T: Copy + Sized> IndexMut<usize> for SharedVec<T> {
     #[inline(always)]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        unsafe { &mut *self.ptr.inner.add(index) }
+        unsafe { &mut *self.addr.add(index) }
     }
 }
 

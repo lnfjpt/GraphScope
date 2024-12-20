@@ -8,7 +8,7 @@ use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter, SafeMutPtr};
 use crate::dataframe::DataFrame;
 use crate::graph::IndexType;
 use crate::table::Table;
-use crate::vector::SharedVec;
+use shm_container::SharedVec;
 
 pub struct Csr<I: Copy + Sized> {
     neighbors: SharedVec<I>,

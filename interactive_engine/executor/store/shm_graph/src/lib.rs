@@ -26,5 +26,4 @@ pub mod sub_graph;
 pub mod table;
 pub mod types;
 pub mod utils;
-pub mod vector;
 pub mod vertex_map;

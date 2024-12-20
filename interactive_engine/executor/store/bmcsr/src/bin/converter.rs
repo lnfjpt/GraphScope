@@ -14,7 +14,7 @@ use bmcsr::date_time::DateTime;
 use bmcsr::graph_db::GraphDB;
 use bmcsr::types::{DefaultId, LabelId, NAME, VERSION};
 use shm_graph::indexer::Indexer;
-use shm_graph::vector::{SharedStringVec, SharedVec};
+use shm_container::{SharedStringVec, SharedVec};
 
 fn dump_csr<I: IndexType>(prefix: &str, csr: &BatchMutableCsr<I>) {
     SharedVec::<I>::dump_vec(format!("{}_nbrs", prefix).as_str(), &csr.neighbors);
@@ -131,16 +131,20 @@ fn dump_table(prefix: &str, tbl: &ColTable) {
 fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
     let graph = GraphDB::<usize, usize>::deserialize(input_dir.as_str(), partition, None).unwrap();
 
+    println!("after load graph...");
     let vertex_label_num = graph.vertex_label_num;
     let output_partition_dir = format!("{}/graph_data_bin/partition_{}", output_dir, partition);
     fs::create_dir_all(output_partition_dir.as_str()).unwrap();
     for vl in 0..vertex_label_num {
+        println!("start dump vm: {}", vl);
         let vm_bin_path = format!("{}/vm_{}", output_partition_dir, vl as usize);
         Indexer::dump(vm_bin_path.as_str(), &graph.vertex_map.index_to_global_id[vl]);
 
+        println!("start dump vmc: {}", vl);
         let vmc_bin_path = format!("{}/vmc_{}", output_partition_dir, vl as usize);
         Indexer::dump(vmc_bin_path.as_str(), &graph.vertex_map.index_to_corner_global_id[vl]);
 
+        println!("start dump vp: {}", vl);
         let vp_prefix = format!("{}/vp_{}", output_partition_dir, vl as usize);
         dump_table(&vp_prefix, &graph.vertex_prop_table[vl]);
     }
@@ -154,6 +158,7 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                     edge_label as LabelId,
                     dst_label as LabelId,
                 ) {
+                    println!("start dump oe - {} - {} - {}", src_label, edge_label, dst_label);
                     let oe_idx = graph.edge_label_to_index(
                         src_label as LabelId,
                         dst_label as LabelId,
@@ -201,6 +206,7 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                         );
                     }
 
+                    println!("start dump ie - {} - {} - {}", src_label, edge_label, dst_label);
                     let ie_idx = graph.edge_label_to_index(
                         dst_label as LabelId,
                         src_label as LabelId,

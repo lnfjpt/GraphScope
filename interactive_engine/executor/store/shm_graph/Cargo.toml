@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bmcsr = { path = "../bmcsr"}
 clap = "2.32.0"
 byteorder = "1.5.0"
 env_logger = "0.7.1"
@@ -24,3 +23,4 @@ rayon = "1.5.1"
 libc = "0.2.167"
 regex = "1.7.1"
 rust-htslib = { version = "0.46.0", default-features = false, features = ["bzip2", "lzma"] }
+shm_container = { path = "../../common/shm_container" }

@@ -1,4 +1,4 @@
-use shm_graph::vector::SharedStringVec;
+use shm_container::SharedStringVec;
 
 fn main() {
     let string_vec: Vec<String> =
