@@ -648,7 +648,6 @@ pub fn apply_write_operations(
                 }
             }
             WriteType::Set => {
-                println!("111111111");
                 if !traversed {
                     let output_prefix = get_next_output_dir("/mnt/nas/luoxiaojian/traverse_output");
                     if !output_prefix.is_empty() {
@@ -659,7 +658,6 @@ pub fn apply_write_operations(
                     }
                 }
 
-                println!("2222222222");
                 if let Some(mut vertex_mappings) = write_op.take_vertex_mappings() {
                     let vertex_label = vertex_mappings.vertex_label();
                     let mut inputs = vertex_mappings.take_inputs();
@@ -673,7 +671,6 @@ pub fn apply_write_operations(
                         graph.set_vertex_property(vertex_label, prop_name.as_str(), prop_col_builder);
                     }
                 }
-                println!("333333333");
                 if let Some(mut edge_mappings) = write_op.take_edge_mappings() {
                     let src_label = edge_mappings.src_label();
                     let edge_label = edge_mappings.edge_label();
@@ -717,7 +714,6 @@ pub fn apply_write_operations(
                         );
                     }
                 }
-                println!("444444444444");
             }
         };
     }
@@ -1120,7 +1116,6 @@ pub fn set_vertices(
     column_mappings: &Vec<ColumnMappings>,
     column_builders: &mut HashMap<(LabelId, String), Box<dyn Column>>,
 ) {
-    println!("AAAAAAAA");
     let mut column_map = HashMap::new();
     for column_mapping in column_mappings {
         let column = column_mapping.column();
@@ -1133,21 +1128,17 @@ pub fn set_vertices(
     if let Some((column_index, _)) = column_map.get("id") {
         id_col = *column_index;
     }
-    println!("BBBBBBBB");
     match input.data_source() {
         DataSource::File => {
             todo!()
         }
         DataSource::Memory => {
-            println!("CCCCCCCCCCC");
             if let Some(mut memory_data) = input.take_memory_data() {
-                println!("DDDDDDDDDDD");
                 let mut column_data = memory_data.take_columns();
                 let id_column = column_data
                     .get_mut(id_col as usize)
                     .expect("Failed to find id column");
                 let data = id_column.take_data();
-                println!("before parsing id list");
                 let global_ids = {
                     if let Some(id_column) = data.as_any().downcast_ref::<IDHColumn>() {
                         id_column.data.clone()
@@ -1156,70 +1147,49 @@ pub fn set_vertices(
                             .data
                             .par_iter()
                             .map(|&x| {
-                                if let Some((label,lid)) = graph.vertex_map.get_internal_id(x as usize) {
-                                    lid
-                                } else {
-                                    println!("vertex - {} - {} parse failed...", vertex_label as usize, LDBCVertexParser::<usize>::get_original_id(x as usize));
-                                    usize::MAX
-                                }
-                                // graph.get_internal_id(x as usize)
+                                graph.get_internal_id(x as usize)
                             })
                             .collect()
                     } else {
                         panic!("DataType of id col is not VertexId")
                     }
                 };
-                println!("after parse id list");
-                println!("column_map: {:?}", &column_map);
                 for (k, v) in column_map.iter() {
-                    println!("---> {}: {}", k, v.0);
                     if k == "id" {
                         continue;
                     }
                     let column_index = v.0;
                     let column_data_type = v.1;
-                    println!("aaaaaaaaa");
                     let column = column_data
                         .get_mut(column_index as usize)
                         .expect("Failed to find column");
-                    println!("bbbbbbbbb");
                     if let Some(cb) = column_builders.get_mut(&(vertex_label, k.clone())) {
-                        println!("cccccccccc");
                         cb.set_column_batch(&global_ids, &column.take_data());
-                        println!("dddddddddd");
                     } else {
-                        println!("eeeeeeeeee");
                         let idx = graph
                             .graph_schema
                             .add_vertex_index_prop(k.clone(), vertex_label, column_data_type)
                             .unwrap();
-                        println!("fffffffffff");
                         let vp_prefix = format!(
                             "{}_vp_{}_col_{}",
                             graph.get_partition_prefix(),
                             vertex_label as usize,
                             idx
                         );
-                        println!("ggggggggg");
 
                         let mut cb = create_column(
                             column_data_type,
                             vp_prefix.as_str(),
                             graph.vertex_map.indexers[vertex_label as usize].len(),
                         );
-                        println!("hhhhhhhhhh");
                         cb.set_column_batch(&global_ids, &column.take_data());
-                        println!("iiiiiiiiiii");
 
                         column_builders.insert((vertex_label, k.clone()), cb);
-                        println!("jjjjjjjjjjj");
                     }
                 }
-                println!("EEEEEEEEEEEE");
             }
         }
     }
-    println!("FFFFFFFFFFF");
 }
 
 pub fn set_edges(

@@ -756,10 +756,6 @@ impl Column for Int64Column {
                 .unwrap();
             assert_eq!(index.len(), casted_col.data.len());
             for (index, i) in index.iter().enumerate() {
-                if self.data.len() < *i {
-                    println!("data.len() = {}, i = {}", self.data.len(), *i);
-                }
-                assert!(self.data.len() > *i);
                 self.data[*i] = casted_col.data[index];
             }
         }

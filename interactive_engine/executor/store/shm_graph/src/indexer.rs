@@ -131,10 +131,6 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
                 if self.indices[index] == usize::MAX {
                     break;
                 } else{
-                    if self.indices[index] >= cur_lid {
-                        panic!("self.indices[{}] = {}, while cur_lid = {}", index, self.indices[index], cur_lid);
-                    }
-                    assert!(self.indices[index] < cur_lid);
                     if self.keys[self.indices[index]] == *v {
                         break;
                     }

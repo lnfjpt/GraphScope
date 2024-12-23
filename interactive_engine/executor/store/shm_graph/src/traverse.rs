@@ -224,6 +224,6 @@ where
     G: Send + Sync + IndexType,
     I: Send + Sync + IndexType,
 {
-    // output_vertices(db, output_dir);
-    // output_edges(db, output_dir);
+    output_vertices(db, output_dir);
+    output_edges(db, output_dir);
 }
