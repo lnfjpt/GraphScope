@@ -299,6 +299,35 @@ impl CsrGraphSchema {
         None
     }
 
+    pub fn remove_vertex_index_prop(&mut self, index_name: &str, vertex_label: LabelId) {
+        if let Some(prop_meta) = self.vertex_prop_meta.get_mut(&vertex_label) {
+            if let Some(prop_list) = self.vertex_prop_vec.get_mut(&vertex_label) {
+                if let Some((_, index_label)) = prop_meta.get(index_name) {
+                    let idx = *index_label;
+
+                    let mut new_prop_list = vec![];
+                    for i in 0..prop_list.len() {
+                        if i != idx {
+                            new_prop_list.push((prop_list[i].0.clone(), prop_list[i].1));
+                        }
+                    }
+
+                    let mut new_prop_meta = HashMap::new();
+                    for (i, (n, d)) in new_prop_list.iter().enumerate() {
+                        new_prop_meta.insert(n.clone(), (*d, i));
+                    }
+
+                    println!("remove column - {} from vertex - {} 's property", index_name, vertex_label as usize);
+
+                    std::mem::replace(prop_meta, new_prop_meta);
+                    std::mem::replace(prop_list, new_prop_list);
+                    // *prop_meta = new_prop_meta;
+                    // *prop_list = new_prop_list;
+                }
+            }
+        }
+    }
+
     pub fn add_edge_index_prop(
         &mut self, index_name: String, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
         data_type: DataType,
@@ -322,6 +351,35 @@ impl CsrGraphSchema {
             }
         }
         None
+    }
+
+    pub fn remove_edge_index_prop(&mut self, index_name: &str, src_label: LabelId,
+        edge_label: LabelId, dst_label: LabelId) {
+        if let Some(prop_meta) = self.edge_prop_meta.get_mut(&(src_label, edge_label, dst_label)) {
+            if let Some(prop_list) = self.edge_prop_vec.get_mut(&(src_label, edge_label, dst_label)) {
+                if let Some((_, index_label)) = prop_meta.get(index_name) {
+                    let idx = *index_label;
+
+                    let mut new_prop_list = vec![];
+                    for i in 0..prop_list.len() {
+                        if i != idx {
+                            new_prop_list.push((prop_list[i].0.clone(), prop_list[i].1));
+                        }
+                    }
+
+                    let mut new_prop_meta = HashMap::new();
+                    for (i, (n, d)) in new_prop_list.iter().enumerate() {
+                        new_prop_meta.insert(n.clone(), (*d, i));
+                    }
+
+                    println!("remove column - {} from edge - {} - {} - {} 's property", index_name, src_label as usize, edge_label as usize, dst_label as usize);
+                    std::mem::replace(prop_meta, new_prop_meta);
+                    std::mem::replace(prop_list, new_prop_list);
+                    // *prop_meta = new_prop_meta;
+                    // *prop_list = new_prop_list;
+                }
+            }
+        }
     }
 }
 

@@ -177,6 +177,33 @@ impl Table {
         self.header.insert(col_name.to_string(), col_id);
     }
 
+    pub fn remove_column(&mut self, name: &str) {
+        if let Some(idx) = self.header.get(name) {
+            if self.columns.len() > *idx {
+                let mut new_columns = vec![];
+                for (col_id, col) in self.columns.drain(..).enumerate() {
+                    if col_id != *idx {
+                        new_columns.push(col);
+                    }
+                }
+                std::mem::replace(&mut self.columns, new_columns);
+
+                // *self.columns = new_columns;
+
+                let mut new_header = HashMap::new();
+                for (col_name, col_id) in self.header.iter() {
+                    if *col_id < *idx {
+                        new_header.insert(col_name.clone(), *col_id);
+                    } else if *col_id > *idx {
+                        new_header.insert(col_name.clone(), *col_id - 1);
+                    }
+                }
+                // *self.header = new_header;
+                std::mem::replace(&mut self.header, new_header);
+            }
+        }
+    }
+
     pub fn reshuffle_rows(&mut self, indices: &Vec<(usize, usize)>) {
         for col_i in 0..self.col_num() {
             self.columns[col_i].reshuffle(indices);
@@ -187,6 +214,7 @@ impl Table {
         for col_i in 0..self.col_num() {
             self.columns[col_i].resize(new_size)
         }
+        self.row_num = new_size;
     }
 
     pub fn insert_batch(&mut self, offsets: &Vec<usize>, df: &DataFrame) {

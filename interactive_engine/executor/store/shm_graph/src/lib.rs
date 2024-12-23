@@ -24,6 +24,7 @@ pub mod schema;
 pub mod scsr;
 pub mod sub_graph;
 pub mod table;
+pub mod traverse;
 pub mod types;
 pub mod utils;
 pub mod vertex_map;

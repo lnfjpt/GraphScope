@@ -13,8 +13,8 @@ use bmcsr::date::Date;
 use bmcsr::date_time::DateTime;
 use bmcsr::graph_db::GraphDB;
 use bmcsr::types::{DefaultId, LabelId, NAME, VERSION};
-use shm_graph::indexer::Indexer;
 use shm_container::{SharedStringVec, SharedVec};
+use shm_graph::indexer::Indexer;
 
 fn dump_csr<I: IndexType>(prefix: &str, csr: &BatchMutableCsr<I>) {
     SharedVec::<I>::dump_vec(format!("{}_nbrs", prefix).as_str(), &csr.neighbors);
@@ -87,6 +87,7 @@ fn dump_table(prefix: &str, tbl: &ColTable) {
                     format!("{}_index", col_path.as_str()).as_str(),
                     &casted_col.data,
                 );
+                println!("dumping to {}, list size {}", col_path.as_str(), casted_col.list.len());
                 SharedStringVec::dump_vec(format!("{}_data", col_path.as_str()).as_str(), &casted_col.list);
             }
             DataType::Double => {
@@ -140,9 +141,18 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
         let vm_bin_path = format!("{}/vm_{}", output_partition_dir, vl as usize);
         Indexer::dump(vm_bin_path.as_str(), &graph.vertex_map.index_to_global_id[vl]);
 
+        let mut native_tomb = vec![0_u8; graph.vertex_map.index_to_global_id[vl].len()];
+        SharedVec::<u8>::dump_vec(
+            format!("{}/vm_tomb_{}", output_partition_dir, vl).as_str(),
+            &native_tomb,
+        );
+
         println!("start dump vmc: {}", vl);
         let vmc_bin_path = format!("{}/vmc_{}", output_partition_dir, vl as usize);
         Indexer::dump(vmc_bin_path.as_str(), &graph.vertex_map.index_to_corner_global_id[vl]);
+
+        // let mut corner_tomb = vec![0_u8; graph.index_to_corner_global_id[vl].len()];
+        // SharedVec::<u8>::dump_vec(format!("{}/vmc_tomb", output_partition_dir).as_str(), &corner_tomb);
 
         println!("start dump vp: {}", vl);
         let vp_prefix = format!("{}/vp_{}", output_partition_dir, vl as usize);

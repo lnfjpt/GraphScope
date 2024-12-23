@@ -110,7 +110,7 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
             }
         } else {
             for (src, dst) in edges.iter() {
-                if let Some(set) = delete_map.get_mut(&dst) {
+                if let Some(set) = delete_map.get_mut(&src) {
                     set.insert(*dst);
                 } else {
                     if src.index() < self.offsets.len() {
@@ -261,18 +261,18 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
         assert!(old_vertex_num <= vertex_num);
 
         let mut new_offsets = Vec::<usize>::with_capacity(vertex_num);
-        new_offsets.push(0);
         let mut cur_offset = 0_usize;
         for v in 0..old_vertex_num {
-            cur_offset += (new_degree[v] + self.degree[v]) as usize;
             new_offsets.push(cur_offset);
+            cur_offset += (new_degree[v] + self.degree[v]) as usize;
         }
         for v in old_vertex_num..vertex_num {
-            cur_offset += new_degree[v] as usize;
             new_offsets.push(cur_offset);
+            cur_offset += new_degree[v] as usize;
         }
 
-        let new_edges_num = self.meta[0] + edges.len();
+        // let new_edges_num = self.meta[0] + edges.len();
+        let new_edges_num = cur_offset;
 
         self.neighbors.inplace_parallel_chunk_move(
             new_edges_num,
@@ -280,13 +280,6 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
             self.degree.as_slice(),
             new_offsets.as_slice(),
         );
-
-        self.degree.resize(vertex_num);
-        self.degree.as_mut_slice()[old_vertex_num..vertex_num]
-            .par_iter_mut()
-            .for_each(|deg| {
-                *deg = 0;
-            });
 
         if let Some(it) = insert_edges_prop {
             if let Some(ep) = edges_prop {
@@ -296,6 +289,12 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
                     self.degree.as_slice(),
                     new_offsets.as_slice(),
                 );
+                self.degree.resize(vertex_num);
+                self.degree.as_mut_slice()[old_vertex_num..vertex_num]
+                    .par_iter_mut()
+                    .for_each(|deg| {
+                        *deg = 0;
+                    });
                 let mut insert_offsets = Vec::with_capacity(edges.len());
                 if reverse {
                     for (dst, src) in edges.iter() {
@@ -319,6 +318,12 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
                 panic!("not supposed to reach here...");
             }
         } else {
+            self.degree.resize(vertex_num);
+            self.degree.as_mut_slice()[old_vertex_num..vertex_num]
+                .par_iter_mut()
+                .for_each(|deg| {
+                    *deg = 0;
+                });
             if reverse {
                 for (dst, src) in edges.iter() {
                     let x = self.degree[src.index()] as usize;

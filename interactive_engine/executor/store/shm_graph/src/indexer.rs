@@ -2,6 +2,7 @@ use crate::graph::IndexType;
 use shm_container::SharedVec;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::thread::panicking;
 
 const INITIAL_SIZE: usize = 16;
 const MAX_LOAD_FACTOR: f64 = 0.875;
@@ -45,7 +46,6 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
                 break;
             }
         }
-        println!("len = {}, input.len() = {}", len, id_list.len());
 
         let mut indices = vec![usize::MAX; len];
 
@@ -71,6 +71,11 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
     pub fn get_key(&self, index: usize) -> Option<K> {
         if index < self.keys.len() {
             Some(self.keys[index])
+            // if self.keys[index] == <K as IndexType>::max() {
+            //     return None;
+            // } else {
+            //     Some(self.keys[index])
+            // }
         } else {
             None
         }
@@ -99,7 +104,7 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
     pub fn erase_indices(&mut self, indices: &Vec<usize>) -> usize {
         let mut num = 0_usize;
         for v in indices.iter() {
-            if self.keys.len() <= *v && self.keys[*v] != <K as IndexType>::max() {
+            if self.keys.len() > *v && self.keys[*v] != <K as IndexType>::max() {
                 self.keys[*v] = <K as IndexType>::max();
                 num += 1;
             }
@@ -122,14 +127,29 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
         for v in id_list.iter() {
             let hash = hash_integer(v.index());
             let mut index = (hash as usize) % indices_len;
-            while self.indices[index] != usize::MAX && self.keys[self.indices[index]] == *v {
+            loop {
+                if self.indices[index] == usize::MAX {
+                    break;
+                } else{
+                    if self.indices[index] >= cur_lid {
+                        panic!("self.indices[{}] = {}, while cur_lid = {}", index, self.indices[index], cur_lid);
+                    }
+                    assert!(self.indices[index] < cur_lid);
+                    if self.keys[self.indices[index]] == *v {
+                        break;
+                    }
+                }
                 index = (index + 1) % indices_len;
             }
-            if self.keys[self.indices[index]].index() == usize::MAX {
+            // while self.indices[index] != usize::MAX && self.keys[self.indices[index]] != *v {
+            //     index = (index + 1) % indices_len;
+            // }
+            if self.indices[index] == usize::MAX {
                 self.indices[index] = cur_lid;
                 self.keys[cur_lid] = *v;
                 cur_lid += 1;
             }
+            assert!(self.keys[self.indices[index]] == *v);
             ret.push(self.indices[index]);
         }
 

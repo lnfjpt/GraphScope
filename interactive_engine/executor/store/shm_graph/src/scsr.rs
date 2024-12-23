@@ -28,7 +28,6 @@ impl<I: IndexType> SCsr<I> {
     }
 
     pub fn open(prefix: &str) -> Self {
-        let tmp_vec = SharedVec::<usize>::open(format!("{}_meta", prefix).as_str());
         Self {
             nbr_list: SharedVec::<I>::open(format!("{}_nbrs", prefix).as_str()),
             meta: SharedVec::<usize>::open(format!("{}_meta", prefix).as_str()),
@@ -172,7 +171,11 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         insert_edges_prop: Option<&crate::dataframe::DataFrame>, reverse: bool,
         edges_prop: Option<&mut Table>,
     ) {
+        let old_length = self.nbr_list.len();
         self.nbr_list.resize(vertex_num);
+        for i in old_length..vertex_num {
+            self.nbr_list[i] = <I as IndexType>::max();
+        }
 
         let mut insert_counter = 0;
         if let Some(it) = insert_edges_prop {

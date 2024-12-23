@@ -1,6 +1,7 @@
 use core::ops::Index;
 use std::any::Any;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
 use csv::StringRecord;
@@ -13,7 +14,7 @@ use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
 
 use crate::dataframe::*;
-use crate::dataframe::{HeapColumn, I32HColumn, I64HColumn};
+use crate::dataframe::{DateTimeHColumn, HeapColumn, I32HColumn, I64HColumn, StringHColumn};
 use crate::date::{parse_date, Date};
 use crate::date_time::{parse_datetime, DateTime};
 use crate::error::GDBResult;
@@ -753,7 +754,12 @@ impl Column for Int64Column {
                 .as_any()
                 .downcast_ref::<I64HColumn>()
                 .unwrap();
+            assert_eq!(index.len(), casted_col.data.len());
             for (index, i) in index.iter().enumerate() {
+                if self.data.len() < *i {
+                    println!("data.len() = {}, i = {}", self.data.len(), *i);
+                }
+                assert!(self.data.len() > *i);
                 self.data[*i] = casted_col.data[index];
             }
         }
@@ -1070,7 +1076,10 @@ impl Column for StringColumn {
 
     fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
         if col.as_any().is::<StringHColumn>() {
-            let casted_col = col.as_any().downcast_ref::<StringHColumn>().unwrap();
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<StringHColumn>()
+                .unwrap();
             self.data.batch_set(index, &casted_col.data);
         }
     }
@@ -1078,13 +1087,15 @@ impl Column for StringColumn {
     fn inplace_parallel_chunk_move(
         &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
     ) {
-        self.data.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+        self.data
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 }
 
 pub struct LCStringColumn {
     pub index: SharedVec<u16>,
     pub data: SharedStringVec,
+    pub table: HashMap<String, u16>,
 }
 
 impl LCStringColumn {
@@ -1094,10 +1105,13 @@ impl LCStringColumn {
     }
 
     pub fn open(path: &str) -> Self {
-        Self {
-            index: SharedVec::<u16>::open(format!("{}_index", path).as_str()),
-            data: SharedStringVec::open(format!("{}_data", path).as_str()),
+        let data = SharedStringVec::open(format!("{}_data", path).as_str());
+        let mut table = HashMap::new();
+        let len = data.len();
+        for i in 0..len {
+            table.insert(data.get_unchecked(i).to_string(), i as u16);
         }
+        Self { index: SharedVec::<u16>::open(format!("{}_index", path).as_str()), data, table }
     }
 }
 
@@ -1111,7 +1125,7 @@ impl Column for LCStringColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        if index < self.data.len() {
+        if index < self.index.len() {
             Some(RefItem::String(
                 self.data
                     .get_unchecked(self.index[index] as usize),
@@ -1142,11 +1156,28 @@ impl Column for LCStringColumn {
     }
 
     fn set(&mut self, index: usize, val: Item) {
-        panic!("not implemented...");
+        match val {
+            Item::String(v) => {
+                let value = self.table.get(&v).unwrap();
+                self.index[index] = *value;
+            }
+            _ => {
+                self.index[index] = 0;
+            }
+        }
     }
 
     fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
-        panic!("not implemented...");
+        if col.as_any().is::<StringHColumn>() {
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<StringHColumn>()
+                .unwrap();
+            for (index, i) in index.iter().enumerate() {
+                let value = self.table.get(&casted_col.data[index]).unwrap();
+                self.index[*i] = *value;
+            }
+        }
     }
 
     fn inplace_parallel_chunk_move(
@@ -1234,7 +1265,15 @@ impl Column for DateColumn {
     }
 
     fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
-        panic!("not implemented...");
+        if col.as_any().is::<DateHColumn>() {
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<DateHColumn>()
+                .unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
     }
 
     fn inplace_parallel_chunk_move(
@@ -1312,7 +1351,15 @@ impl Column for DateTimeColumn {
     }
 
     fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
-        panic!("not implemented...");
+        if col.as_any().is::<DateTimeHColumn>() {
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<DateTimeHColumn>()
+                .unwrap();
+            for (index, i) in index.iter().enumerate() {
+                self.data[*i] = casted_col.data[index];
+            }
+        }
     }
 
     fn inplace_parallel_chunk_move(

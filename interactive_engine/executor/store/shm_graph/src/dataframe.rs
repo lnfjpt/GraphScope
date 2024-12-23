@@ -4,6 +4,8 @@ use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
 
 use crate::columns::{DataType, Item, RefItem};
+use crate::date::Date;
+use crate::date_time::DateTime;
 use crate::types::DefaultId;
 
 pub trait HeapColumn {
@@ -306,6 +308,122 @@ impl HeapColumn for StringHColumn {
     }
 }
 
+pub struct DateHColumn {
+    pub data: Vec<Date>,
+}
+
+unsafe impl Send for DateHColumn {}
+unsafe impl Sync for DateHColumn {}
+
+impl DateHColumn {
+    pub fn new() -> Self {
+        Self { data: Vec::new() }
+    }
+
+    pub fn from(data: Vec<Date>) -> DateHColumn {
+        DateHColumn { data }
+    }
+}
+
+impl HeapColumn for DateHColumn {
+    fn get_type(&self) -> DataType {
+        DataType::Date
+    }
+
+    fn get(&self, index: usize) -> Option<RefItem> {
+        self.data.get(index).map(|x| RefItem::Date(*x))
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::Date(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = Date::empty();
+            }
+        }
+    }
+
+    fn push(&mut self, val: Item) {
+        match val {
+            Item::Date(v) => {
+                self.data.push(v);
+            }
+            _ => {
+                self.data.push(Date::empty());
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+pub struct DateTimeHColumn {
+    pub data: Vec<DateTime>,
+}
+
+unsafe impl Send for DateTimeHColumn {}
+unsafe impl Sync for DateTimeHColumn {}
+
+impl DateTimeHColumn {
+    pub fn new() -> Self {
+        Self { data: Vec::new() }
+    }
+
+    pub fn from(data: Vec<DateTime>) -> DateTimeHColumn {
+        DateTimeHColumn { data }
+    }
+}
+
+impl HeapColumn for DateTimeHColumn {
+    fn get_type(&self) -> DataType {
+        DataType::DateTime
+    }
+
+    fn get(&self, index: usize) -> Option<RefItem> {
+        self.data
+            .get(index)
+            .map(|x| RefItem::DateTime(*x))
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::DateTime(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = DateTime::empty();
+            }
+        }
+    }
+
+    fn push(&mut self, val: Item) {
+        match val {
+            Item::DateTime(v) => {
+                self.data.push(v);
+            }
+            _ => {
+                self.data.push(DateTime::empty());
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 fn create_column(data_type: DataType) -> Box<dyn HeapColumn> {
     match data_type {
         DataType::Int32 => Box::new(I32HColumn::new()),
@@ -313,6 +431,9 @@ fn create_column(data_type: DataType) -> Box<dyn HeapColumn> {
         DataType::UInt64 => Box::new(U64HColumn::new()),
         DataType::ID => Box::new(IDHColumn::new()),
         DataType::String => Box::new(StringHColumn::new()),
+        DataType::DateTime => Box::new(DateTimeHColumn::new()),
+        DataType::Date => Box::new(DateHColumn::new()),
+        DataType::LCString => Box::new(StringHColumn::new()),
         _ => {
             panic!("type not impl {:?}", data_type);
         }
@@ -366,6 +487,22 @@ fn read_column<R: ReadExt>(reader: &mut R) -> std::io::Result<Box<dyn HeapColumn
             }
             Box::new(StringHColumn { data })
         }
+        6 => {
+            let data_len = reader.read_u64()? as usize;
+            let mut data = Vec::<DateTime>::with_capacity(data_len);
+            for _ in 0..data_len {
+                data.push(DateTime::new(reader.read_i64()?));
+            }
+            Box::new(DateTimeHColumn { data })
+        }
+        7 => {
+            let data_len = reader.read_u64()? as usize;
+            let mut data = Vec::<Date>::with_capacity(data_len);
+            for _ in 0..data_len {
+                data.push(Date::from_i32(reader.read_i32()?));
+            }
+            Box::new(DateHColumn { data })
+        }
         _ => panic!("Unknown column type"),
     };
     Ok(data)
@@ -407,6 +544,23 @@ fn write_column<W: WriteExt>(column: &Box<dyn HeapColumn>, writer: &mut W) -> st
             i.write_to(writer)?;
         }
     }
+    if let Some(id_column) = column
+        .as_any()
+        .downcast_ref::<DateTimeHColumn>()
+    {
+        writer.write_u8(6)?;
+        writer.write_u64(column.len() as u64)?;
+        for i in id_column.data.iter() {
+            writer.write_i64(i.to_i64())?;
+        }
+    }
+    if let Some(id_column) = column.as_any().downcast_ref::<DateHColumn>() {
+        writer.write_u8(7)?;
+        writer.write_u64(column.len() as u64)?;
+        for i in id_column.data.iter() {
+            writer.write_i32(i.to_i32())?;
+        }
+    }
     Ok(())
 }
 
@@ -421,6 +575,10 @@ fn clone_column(input: &Box<dyn HeapColumn>) -> Box<dyn HeapColumn> {
         Box::new(IDHColumn { data: id_column.data.clone() })
     } else if let Some(string_column) = input.as_any().downcast_ref::<StringHColumn>() {
         Box::new(StringHColumn { data: string_column.data.clone() })
+    } else if let Some(date_time_column) = input.as_any().downcast_ref::<DateTimeHColumn>() {
+        Box::new(DateTimeHColumn { data: date_time_column.data.clone() })
+    } else if let Some(date_column) = input.as_any().downcast_ref::<DateHColumn>() {
+        Box::new(DateHColumn { data: date_column.data.clone() })
     } else {
         panic!("Unknown column type")
     }
@@ -533,6 +691,14 @@ impl DataFrame {
         assert_eq!(row.len(), self.columns.len());
         for (i, v) in row.into_iter().enumerate() {
             self.columns[i].data.push(v);
+        }
+    }
+
+    pub fn row_num(&self) -> usize {
+        if self.columns.is_empty() {
+            0
+        } else {
+            self.columns[0].data.len()
         }
     }
 }

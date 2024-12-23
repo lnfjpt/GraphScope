@@ -13,20 +13,20 @@
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
 
-// use std::fs::File;
-// use std::io::BufReader;
-// use std::path::{Path, PathBuf};
-//
+use std::fs::File;
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
+
 // use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-// use csv::{ReaderBuilder, StringRecord};
-// use rust_htslib::bgzf::Reader as GzReader;
+use csv::{ReaderBuilder, StringRecord};
+use rust_htslib::bgzf::Reader as GzReader;
 //
 // use crate::columns::{DataType, Item};
 // use crate::error::GDBResult;
 // use crate::graph::IndexType;
-// use crate::graph_loader::get_files_list;
-// use crate::ldbc_parser::LDBCVertexParser;
-// use crate::types::LabelId;
+use crate::graph_loader::get_files_list;
+use crate::ldbc_parser::LDBCVertexParser;
+use crate::types::LabelId;
 
 // pub struct Iter<'a, T> {
 //     inner: Box<dyn Iterator<Item = T> + 'a + Send>,
@@ -193,73 +193,75 @@ pub fn get_2d_partition(id_hi: u64, id_low: u64, workers: usize, num_servers: us
     let worker_id = id_low % workers as u64;
     server_id * workers as u64 + worker_id
 }
-//
-// pub fn parse_vertex_id_from_file(
-//     vertex_label: LabelId, id_col: i32, file_locations: Vec<String>, skip_header: bool, delim: u8, id: u32,
-//     parallel: u32,
-// ) -> Vec<u64> {
-//     let mut id_list = vec![];
-//     for file_location in file_locations {
-//         let path = Path::new(&file_location);
-//         let input_dir = path
-//             .parent()
-//             .unwrap_or(Path::new(""))
-//             .to_path_buf();
-//         let filename = vec![path
-//             .file_name()
-//             .expect("Can not find filename")
-//             .to_str()
-//             .unwrap_or("")
-//             .to_string()];
-//         let parser = LDBCVertexParser::<usize>::new(vertex_label, id_col as usize);
-//         let files = get_files_list(&input_dir, &filename).unwrap();
-//
-//         for file in files.iter() {
-//             if let Some(path_str) = file.clone().to_str() {
-//                 if path_str.ends_with(".csv.gz") {
-//                     if let Ok(gz_reader) = GzReader::from_path(&path_str) {
-//                         let mut rdr = ReaderBuilder::new()
-//                             .delimiter(delim)
-//                             .buffer_capacity(4096)
-//                             .comment(Some(b'#'))
-//                             .flexible(true)
-//                             .has_headers(skip_header)
-//                             .from_reader(gz_reader);
-//                         for (index, result) in rdr.records().enumerate() {
-//                             if index % parallel as usize == id as usize {
-//                                 if let Ok(record) = result {
-//                                     let vertex_meta = parser.parse_vertex_meta(&record);
-//                                     id_list.push(vertex_meta.global_id as u64);
-//                                 }
-//                             }
-//                         }
-//                     }
-//                 } else if path_str.ends_with(".csv") {
-//                     if let Ok(file) = File::open(&file) {
-//                         let reader = BufReader::new(file);
-//                         let mut rdr = ReaderBuilder::new()
-//                             .delimiter(delim)
-//                             .buffer_capacity(4096)
-//                             .comment(Some(b'#'))
-//                             .flexible(true)
-//                             .has_headers(skip_header)
-//                             .from_reader(reader);
-//                         for (index, result) in rdr.records().enumerate() {
-//                             if index % parallel as usize == id as usize {
-//                                 if let Ok(record) = result {
-//                                     let vertex_meta = parser.parse_vertex_meta(&record);
-//                                     id_list.push(vertex_meta.global_id as u64);
-//                                 }
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     }
-//     id_list
-// }
-//
+
+pub fn parse_vertex_id_from_file(
+    vertex_label: LabelId, id_col: i32, file_locations: Vec<String>, skip_header: bool, delim: u8, id: u32,
+    parallel: u32,
+) -> Vec<u64> {
+    let mut id_list = vec![];
+    for file_location in file_locations {
+        let path = Path::new(&file_location);
+        let input_dir = path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .to_path_buf();
+        let filename = vec![path
+            .file_name()
+            .expect("Can not find filename")
+            .to_str()
+            .unwrap_or("")
+            .to_string()];
+        let parser = LDBCVertexParser::<usize>::new(vertex_label, id_col as usize);
+        let files = get_files_list(&input_dir, &filename).unwrap();
+
+        for file in files.iter() {
+            if let Some(path_str) = file.clone().to_str() {
+                if path_str.ends_with(".csv.gz") {
+                    if let Ok(gz_reader) = GzReader::from_path(&path_str) {
+                        let mut rdr = ReaderBuilder::new()
+                            .delimiter(delim)
+                            .buffer_capacity(4096)
+                            .comment(Some(b'#'))
+                            .flexible(true)
+                            .has_headers(skip_header)
+                            .from_reader(gz_reader);
+                        for (index, result) in rdr.records().enumerate() {
+                            if index % parallel as usize == id as usize {
+                                if let Ok(record) = result {
+                                    let vertex_meta = parser.parse_vertex_meta(&record);
+                                    let oid =
+                                        LDBCVertexParser::<usize>::get_original_id(vertex_meta.global_id);
+                                    id_list.push(vertex_meta.global_id as u64);
+                                }
+                            }
+                        }
+                    }
+                } else if path_str.ends_with(".csv") {
+                    if let Ok(file) = File::open(&file) {
+                        let reader = BufReader::new(file);
+                        let mut rdr = ReaderBuilder::new()
+                            .delimiter(delim)
+                            .buffer_capacity(4096)
+                            .comment(Some(b'#'))
+                            .flexible(true)
+                            .has_headers(skip_header)
+                            .from_reader(reader);
+                        for (index, result) in rdr.records().enumerate() {
+                            if index % parallel as usize == id as usize {
+                                if let Ok(record) = result {
+                                    let vertex_meta = parser.parse_vertex_meta(&record);
+                                    id_list.push(vertex_meta.global_id as u64);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    id_list
+}
+
 // pub fn parse_properties(
 //     record: &StringRecord, header: &[(String, DataType)], selected: &[i32],
 // ) -> GDBResult<Vec<Item>> {
