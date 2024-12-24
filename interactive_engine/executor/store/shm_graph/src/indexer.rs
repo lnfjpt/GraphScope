@@ -1,4 +1,5 @@
 use crate::graph::IndexType;
+use rayon::prelude::*;
 use shm_container::SharedVec;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -112,7 +113,37 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
         num
     }
 
+    fn rehash_to(&mut self, new_len: usize) {
+        let mut cur_indices_size = self.indices.len().max(INITIAL_SIZE);
+        loop {
+            let rate = new_len as f64 / cur_indices_size as f64;
+            if rate > MAX_LOAD_FACTOR {
+                cur_indices_size *= 2;
+            } else {
+                break;
+            }
+        }
+
+        self.indices.resize(cur_indices_size);
+        self.indices
+            .as_mut_slice()
+            .par_iter_mut()
+            .for_each(|x| *x = usize::MAX);
+
+        for i in 0..self.keys.len() {
+            let hash = hash_integer(self.keys[i].index());
+            let mut index = (hash as usize) % cur_indices_size;
+            while self.indices[index] != usize::MAX {
+                index = (index + 1) % cur_indices_size;
+            }
+            self.indices[index] = i;
+        }
+    }
+
     pub fn insert_batch(&mut self, id_list: &Vec<K>) -> Vec<usize> {
+        if self.keys.len() + id_list.len() >= self.indices.len() {
+            self.rehash_to(self.keys.len() + id_list.len());
+        }
         assert!(self.keys.len() + id_list.len() < self.indices.len());
 
         let old_keys_num = self.keys.len();
@@ -130,7 +161,7 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
             loop {
                 if self.indices[index] == usize::MAX {
                     break;
-                } else{
+                } else {
                     if self.keys[self.indices[index]] == *v {
                         break;
                     }

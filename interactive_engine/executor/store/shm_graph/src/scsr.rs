@@ -1,6 +1,8 @@
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread::panicking;
+use std::usize;
 
 use rayon::prelude::*;
 
@@ -182,19 +184,27 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
             let mut insert_offsets = Vec::with_capacity(edges.len());
             if reverse {
                 for (dst, src) in edges.iter() {
-                    if self.nbr_list[src.index()] == <I as IndexType>::max() {
-                        insert_counter += 1;
+                    if src.index() >= vertex_num {
+                        insert_offsets.push(usize::MAX);
+                    } else {
+                        if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                            insert_counter += 1;
+                        }
+                        self.nbr_list[src.index()] = *dst;
+                        insert_offsets.push(src.index());
                     }
-                    self.nbr_list[src.index()] = *dst;
-                    insert_offsets.push(src.index());
                 }
             } else {
                 for (src, dst) in edges.iter() {
-                    if self.nbr_list[src.index()] == <I as IndexType>::max() {
-                        insert_counter += 1;
+                    if src.index() >= vertex_num {
+                        insert_offsets.push(usize::MAX);
+                    } else {
+                        if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                            insert_counter += 1;
+                        }
+                        self.nbr_list[src.index()] = *dst;
+                        insert_offsets.push(src.index());
                     }
-                    self.nbr_list[src.index()] = *dst;
-                    insert_offsets.push(src.index());
                 }
             }
 
@@ -205,17 +215,21 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         } else {
             if reverse {
                 for (dst, src) in edges.iter() {
-                    if self.nbr_list[src.index()] == <I as IndexType>::max() {
-                        insert_counter += 1;
+                    if src.index() < vertex_num {
+                        if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                            insert_counter += 1;
+                        }
+                        self.nbr_list[src.index()] = *dst;
                     }
-                    self.nbr_list[src.index()] = *dst;
                 }
             } else {
                 for (src, dst) in edges.iter() {
-                    if self.nbr_list[src.index()] == <I as IndexType>::max() {
-                        insert_counter += 1;
+                    if src.index() < vertex_num {
+                        if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                            insert_counter += 1;
+                        }
+                        self.nbr_list[src.index()] = *dst;
                     }
-                    self.nbr_list[src.index()] = *dst;
                 }
             }
         }

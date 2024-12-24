@@ -1,7 +1,7 @@
 use crate::hack::SafeMutPtr;
 use libc::{
-    c_void, open, close, fstat, ftruncate, mmap, mremap, munmap, shm_open, stat, MAP_SHARED, MREMAP_MAYMOVE,
-    O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, S_IRUSR, S_IWUSR,
+    c_void, close, fstat, ftruncate, mmap, mremap, munmap, open, shm_open, stat, MAP_SHARED,
+    MREMAP_MAYMOVE, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, S_IRUSR, S_IWUSR,
 };
 use rayon::prelude::*;
 use std::collections::HashSet;
@@ -54,19 +54,9 @@ where
                 println!("mmap {}-{} failed, {}", name, file_size, std::io::Error::last_os_error());
             }
 
-            Self {
-                fd,
-                name: name.to_string(),
-                addr,
-                size: file_size / std::mem::size_of::<T>(),
-            }
+            Self { fd, name: name.to_string(), addr, size: file_size / std::mem::size_of::<T>() }
         } else {
-            Self {
-                fd,
-                name: name.to_string(),
-                addr: ptr::null_mut() as *mut T,
-                size: 0,
-            }
+            Self { fd, name: name.to_string(), addr: ptr::null_mut() as *mut T, size: 0 }
         }
     }
 
@@ -121,12 +111,7 @@ where
 
             let slice = unsafe { std::slice::from_raw_parts_mut(addr as *mut u8, input_file_size) };
             input_file.read_exact(slice).unwrap();
-            Self {
-                fd,
-                name: name.to_string(),
-                addr,
-                size: input_file_size / std::mem::size_of::<T>(),
-            }
+            Self { fd, name: name.to_string(), addr, size: input_file_size / std::mem::size_of::<T>() }
         } else {
             Self { fd, name: name.to_string(), addr: ptr::null_mut(), size: 0 }
         }
@@ -135,9 +120,7 @@ where
     pub fn dump_vec(name: &str, vec: &Vec<T>) {
         println!("dump to: {}", name);
         let cstr_name = CString::new(name).unwrap();
-        let fd: RawFd = unsafe {
-            open(cstr_name.as_ptr(), O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        };
+        let fd: RawFd = unsafe { open(cstr_name.as_ptr(), O_CREAT | O_RDWR, S_IRUSR | S_IWUSR) };
         if fd == -1 {
             println!("open failed, {}", std::io::Error::last_os_error());
         }
@@ -199,11 +182,21 @@ where
             if result == -1 {
                 println!("ftruncate failed, {}", std::io::Error::last_os_error());
             }
-            let new_addr = unsafe {
-                mremap(self.addr as *mut c_void, old_file_size, new_file_size, MREMAP_MAYMOVE)
-                    as *mut T
-            };
-            self.addr = new_addr;
+            if self.addr == ptr::null_mut() {
+                self.addr = unsafe {
+                    mmap(ptr::null_mut(), new_file_size, PROT_READ | PROT_WRITE, MAP_SHARED, self.fd, 0)
+                        as *mut T
+                };
+                if self.addr as *mut c_void == libc::MAP_FAILED {
+                    println!("mmap failed, {}", std::io::Error::last_os_error());
+                }
+            } else {
+                let new_addr = unsafe {
+                    mremap(self.addr as *mut c_void, old_file_size, new_file_size, MREMAP_MAYMOVE) as *mut T
+                };
+
+                self.addr = new_addr;
+            }
             self.size = new_len;
         }
     }
@@ -393,8 +386,10 @@ impl SharedStringVec {
     pub fn inplace_parallel_chunk_move(
         &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
     ) {
-        self.offset.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
-        self.length.inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+        self.offset
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+        self.length
+            .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
 
     pub fn resize(&mut self, new_len: usize) {
@@ -414,15 +409,19 @@ impl SharedStringVec {
         let old_size = self.content.len();
         let mut new_size = old_size;
         for (i, idx) in indices.iter().enumerate() {
-            self.offset[*idx] = new_size;
-            self.length[*idx] = v[i].len() as u16;
-            new_size += v[i].len();
+            if *idx != usize::MAX {
+                self.offset[*idx] = new_size;
+                self.length[*idx] = v[i].len() as u16;
+                new_size += v[i].len();
+            }
         }
 
         self.content.resize(new_size);
         let mut sl = &mut self.content.as_mut_slice()[old_size..new_size];
-        for s in v.iter() {
-            sl.write_all(s.as_bytes()).unwrap();
+        for (idx, s) in v.iter().enumerate() {
+            if indices[idx] != usize::MAX {
+                sl.write_all(s.as_bytes()).unwrap();
+            }
         }
     }
 }

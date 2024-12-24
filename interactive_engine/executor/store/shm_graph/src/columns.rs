@@ -591,7 +591,10 @@ impl Column for Int32Column {
                 .downcast_ref::<I32HColumn>()
                 .unwrap();
             for (index, i) in index.iter().enumerate() {
-                self.data[*i] = casted_col.data[index];
+                if *i != usize::MAX {
+                    assert!(*i < self.data.len());
+                    self.data[*i] = casted_col.data[index];
+                }
             }
         }
     }
@@ -754,9 +757,11 @@ impl Column for Int64Column {
                 .as_any()
                 .downcast_ref::<I64HColumn>()
                 .unwrap();
-            assert_eq!(index.len(), casted_col.data.len());
             for (index, i) in index.iter().enumerate() {
-                self.data[*i] = casted_col.data[index];
+                if *i != usize::MAX {
+                    assert!(*i < self.data.len());
+                    self.data[*i] = casted_col.data[index];
+                }
             }
         }
     }
@@ -842,7 +847,10 @@ impl Column for UInt64Column {
                 .downcast_ref::<U64HColumn>()
                 .unwrap();
             for (index, i) in index.iter().enumerate() {
-                self.data[*i] = casted_col.data[index];
+                if *i != usize::MAX {
+                    assert!(*i < self.data.len());
+                    self.data[*i] = casted_col.data[index];
+                }
             }
         }
     }
@@ -928,7 +936,10 @@ impl Column for IDColumn {
                 .downcast_ref::<IDHColumn>()
                 .unwrap();
             for (index, i) in index.iter().enumerate() {
-                self.data[*i] = casted_col.data[index];
+                if *i != usize::MAX {
+                    assert!(*i < self.data.len());
+                    self.data[*i] = casted_col.data[index];
+                }
             }
         }
     }
@@ -1170,8 +1181,11 @@ impl Column for LCStringColumn {
                 .downcast_ref::<StringHColumn>()
                 .unwrap();
             for (index, i) in index.iter().enumerate() {
-                let value = self.table.get(&casted_col.data[index]).unwrap();
-                self.index[*i] = *value;
+                if *i != usize::MAX {
+                    assert!(*i < self.index.len());
+                    let value = self.table.get(&casted_col.data[index]).unwrap();
+                    self.index[*i] = *value;
+                }
             }
         }
     }
@@ -1267,7 +1281,10 @@ impl Column for DateColumn {
                 .downcast_ref::<DateHColumn>()
                 .unwrap();
             for (index, i) in index.iter().enumerate() {
-                self.data[*i] = casted_col.data[index];
+                if *i != usize::MAX {
+                    assert!(*i < self.data.len());
+                    self.data[*i] = casted_col.data[index];
+                }
             }
         }
     }
@@ -1353,7 +1370,10 @@ impl Column for DateTimeColumn {
                 .downcast_ref::<DateTimeHColumn>()
                 .unwrap();
             for (index, i) in index.iter().enumerate() {
-                self.data[*i] = casted_col.data[index];
+                if *i != usize::MAX {
+                    assert!(*i < self.data.len());
+                    self.data[*i] = casted_col.data[index];
+                }
             }
         }
     }

@@ -298,19 +298,27 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
                 let mut insert_offsets = Vec::with_capacity(edges.len());
                 if reverse {
                     for (dst, src) in edges.iter() {
-                        let x = self.degree[src.index()] as usize;
-                        self.degree[src.index()] += 1;
-                        let offset = new_offsets[src.index()] + x;
-                        insert_offsets.push(offset);
-                        self.neighbors[offset] = *dst;
+                        if src.index() >= vertex_num {
+                            insert_offsets.push(usize::MAX);
+                        } else {
+                            let x = self.degree[src.index()] as usize;
+                            self.degree[src.index()] += 1;
+                            let offset = new_offsets[src.index()] + x;
+                            insert_offsets.push(offset);
+                            self.neighbors[offset] = *dst;
+                        }
                     }
                 } else {
                     for (src, dst) in edges.iter() {
-                        let x = self.degree[src.index()] as usize;
-                        self.degree[src.index()] += 1;
-                        let offset = new_offsets[src.index()] + x;
-                        insert_offsets.push(offset);
-                        self.neighbors[offset] = *dst;
+                        if src.index() >= vertex_num {
+                            insert_offsets.push(usize::MAX);
+                        } else {
+                            let x = self.degree[src.index()] as usize;
+                            self.degree[src.index()] += 1;
+                            let offset = new_offsets[src.index()] + x;
+                            insert_offsets.push(offset);
+                            self.neighbors[offset] = *dst;
+                        }
                     }
                 }
                 ep.insert_batch(&insert_offsets, it);
@@ -326,17 +334,21 @@ impl<I: IndexType> CsrTrait<I> for Csr<I> {
                 });
             if reverse {
                 for (dst, src) in edges.iter() {
-                    let x = self.degree[src.index()] as usize;
-                    self.degree[src.index()] += 1;
-                    let offset = new_offsets[src.index()] + x;
-                    self.neighbors[offset] = *dst;
+                    if src.index() < vertex_num {
+                        let x = self.degree[src.index()] as usize;
+                        self.degree[src.index()] += 1;
+                        let offset = new_offsets[src.index()] + x;
+                        self.neighbors[offset] = *dst;
+                    }
                 }
             } else {
                 for (src, dst) in edges.iter() {
-                    let x = self.degree[src.index()] as usize;
-                    self.degree[src.index()] += 1;
-                    let offset = new_offsets[src.index()] + x;
-                    self.neighbors[offset] = *dst;
+                    if src.index() < vertex_num {
+                        let x = self.degree[src.index()] as usize;
+                        self.degree[src.index()] += 1;
+                        let offset = new_offsets[src.index()] + x;
+                        self.neighbors[offset] = *dst;
+                    }
                 }
             }
         }

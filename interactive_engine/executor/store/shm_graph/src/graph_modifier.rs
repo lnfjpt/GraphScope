@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-// use std::time::Instant;
+use std::time::Instant;
 
 use csv::ReaderBuilder;
 use pegasus_common::codec::{Decode, Encode};
@@ -525,10 +525,45 @@ impl Clone for AliasData {
 unsafe impl Send for AliasData {}
 unsafe impl Sync for AliasData {}
 
-fn get_next_output_dir(prefix: &str) -> String {
+fn get_next_output_dir(prefix: &str, partition: usize) -> String {
+    let batches = [
+        "2012-11-29",
+        "2012-11-30",
+        "2012-12-01",
+        "2012-12-02",
+        "2012-12-03",
+        "2012-12-04",
+        "2012-12-05",
+        "2012-12-06",
+        "2012-12-07",
+        "2012-12-08",
+        "2012-12-09",
+        "2012-12-10",
+        "2012-12-11",
+        "2012-12-12",
+        "2012-12-13",
+        "2012-12-14",
+        "2012-12-15",
+        "2012-12-16",
+        "2012-12-17",
+        "2012-12-18",
+        "2012-12-19",
+        "2012-12-20",
+        "2012-12-21",
+        "2012-12-22",
+        "2012-12-23",
+        "2012-12-24",
+        "2012-12-25",
+        "2012-12-26",
+        "2012-12-27",
+        "2012-12-28",
+        "2012-12-29",
+        "2012-12-30",
+        "2012-12-31",
+    ];
     let mut idx = 0;
     loop {
-        let path = format!("{}/batch-{}", prefix, idx);
+        let path = format!("{}/batch-{}/part-{}", prefix, batches[idx], partition);
         let ppath = Path::new(path.as_str());
         if ppath.exists() {
             idx += 1;
@@ -543,19 +578,23 @@ pub fn apply_write_operations(
     graph: &mut GraphDB<usize, usize>, mut write_operations: Vec<WriteOperation>, servers: usize,
 ) {
     let mut merged_delete_vertices_data: HashMap<LabelId, Vec<u64>> = HashMap::new();
-    let mut traversed = false;
+    // let mut traversed = false;
+    let mut traversed = true;
     for mut write_op in write_operations.drain(..) {
         match write_op.write_type() {
             WriteType::Insert => {
                 if let Some(vertex_mappings) = write_op.take_vertex_mappings() {
+                    let start = Instant::now();
                     let vertex_label = vertex_mappings.vertex_label();
                     let inputs = vertex_mappings.inputs();
                     let column_mappings = vertex_mappings.column_mappings();
                     for input in inputs.iter() {
                         insert_vertices(graph, vertex_label, input, column_mappings, servers);
                     }
+                    println!("insert vertices: {} s", start.elapsed().as_secs_f64());
                 }
                 if let Some(edge_mappings) = write_op.take_edge_mappings() {
+                    let start = Instant::now();
                     let src_label = edge_mappings.src_label();
                     let edge_label = edge_mappings.edge_label();
                     let dst_label = edge_mappings.dst_label();
@@ -576,10 +615,12 @@ pub fn apply_write_operations(
                             servers,
                         );
                     }
+                    println!("insert edges: {} s", start.elapsed().as_secs_f64());
                 }
             }
             WriteType::Delete => {
                 if let Some(mut vertex_mappings) = write_op.take_vertex_mappings() {
+                    let start = Instant::now();
                     let vertex_label = vertex_mappings.vertex_label();
                     let inputs = vertex_mappings.take_inputs();
                     let column_mappings = vertex_mappings.column_mappings();
@@ -623,8 +664,10 @@ pub fn apply_write_operations(
                         }
                         // delete_vertices(graph, vertex_label, &input, column_mappings, servers);
                     }
+                    println!("delete vertices: {} s", start.elapsed().as_secs_f64());
                 }
                 if let Some(edge_mappings) = write_op.take_edge_mappings() {
+                    let start = Instant::now();
                     let src_label = edge_mappings.src_label();
                     let edge_label = edge_mappings.edge_label();
                     let dst_label = edge_mappings.dst_label();
@@ -645,15 +688,16 @@ pub fn apply_write_operations(
                             servers,
                         );
                     }
+                    println!("delete edges: {} s", start.elapsed().as_secs_f64());
                 }
             }
             WriteType::Set => {
                 if !traversed {
-                    let output_prefix = get_next_output_dir("/mnt/nas/luoxiaojian/traverse_output");
+                    let output_prefix =
+                        get_next_output_dir("/mnt/nas/luoxiaojian/traverse_output", graph.partition);
                     if !output_prefix.is_empty() {
-                        let part_path = format!("{}/part-{}", output_prefix.as_str(), graph.partition);
-                        fs::create_dir_all(part_path.as_str()).unwrap();
-                        traverse(&graph, part_path.as_str());
+                        fs::create_dir_all(output_prefix.as_str()).unwrap();
+                        traverse(&graph, output_prefix.as_str());
                         traversed = true;
                     }
                 }
@@ -748,10 +792,16 @@ fn insert_vertices<G, I>(
     if let Some((column_index, _)) = column_map.get("id") {
         id_col = *column_index;
     }
-    let vertex_table_header = graph.graph_schema.get_vertex_header(vertex_label).unwrap().to_vec();
+    let vertex_table_header = graph
+        .graph_schema
+        .get_vertex_header(vertex_label)
+        .unwrap()
+        .to_vec();
     for (name, _) in vertex_table_header.iter() {
         if !column_map.contains_key(name) {
-            graph.graph_schema.remove_vertex_index_prop(name, vertex_label);
+            graph
+                .graph_schema
+                .remove_vertex_index_prop(name, vertex_label);
             graph.vertex_prop_table[vertex_label as usize].remove_column(name);
         }
     }
@@ -846,10 +896,16 @@ pub fn insert_edges<G, I>(
             max_col = column_index + 1;
         }
     }
-    let edge_table_header = graph.graph_schema.get_edge_header(src_label, edge_label, dst_label).unwrap().to_vec();
+    let edge_table_header = graph
+        .graph_schema
+        .get_edge_header(src_label, edge_label, dst_label)
+        .unwrap()
+        .to_vec();
     for (name, _) in edge_table_header.iter() {
         if !column_map.contains_key(name) {
-            graph.graph_schema.remove_edge_index_prop(name, src_label, edge_label, dst_label);
+            graph
+                .graph_schema
+                .remove_edge_index_prop(name, src_label, edge_label, dst_label);
             let idx = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
             if let Some(table) = graph.oe_edge_prop_table.get_mut(&idx) {
                 table.remove_column(name);
@@ -1146,9 +1202,7 @@ pub fn set_vertices(
                         uint64_column
                             .data
                             .par_iter()
-                            .map(|&x| {
-                                graph.get_internal_id(x as usize)
-                            })
+                            .map(|&x| graph.get_internal_id(x as usize))
                             .collect()
                     } else {
                         panic!("DataType of id col is not VertexId")
