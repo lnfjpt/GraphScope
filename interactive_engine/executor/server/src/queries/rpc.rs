@@ -291,7 +291,12 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     };
                     params.insert(name, value);
                 }
-                if let Some(queries) = self.query_register.get_new_query(&query_name) {
+                if let Some((queries, query_type)) = self.query_register.get_new_query(&query_name) {
+                    if query_type == "READ_WRITE" {
+                        let mut graph = self.graph_db.write().unwrap();
+                        graph.apply_delete_neighbors();
+                        drop(graph);
+                    }
                     let resource_maps = DistributedParResourceMaps::default(
                         ServerConf::Partial(self.servers.clone()),
                         self.workers,

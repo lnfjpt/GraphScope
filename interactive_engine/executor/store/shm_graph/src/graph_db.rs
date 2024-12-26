@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Instant;
 
 use crate::columns::Column;
 use crate::csr::Csr;
@@ -125,6 +127,8 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
 
     // pub root_path: String,
     pub partition_prefix: String,
+
+    pub pending_to_delete: HashMap<LabelId, HashSet<I>>,
 }
 
 impl<G, I> GraphDB<G, I>
@@ -348,6 +352,8 @@ where
 
             // root_path: prefix.to_string(),
             partition_prefix: name.to_string(),
+
+            pending_to_delete: HashMap::new(),
         }
     }
 
@@ -531,5 +537,58 @@ where
                 self.oe_edge_prop_table.get(&index),
             ),
         }
+    }
+
+    pub fn apply_delete_neighbors(&mut self) {
+        for (&vertex_label, vertex_set) in self.pending_to_delete.iter() {
+            let start = Instant::now();
+            for e_label_i in 0..self.edge_label_num {
+                for src_label_i in 0..self.vertex_label_num {
+                    if self.graph_schema.get_edge_header(src_label_i as LabelId, e_label_i as LabelId, vertex_label as LabelId).is_none() {
+                        continue;
+                    }
+
+                    let index = self.edge_label_to_index(src_label_i as LabelId,
+                        vertex_label as LabelId,
+                        e_label_i as LabelId,
+                        Direction::Outgoing,
+                    );
+
+                    if let Some(oe_csr) = self.oe.get_mut(&index) {
+                        if let Some(table) = self.oe_edge_prop_table.get_mut(&index) {
+                            let shuffle_indices = oe_csr.delete_neighbors_with_ret(vertex_set);
+                            if !shuffle_indices.is_empty() {
+                                table.parallel_move(&shuffle_indices);
+                            }
+                        } else {
+                            oe_csr.delete_neighbors(vertex_set);
+                        }
+                    }
+                }
+                for dst_label_i in 0..self.vertex_label_num {
+                    if self.graph_schema.get_edge_header(vertex_label as LabelId, e_label_i as LabelId, dst_label_i as LabelId).is_none() {
+                        continue;
+                    }
+                    let index = self.edge_label_to_index(
+                        vertex_label as LabelId,
+                        dst_label_i as LabelId,
+                        e_label_i as LabelId,
+                        Direction::Outgoing,
+                    );
+                    if let Some(ie_csr) = self.ie.get_mut(&index) {
+                        if let Some(table) = self.ie_edge_prop_table.get_mut(&index) {
+                            let shuffle_indices = ie_csr.delete_neighbors_with_ret(vertex_set);
+                            if !shuffle_indices.is_empty() {
+                                table.parallel_move(&shuffle_indices);
+                            }
+                        } else {
+                            ie_csr.delete_neighbors(vertex_set);
+                        }
+                    }
+                }
+            }
+            println!("delete pended vertices - {}: {} elapsed {} s", vertex_label as LabelId, vertex_set.len(), start.elapsed().as_secs_f64());
+        }
+        self.pending_to_delete.clear();
     }
 }

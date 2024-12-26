@@ -59,7 +59,7 @@ pub struct QueriesConfig {
 }
 
 pub struct QueryRegister {
-    query_map: HashMap<String, String>,
+    query_map: HashMap<String, (String, String)>,
 }
 
 unsafe impl Send for QueryRegister {}
@@ -78,15 +78,16 @@ impl QueryRegister {
             for query in queries {
                 let query_name = query.name;
                 let lib_path = query.library;
+                let lib_type = query.mode;
                 self.query_map
-                    .insert(query_name.clone(), lib_path.clone());
+                    .insert(query_name.clone(), (lib_path.clone(), lib_type.clone()));
             }
         }
     }
 
-    pub fn get_new_query(&self, query_name: &String) -> Option<Vec<Container<QueryApi>>> {
-        if let Some(lib_path) = self.query_map.get(query_name) {
-            Some(vec![unsafe { Container::load(lib_path) }.unwrap()])
+    pub fn get_new_query(&self, query_name: &String) -> Option<(Vec<Container<QueryApi>>, String)> {
+        if let Some((lib_path, lib_type)) = self.query_map.get(query_name) {
+            Some((vec![unsafe { Container::load(lib_path) }.unwrap()], lib_type.clone()))
         } else {
             None
         }

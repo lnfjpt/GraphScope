@@ -256,7 +256,7 @@ where
             });
     }
 
-    pub fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+    pub fn inplace_parallel_range_move_beta(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
         if range_diff.len() == 1 {
             if range_diff[0].0 == 0 && range_diff[0].1 == self.len() && range_diff[0].2 == 0 {
                 self.resize(new_size);
@@ -298,6 +298,56 @@ where
                     };
 
                     let slice_in = &old_edges[*from..*to];
+                    let slice_out = &mut safe_self.get_mut().as_mut_slice()[new_from..new_to];
+                    slice_out.copy_from_slice(slice_in);
+                });
+        }
+    }
+
+    pub fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        if range_diff.len() == 1 {
+            if range_diff[0].0 == 0 && range_diff[0].1 == self.len() && range_diff[0].2 == 0 {
+                self.resize(new_size);
+                return;
+            }
+        }
+        assert!(range_diff[0].2 == 0);
+        let actual_start = range_diff[1].0;
+        let self_slice = &self.as_slice()[actual_start..];
+        let ret: Vec<T> = self_slice.par_iter().copied().collect();
+        let old_edges = ret.as_slice();
+
+        self.resize(new_size);
+        let safe_self = SafeMutPtr::new(self);
+
+        if range_diff.len() < rayon::current_num_threads() {
+            range_diff[1..].iter().for_each(|(from, to, diff)| {
+                let (new_from, new_to) = if *diff >= 0 {
+                    (*from + *diff as usize, *to + *diff as usize)
+                } else {
+                    (*from - (diff.abs() as usize), *to - (diff.abs() as usize))
+                };
+
+                let slice_in = &old_edges[(*from - actual_start)..(*to - actual_start)];
+                let slice_out = &mut safe_self.get_mut().as_mut_slice()[new_from..new_to];
+                slice_out
+                    .par_iter_mut()
+                    .zip(slice_in.par_iter())
+                    .for_each(|(out, in_val)| {
+                        *out = *in_val;
+                    });
+            });
+        } else {
+            range_diff[1..]
+                .par_iter()
+                .for_each(|(from, to, diff)| {
+                    let (new_from, new_to) = if *diff >= 0 {
+                        (*from + *diff as usize, *to + *diff as usize)
+                    } else {
+                        (*from - (diff.abs() as usize), *to - (diff.abs() as usize))
+                    };
+
+                    let slice_in = &old_edges[(*from - actual_start)..(*to - actual_start)];
                     let slice_out = &mut safe_self.get_mut().as_mut_slice()[new_from..new_to];
                     slice_out.copy_from_slice(slice_in);
                 });
