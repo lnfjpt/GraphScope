@@ -243,6 +243,16 @@ impl Table {
             );
         }
     }
+
+    pub fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        for col_id in 0..self.columns.len() {
+            self.columns[col_id].inplace_parallel_range_move(
+                new_size,
+                range_diff,
+            );
+        }
+
+    }
 }
 
 unsafe impl Sync for Table {}

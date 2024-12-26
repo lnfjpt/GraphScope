@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::marker::PhantomData;
 
+use rayon::prelude::*;
 use shm_container::SharedVec;
 
 use crate::graph::*;
@@ -130,13 +131,13 @@ where
         // self.vertices_num[label as usize] -= n;
     }
 
-    pub fn insert_native_vertices(&mut self, label: LabelId, id_list: &Vec<G>) -> Vec<usize> {
-        let ret = self.indexers[label as usize].insert_batch(id_list);
+    pub fn insert_native_vertices(&mut self, label: LabelId, id_list: Vec<G>) -> Vec<usize> {
+        let ret = self.indexers[label as usize].insert_batch_beta(id_list);
         let old_vertices_num = self.tombs[label as usize].len();
         self.tombs[label as usize].resize(self.indexers[label as usize].len());
-        for i in old_vertices_num..self.indexers[label as usize].len() {
-            self.tombs[label as usize][i] = 0;
-        }
+        self.tombs[label as usize].as_mut_slice()[old_vertices_num..]
+            .par_iter_mut()
+            .for_each(|x| *x = 0);
         ret
     }
 
@@ -149,7 +150,7 @@ where
         }
     }
 
-    pub fn insert_corner_vertices(&mut self, label: LabelId, id_list: &Vec<G>) {
-        self.corner_indexers[label as usize].insert_batch(id_list);
+    pub fn insert_corner_vertices(&mut self, label: LabelId, id_list: Vec<G>) {
+        self.corner_indexers[label as usize].insert_batch_beta(id_list);
     }
 }

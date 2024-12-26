@@ -104,8 +104,9 @@ where
     }
 }
 
-fn output_single_sub_graph<G, I>(csr: &SingleSubGraph<'_, G, I>, vm: &VertexMap<G, I>, file: &mut BufWriter<File>)
-where
+fn output_single_sub_graph<G, I>(
+    csr: &SingleSubGraph<'_, G, I>, vm: &VertexMap<G, I>, file: &mut BufWriter<File>,
+) where
     G: Send + Sync + IndexType,
     I: Send + Sync + IndexType,
 {
@@ -157,7 +158,7 @@ where
                     let mut oe_file =
                         File::create(output_dir_path.join(oe_filename.clone() + ".csv")).unwrap();
                     let mut oe_writer = BufWriter::new(oe_file);
-                    
+
                     writeln!(oe_writer, "src|dst").unwrap();
 
                     if graph.graph_schema.is_single_oe(

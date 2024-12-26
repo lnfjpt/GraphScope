@@ -3,7 +3,6 @@ use rayon::prelude::*;
 use shm_container::SharedVec;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::thread::panicking;
 
 const INITIAL_SIZE: usize = 16;
 const MAX_LOAD_FACTOR: f64 = 0.875;
@@ -140,7 +139,7 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
         }
     }
 
-    pub fn insert_batch(&mut self, id_list: &Vec<K>) -> Vec<usize> {
+    pub fn insert_batch(&mut self, id_list: Vec<K>) -> Vec<usize> {
         if self.keys.len() + id_list.len() >= self.indices.len() {
             self.rehash_to(self.keys.len() + id_list.len());
         }
@@ -178,6 +177,65 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
             }
             assert!(self.keys[self.indices[index]] == *v);
             ret.push(self.indices[index]);
+        }
+
+        self.keys.resize(cur_lid);
+
+        ret
+    }
+
+    pub fn insert_batch_beta(&mut self, id_list: Vec<K>) -> Vec<usize> {
+        if self.keys.len() + id_list.len() >= self.indices.len() {
+            self.rehash_to(self.keys.len() + id_list.len());
+        }
+        assert!(self.keys.len() + id_list.len() < self.indices.len());
+
+        let indices_len = self.indices.len();
+
+        let mut ret: Vec<usize> = id_list
+            .par_iter()
+            .map(|v| {
+                let hash = hash_integer(v.index());
+                let mut index = (hash as usize) % indices_len;
+                loop {
+                    if self.indices[index] == usize::MAX {
+                        break;
+                    } else {
+                        if self.keys[self.indices[index]] == *v {
+                            break;
+                        }
+                    }
+                    index = (index + 1) % indices_len;
+                }
+                index
+            })
+            .collect();
+
+        let mut cur_lid = self.keys.len();
+        self.keys.resize(cur_lid + id_list.len());
+
+        for (i, v) in id_list.iter().enumerate() {
+            let mut cur = ret[i];
+            if self.indices[cur] == usize::MAX {
+                self.indices[cur] = cur_lid;
+                self.keys[cur_lid] = *v;
+                ret[i] = cur_lid;
+                cur_lid += 1;
+            } else if self.keys[self.indices[cur]] == *v {
+                ret[i] = self.indices[cur];
+            } else {
+                while self.indices[cur] != usize::MAX && self.keys[self.indices[cur]] != *v {
+                    cur = (cur + 1) % indices_len;
+                }
+                if self.indices[cur] == usize::MAX {
+                    self.indices[cur] = cur_lid;
+                    self.keys[cur_lid] = *v;
+                    ret[i] = cur_lid;
+                    cur_lid += 1;
+                } else {
+                    ret[i] = self.indices[cur];
+                }
+            }
         }
 
         self.keys.resize(cur_lid);

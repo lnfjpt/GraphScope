@@ -464,6 +464,8 @@ pub trait Column {
     fn inplace_parallel_chunk_move(
         &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
     );
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]);
 }
 
 pub struct NullColumn {
@@ -516,6 +518,10 @@ impl Column for NullColumn {
     fn inplace_parallel_chunk_move(
         &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
     ) {
+    }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        
     }
 }
 
@@ -605,6 +611,10 @@ impl Column for Int32Column {
         self.data
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.data.inplace_parallel_range_move(new_size, range_diff);
+    }
 }
 
 pub struct UInt32Column {
@@ -682,6 +692,10 @@ impl Column for UInt32Column {
     ) {
         self.data
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.data.inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -772,6 +786,10 @@ impl Column for Int64Column {
         self.data
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.data.inplace_parallel_range_move(new_size, range_diff);
+    }
 }
 
 pub struct UInt64Column {
@@ -860,6 +878,10 @@ impl Column for UInt64Column {
     ) {
         self.data
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.data.inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -950,6 +972,10 @@ impl Column for IDColumn {
         self.data
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.data.inplace_parallel_range_move(new_size, range_diff);
+    }
 }
 
 pub struct DoubleColumn {
@@ -1028,6 +1054,10 @@ impl Column for DoubleColumn {
         self.data
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.data.inplace_parallel_range_move(new_size, range_diff);
+    }
 }
 
 pub struct StringColumn {
@@ -1096,6 +1126,10 @@ impl Column for StringColumn {
     ) {
         self.data
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.data.inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -1196,6 +1230,10 @@ impl Column for LCStringColumn {
         self.index
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.index.inplace_parallel_range_move(new_size, range_diff);
+    }
 }
 
 impl Index<usize> for LCStringColumn {
@@ -1295,6 +1333,10 @@ impl Column for DateColumn {
         self.data
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
     }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.data.inplace_parallel_range_move(new_size, range_diff);
+    }
 }
 
 pub struct DateTimeColumn {
@@ -1383,6 +1425,10 @@ impl Column for DateTimeColumn {
     ) {
         self.data
             .inplace_parallel_chunk_move(new_size, old_offsets, old_degree, new_offsets);
+    }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        self.data.inplace_parallel_range_move(new_size, range_diff);
     }
 }
 

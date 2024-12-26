@@ -2,6 +2,7 @@ use std::any::Any;
 
 use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
+use rayon::prelude::*;
 
 use crate::columns::{DataType, Item, RefItem};
 use crate::date::Date;
@@ -15,6 +16,8 @@ pub trait HeapColumn {
     fn push(&mut self, val: Item);
     fn len(&self) -> usize;
     fn as_any(&self) -> &dyn Any;
+
+    fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize);
 }
 
 pub struct I32HColumn {
@@ -63,6 +66,17 @@ impl HeapColumn for I32HColumn {
                 self.data.push(0);
             }
         }
+    }
+
+    fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
+        let new_elems: Vec<i32> = rows
+            .par_iter()
+            .map(|row| match row[col_id] {
+                Item::Int32(v) => v,
+                _ => 0,
+            })
+            .collect();
+        self.data.extend(new_elems);
     }
 
     fn len(&self) -> usize {
@@ -120,6 +134,17 @@ impl HeapColumn for I64HColumn {
                 self.data.push(0);
             }
         }
+    }
+
+    fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
+        let new_elems: Vec<i64> = rows
+            .par_iter()
+            .map(|row| match row[col_id] {
+                Item::Int64(v) => v,
+                _ => 0,
+            })
+            .collect();
+        self.data.extend(new_elems);
     }
 
     fn len(&self) -> usize {
@@ -181,6 +206,17 @@ impl HeapColumn for U64HColumn {
         }
     }
 
+    fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
+        let new_elems: Vec<u64> = rows
+            .par_iter()
+            .map(|row| match row[col_id] {
+                Item::UInt64(v) => v,
+                _ => 0,
+            })
+            .collect();
+        self.data.extend(new_elems);
+    }
+
     fn len(&self) -> usize {
         self.data.len()
     }
@@ -238,6 +274,17 @@ impl HeapColumn for IDHColumn {
                 self.data.push(0);
             }
         }
+    }
+
+    fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
+        let new_elems: Vec<DefaultId> = rows
+            .par_iter()
+            .map(|row| match row[col_id] {
+                Item::VertexId(v) => v,
+                _ => 0,
+            })
+            .collect();
+        self.data.extend(new_elems);
     }
 
     fn len(&self) -> usize {
@@ -299,6 +346,17 @@ impl HeapColumn for StringHColumn {
         }
     }
 
+    fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
+        let new_elems: Vec<String> = rows
+            .par_iter()
+            .map(|row| match &row[col_id] {
+                Item::String(v) => v.clone(),
+                _ => "".to_string(),
+            })
+            .collect();
+        self.data.extend(new_elems);
+    }
+
     fn len(&self) -> usize {
         self.data.len()
     }
@@ -354,6 +412,17 @@ impl HeapColumn for DateHColumn {
                 self.data.push(Date::empty());
             }
         }
+    }
+
+    fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
+        let new_elems: Vec<Date> = rows
+            .par_iter()
+            .map(|row| match row[col_id] {
+                Item::Date(v) => v,
+                _ => Date::empty(),
+            })
+            .collect();
+        self.data.extend(new_elems);
     }
 
     fn len(&self) -> usize {
@@ -413,6 +482,17 @@ impl HeapColumn for DateTimeHColumn {
                 self.data.push(DateTime::empty());
             }
         }
+    }
+
+    fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
+        let new_elems: Vec<DateTime> = rows
+            .par_iter()
+            .map(|row| match row[col_id] {
+                Item::DateTime(v) => v,
+                _ => DateTime::empty(),
+            })
+            .collect();
+        self.data.extend(new_elems);
     }
 
     fn len(&self) -> usize {
@@ -691,6 +771,12 @@ impl DataFrame {
         assert_eq!(row.len(), self.columns.len());
         for (i, v) in row.into_iter().enumerate() {
             self.columns[i].data.push(v);
+        }
+    }
+
+    pub fn append_rows(&mut self, rows: Vec<Vec<Item>>) {
+        for i in 0..self.columns.len() {
+            self.columns[i].data.append_rows(&rows, i);
         }
     }
 

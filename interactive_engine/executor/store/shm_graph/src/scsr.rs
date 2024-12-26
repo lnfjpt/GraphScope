@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread::panicking;
+use std::time::Instant;
 use std::usize;
 
 use rayon::prelude::*;
@@ -113,7 +113,7 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
             }
         } else {
             for (src, dst) in edges.iter() {
-                if let Some(set) = delete_map.get_mut(&dst) {
+                if let Some(set) = delete_map.get_mut(&src) {
                     set.insert(*dst);
                 } else {
                     if src.index() < self.nbr_list.len() {
@@ -151,7 +151,7 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         }
     }
 
-    fn delete_neighbors(&mut self, neighbors: &HashSet<I>) -> Vec<(usize, usize)> {
+    fn delete_neighbors(&mut self, neighbors: &HashSet<I>) {
         let nbrs_slice = self.nbr_list.as_mut_slice();
         let deleted_counter = AtomicUsize::new(0);
 
@@ -165,6 +165,10 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         });
 
         self.meta[1] -= deleted_counter.load(Ordering::Relaxed);
+    }
+
+    fn delete_neighbors_with_ret(&mut self, neighbors: &HashSet<I>) -> Vec<(usize, usize)> {
+        self.delete_neighbors(neighbors);
         vec![]
     }
 
@@ -173,14 +177,20 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
         insert_edges_prop: Option<&crate::dataframe::DataFrame>, reverse: bool,
         edges_prop: Option<&mut Table>,
     ) {
+        let start = Instant::now();
         let old_length = self.nbr_list.len();
         self.nbr_list.resize(vertex_num);
         for i in old_length..vertex_num {
             self.nbr_list[i] = <I as IndexType>::max();
         }
+        let t0 = start.elapsed().as_secs_f64();
 
+        let mut t1 = 0_f64;
+        let mut t2 = 0_f64;
+        let mut t3 = 0_f64;
         let mut insert_counter = 0;
         if let Some(it) = insert_edges_prop {
+            let start = Instant::now();
             let mut insert_offsets = Vec::with_capacity(edges.len());
             if reverse {
                 for (dst, src) in edges.iter() {
@@ -207,12 +217,16 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
                     }
                 }
             }
+            t1 = start.elapsed().as_secs_f64();
 
+            let start = Instant::now();
             if let Some(ep) = edges_prop {
                 ep.resize(vertex_num);
                 ep.insert_batch(&insert_offsets, it);
             }
+            t2 = start.elapsed().as_secs_f64();
         } else {
+            let start = Instant::now();
             if reverse {
                 for (dst, src) in edges.iter() {
                     if src.index() < vertex_num {
@@ -232,10 +246,94 @@ impl<I: IndexType> CsrTrait<I> for SCsr<I> {
                     }
                 }
             }
+            t3 = start.elapsed().as_secs_f64();
         }
 
         self.meta[0] = vertex_num;
         self.meta[1] += insert_counter;
+        println!("scsr::insert_edges: {}, {}, {}, {}", t0, t1, t2, t3);
+    }
+
+    fn insert_edges_beta(
+        &mut self, vertex_num: usize, edges: &Vec<(I, I)>,
+        insert_edges_prop: Option<&crate::dataframe::DataFrame>, reverse: bool,
+        edges_prop: Option<&mut Table>,
+    ) {
+        let start = Instant::now();
+        let old_length = self.nbr_list.len();
+        self.nbr_list.resize(vertex_num);
+        for i in old_length..vertex_num {
+            self.nbr_list[i] = <I as IndexType>::max();
+        }
+        let t0 = start.elapsed().as_secs_f64();
+
+        let mut t1 = 0_f64;
+        let mut t2 = 0_f64;
+        let mut t3 = 0_f64;
+        let mut insert_counter = 0;
+        if let Some(it) = insert_edges_prop {
+            let start = Instant::now();
+            let mut insert_offsets = Vec::with_capacity(edges.len());
+            if reverse {
+                for (dst, src) in edges.iter() {
+                    if src.index() >= vertex_num {
+                        insert_offsets.push(usize::MAX);
+                    } else {
+                        if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                            insert_counter += 1;
+                        }
+                        self.nbr_list[src.index()] = *dst;
+                        insert_offsets.push(src.index());
+                    }
+                }
+            } else {
+                for (src, dst) in edges.iter() {
+                    if src.index() >= vertex_num {
+                        insert_offsets.push(usize::MAX);
+                    } else {
+                        if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                            insert_counter += 1;
+                        }
+                        self.nbr_list[src.index()] = *dst;
+                        insert_offsets.push(src.index());
+                    }
+                }
+            }
+            t1 = start.elapsed().as_secs_f64();
+
+            let start = Instant::now();
+            if let Some(ep) = edges_prop {
+                ep.resize(vertex_num);
+                ep.insert_batch(&insert_offsets, it);
+            }
+            t2 = start.elapsed().as_secs_f64();
+        } else {
+            let start = Instant::now();
+            if reverse {
+                for (dst, src) in edges.iter() {
+                    if src.index() < vertex_num {
+                        if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                            insert_counter += 1;
+                        }
+                        self.nbr_list[src.index()] = *dst;
+                    }
+                }
+            } else {
+                for (src, dst) in edges.iter() {
+                    if src.index() < vertex_num {
+                        if self.nbr_list[src.index()] == <I as IndexType>::max() {
+                            insert_counter += 1;
+                        }
+                        self.nbr_list[src.index()] = *dst;
+                    }
+                }
+            }
+            t3 = start.elapsed().as_secs_f64();
+        }
+
+        self.meta[0] = vertex_num;
+        self.meta[1] += insert_counter;
+        println!("scsr::insert_edges: {}, {}, {}, {}", t0, t1, t2, t3);
     }
 
     fn as_any(&self) -> &dyn Any {
