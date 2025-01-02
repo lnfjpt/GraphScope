@@ -1160,6 +1160,15 @@ impl LCStringColumn {
         }
         Self { index: SharedVec::<u16>::open(format!("{}_index", path).as_str()), data, table }
     }
+
+    pub fn get_index(&self, content: &String) -> Option<usize> {
+        for i in 0..self.data.len() {
+            if self.data.get_unchecked(i) == content.as_str() {
+                return Some(i);
+            }
+        }
+        None
+    }
 }
 
 unsafe impl Send for LCStringColumn {}

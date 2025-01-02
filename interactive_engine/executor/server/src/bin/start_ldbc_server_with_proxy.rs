@@ -41,8 +41,6 @@ pub struct Config {
     partition_id: usize,
     #[structopt(short = "t", long = "pool_size", default_value = "0")]
     pool_size: u32,
-    #[structopt(short = "c", long = "schema_path")]
-    schema_path: PathBuf
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -76,9 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pegasus_common::logs::init_log();
     let config: Config = Config::from_args();
 
+    let graph_schema_path = config.graph_data.clone().join("graph_schema").join("schema.json");
     let graph_data_str = config.graph_data.to_str().unwrap();
     let pool_size = config.pool_size;
-    let graph_schema_path = config.schema_path.clone();
 
     let start = Instant::now();
     let name = "/SHM_GRAPH_STORE";
@@ -89,7 +87,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let start = Instant::now();
     let schema = GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
-    schema.to_json_file(&graph_schema_path)?;
     println!("load graph takes: {} s", start.elapsed().as_secs_f64());
     // let start = Instant::now();
     // let shared_graph =
@@ -161,8 +158,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool_size,
         workers,
         servers,
-        Some(shared_graph),
-        graph_schema_path
+        None,
+        graph_schema_path,
+        config.partition_id
     ));
 
     if let Some(proxy_endpoint) = proxy_endpoint {

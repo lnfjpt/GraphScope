@@ -4,10 +4,12 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::process::{Command, Stdio};
 use std::io::{BufReader, BufRead, self};
+use std::io::Write;
 use std::path::PathBuf;
 use std::ptr::write;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
+use std::fs::{self, OpenOptions};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -237,17 +239,17 @@ impl RPCServerConfig {
 
 pub async fn start_all(
     rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, pool_size: u32, workers: u32,
-    servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, graph_schema_path: PathBuf
+    servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, graph_schema_path: PathBuf, partition_id: usize,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_id = server_config.server_id();
-    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db, graph_schema_path)
+    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db, graph_schema_path, partition_id)
         .await?;
     Ok(())
 }
 
 pub async fn start_rpc_sever(
     server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, pool_size: u32, workers: u32,
-    servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, graph_schema_path: PathBuf
+    servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, graph_schema_path: PathBuf, partition_id: usize,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut service = JobServiceImpl {
         query_register,
@@ -258,7 +260,8 @@ pub async fn start_rpc_sever(
         report: true,
         graph_db,
         subprocess: Some(Arc::new(RwLock::new(VecDeque::new()))),
-        graph_schema_path
+        graph_schema_path,
+        partition_id,
     };
     service.start_subprocess();
     let server = RPCJobServer::new(rpc_config, service);
@@ -280,13 +283,15 @@ pub struct JobServiceImpl {
     report: bool,
     graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
     subprocess: Option<Arc<RwLock<VecDeque<(u32, std::process::Child)>>>>,
-    graph_schema_path: PathBuf
+    graph_schema_path: PathBuf,
+    partition_id: usize,
 }
 
 impl JobServiceImpl {
     pub fn start_subprocess(&mut self) {
         if let Some(subprocess) = &self.subprocess {
             let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
+            println!("graph schema path is {}", self.graph_schema_path.to_str().unwrap());
             for i in 0..self.pool_size {
                 let mut child = Command::new("/mnt/nas/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
                     .stdin(Stdio::piped())
@@ -294,11 +299,13 @@ impl JobServiceImpl {
                     .arg("-s")
                     .arg("/root/server.toml")
                     .arg("-q")
-                    .arg("/root/queries.yaml")
-                    .arg("-n")
-                    .arg("test")
+                    .arg("/mnt/nas/subprocess/queries.yaml")
                     .arg("-o")
                     .arg(format!("{}", i))
+                    .arg("-i")
+                    .arg(self.graph_schema_path.to_str().unwrap())
+                    .arg("--partition_id")
+                    .arg(self.partition_id.to_string())
                     .spawn()
                     .expect("Failed to execute command");
                 subprocess_write.push_back((i, child));
@@ -321,6 +328,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     Some(common::name_or_id::Item::Name(name)) => name,
                     _ => "unknown".to_string(),
                 };
+                let mut inputs = query_name.clone();
                 let mut params = HashMap::<String, String>::new();
                 for argument in query.arguments {
                     let name = argument.param_name;
@@ -362,7 +370,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                                     )
                                 },
                             )
-                            .expect("submit query failure")
+                                .expect("submit query failure")
                         };
                         let mut write_operations = vec![];
                         let mut bytes_result = vec![];
@@ -385,93 +393,66 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                         let mut graph = self.graph_db.write().unwrap();
                         apply_write_operations(&mut graph, write_operations, self.servers.len());
 
-                let start = Instant::now();
-                if let Some(subprocess) = &self.subprocess {
+
+                        let start = Instant::now();
+                        /*if let Some(subprocess) = &self.subprocess {
                     let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
                     let (ref mut index, ref mut child) = subprocess_write.front_mut().expect("subprocess queue is empty");
-                    let stdin = child.stdin.as_mut().expect("Failed to open stdin");
-                    std::thread::sleep(Duration::from_millis(50000));
-                    write!(stdin, "test");
-                    drop(stdin);
-                    if let Some(stdout) = child.stdout.take() {
-                        let reader = BufReader::new(stdout);
-                        for line in reader.lines() {
-                            match line {
-                                Ok(line) => println!("{}", line),
-                                Err(e) => eprintln!("Error reading line: {}", e),
+                    {
+                        let stdin = child.stdin.as_mut().expect("Failed to open stdin");
+                        write!(stdin, "test");
+                        stdin.flush()?;
+                    }
+                    //let _ = child.wait().expect("Child process wasn't running");
+                }*/
+                        let file_path = "/root/input";
+                        let output_path = "/root/output";
+                        let mut file = OpenOptions::new()
+                            .write(true)
+                            .truncate(true)
+                            .create(true)
+                            .open(file_path).expect("failed to open file");
+                        write!(file, "{}", inputs).expect("Failed to write");
+                        //write!(file, "test").expect("Failed to write");
+                        drop(file);
+                        let mut is_finished = false;
+                        let mut bytes_result = vec![];
+                        loop {
+                            if let Ok(result) = fs::read_to_string(output_path) {
+                                let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
+                                if result.contains(&"Finished".to_string()) {
+                                    println!("Find finished in final");
+                                    for i in 0..result.len() - 1 {
+                                        let query_result: Vec<u8> = result[i].as_bytes().to_vec();
+                                        let len = query_result.len();
+                                        bytes_result.append(&mut len.to_le_bytes().to_vec());
+                                        bytes_result.append(&mut query_result.clone());
+                                        println!("{}", result[i]);
+                                    }
+                                    is_finished = true;
+                                }
+                            }
+                            if is_finished {
+                                let mut file = OpenOptions::new()
+                                    .write(true)
+                                    .truncate(true)
+                                    .open(output_path).expect("failed to open file");
+                                break;
                             }
                         }
-                    }
-                    let _ = child.wait().expect("Child process wasn't running");
-                }
 
-                // if let Some(queries) = self.query_register.get_new_query(&query_name) {
-                //     let resource_maps = DistributedParResourceMaps::default(
-                //         ServerConf::Partial(self.servers.clone()),
-                //         self.workers,
-                //     );
-                //     let mut conf = parse_conf_req(conf);
-                //     conf.reset_servers(ServerConf::Partial(self.servers.clone()));
-                //     let msg_sender_map = get_msg_sender();
-                //     let recv_register_map = get_recv_register();
-                //     for query in queries.iter() {
-                //         let graph = self.graph_db.read().unwrap();
-                //         let graph_index = self.graph_index.read().unwrap();
-                //         let results = {
-                //             pegasus::run_with_resource_map(
-                //                 conf.clone(),
-                //                 Some(resource_maps.clone()),
-                //                 || {
-                //                     query.Query(
-                //                         conf.clone(),
-                //                         params.clone(),
-                //                         msg_sender_map.clone(),
-                //                         recv_register_map.clone(),
-                //                     )
-                //                 },
-                //             )
-                //                 .expect("submit query failure")
-                //         };
-                //         let mut write_operations = vec![];
-                //         let mut bytes_result = vec![];
-                //         for result in results {
-                //             if let Ok((worker_id, alias_datas, write_ops, mut query_result)) = result {
-                //                 if let Some(write_ops) = write_ops {
-                //                     for write_op in write_ops {
-                //                         write_operations.push(write_op);
-                //                     }
-                //                 }
-                //                 if let Some(mut query_result) = query_result {
-                //                     let len = query_result.len();
-                //                     bytes_result.append(&mut len.to_le_bytes().to_vec());
-                //                     bytes_result.append(&mut query_result);
-                //                 }
-                //             }
-                //         }
-                //         drop(graph);
-                //         drop(graph_index);
-                //         let mut graph = self.graph_db.write().unwrap();
-                //         let mut graph_index = self.graph_index.write().unwrap();
-                //         apply_write_operations(
-                //             &mut graph,
-                //             write_operations,
-                //             self.workers,
-                //             self.servers.len(),
-                //         );
-                //
-                //         if !bytes_result.is_empty() {
-                //             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                //             let response = pb::JobResponse { job_id, resp: bytes_result };
-                //             match tx.send(Ok(response)) {
-                //                 Ok(_) => println!("Response sent successfully."),
-                //                 Err(e) => eprintln!("Failed to send response: {}", e),
-                //             }
-                //             return Ok(Response::new(UnboundedReceiverStream::new(rx)));
-                //         }
-                //     }
-                //     drop(resource_maps);
-                // }
-            };
+                        if !bytes_result.is_empty() {
+                            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                            let response = pb::JobResponse { job_id, resp: bytes_result };
+                            match tx.send(Ok(response)) {
+                                Ok(_) => println!("Response sent successfully."),
+                                Err(e) => eprintln!("Failed to send response: {}", e),
+                            }
+                            return Ok(Response::new(UnboundedReceiverStream::new(rx)));
+                        }
+                    };
+                }
+            }
         }
         let bytes_result = vec![];
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
