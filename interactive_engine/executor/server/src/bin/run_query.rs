@@ -126,7 +126,7 @@ fn main() {
                       .create(true)
                       .truncate(true)
                       .open(output_path).expect("Failed to open");
-    writeln!(ready_file, "Ready").unwrap();
+    write!(ready_file, "Ready").unwrap();
     drop(ready_file);
 
 
@@ -134,9 +134,9 @@ fn main() {
     let recv_register_map = get_recv_register();
 
     let mut shm_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, graph_schema, config.partition_id)));
-    let file_path = "/root/input";
     while true {
-        if let Ok(inputs_string) = fs::read_to_string(file_path) {
+        let file_path = format!("/root/input{}", executor_index);
+        if let Ok(inputs_string) = fs::read_to_string(file_path.clone()) {
             if !inputs_string.is_empty() {
                 println!("Get input {}", inputs_string);
                 let inputs: Vec<String> = inputs_string.split('|').map(|s| s.to_string()).collect();
