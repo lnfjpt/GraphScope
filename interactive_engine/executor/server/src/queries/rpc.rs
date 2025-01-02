@@ -262,6 +262,11 @@ pub async fn start_rpc_sever(
         subprocess: Some(Arc::new(RwLock::new(VecDeque::new()))),
         graph_schema_path,
         partition_id,
+        < < < < < < < HEAD
+        == == == =
+        current_index: 0,
+        latest_index: pool_size as usize,
+        > > > > > > > 7a17048da (validation test)
     };
     service.start_subprocess();
     let server = RPCJobServer::new(rpc_config, service);
@@ -285,6 +290,11 @@ pub struct JobServiceImpl {
     subprocess: Option<Arc<RwLock<VecDeque<(u32, std::process::Child)>>>>,
     graph_schema_path: PathBuf,
     partition_id: usize,
+    < < < < < < < HEAD
+    == == == =
+    current_index: usize,
+    latest_index: usize,
+    > > > > > > > 7a17048da (validation test)
 }
 
 impl JobServiceImpl {
@@ -309,6 +319,23 @@ impl JobServiceImpl {
                     .spawn()
                     .expect("Failed to execute command");
                 subprocess_write.push_back((i, child));
+            }
+            let mut is_ready = false;
+            let output_path = "/root/output0";
+            loop {
+                if let Ok(result) = fs::read_to_string(output_path.clone()) {
+                    let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
+                    if result.contains(&"Ready".to_string()) {
+                        is_ready = true;
+                    }
+                }
+                if is_ready {
+                    let mut file = OpenOptions::new()
+                        .write(true)
+                        .truncate(true)
+                        .open(output_path).expect("failed to open file");
+                    break;
+                }
             }
         }
     }
@@ -405,20 +432,20 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     }
                     //let _ = child.wait().expect("Child process wasn't running");
                 }*/
-                        let file_path = "/root/input";
-                        let output_path = "/root/output";
+                        let file_path = format!("/root/input{}", self.current_index);
+                        let output_path = format!("/root/output{}", self.current_index);
                         let mut file = OpenOptions::new()
                             .write(true)
                             .truncate(true)
                             .create(true)
-                            .open(file_path).expect("failed to open file");
+                            .open(file_path.clone()).expect("failed to open file");
                         write!(file, "{}", inputs).expect("Failed to write");
                         //write!(file, "test").expect("Failed to write");
                         drop(file);
                         let mut is_finished = false;
                         let mut bytes_result = vec![];
                         loop {
-                            if let Ok(result) = fs::read_to_string(output_path) {
+                            if let Ok(result) = fs::read_to_string(output_path.clone()) {
                                 let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
                                 if result.contains(&"Finished".to_string()) {
                                     println!("Find finished in final");
