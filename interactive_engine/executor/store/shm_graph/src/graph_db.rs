@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Instant;
 
+use shm_container::SharedVec;
+
 use crate::columns::Column;
 use crate::csr::Csr;
 use crate::csr_trait::CsrTrait;
@@ -115,6 +117,7 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
     pub oe: HashMap<usize, Box<dyn CsrTrait<I>>>,
 
     pub graph_schema: CsrGraphSchema,
+    pub schema_updated: bool,
 
     pub vertex_map: VertexMap<G, I>,
 
@@ -131,18 +134,31 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
     pub pending_to_delete: HashMap<LabelId, HashSet<I>>,
 }
 
+fn dump_schema_to_shm(name: &str, schema: &CsrGraphSchema) {
+    let encoded: Vec<u8> = bincode::serialize(schema).unwrap();
+    let mut shm = SharedVec::<u8>::create(name, encoded.len());
+    shm.as_mut_slice().copy_from_slice(encoded.as_slice());
+}
+
+fn load_schema_from_shm(name: &str) -> CsrGraphSchema {
+    let shm = SharedVec::<u8>::open(name);
+    let decoded: CsrGraphSchema = bincode::deserialize(shm.as_slice()).unwrap();
+    decoded
+}
+
 impl<G, I> GraphDB<G, I>
 where
     G: Eq + IndexType + Send + Sync,
     I: IndexType + Send + Sync,
 {
-    pub fn load(prefix: &str, partition: usize, name: &str) -> CsrGraphSchema {
+    pub fn load(prefix: &str, partition: usize, name: &str) {
         let schema_path = PathBuf::from_str(prefix)
             .unwrap()
             .join(DIR_GRAPH_SCHEMA)
             .join(FILE_SCHEMA);
 
         let graph_schema = CsrGraphSchema::from_json_file(schema_path).unwrap();
+        dump_schema_to_shm(format!("{}_schema", name).as_str(), &graph_schema);
 
         let partition_prefix = format!("{}/{}/partition_{}", prefix, DIR_BINARY_DATA, partition);
 
@@ -248,11 +264,10 @@ where
         }
 
         VertexMap::<G, I>::load(partition_prefix.as_str(), vertex_label_num, name);
-
-        graph_schema
     }
 
-    pub fn open(name: &str, graph_schema: CsrGraphSchema, partition: usize) -> Self {
+    pub fn open(name: &str, partition: usize) -> Self {
+        let graph_schema = load_schema_from_shm(format!("{}_schema", name).as_str());
         let vertex_label_num = graph_schema.vertex_type_to_id.len();
 
         let mut vertex_prop_table = Vec::with_capacity(vertex_label_num);
@@ -341,6 +356,7 @@ where
             oe,
 
             graph_schema,
+            schema_updated: false,
             vertex_map: VertexMap::open(name, vertex_label_num),
 
             vertex_prop_table,
@@ -354,6 +370,13 @@ where
             partition_prefix: name.to_string(),
 
             pending_to_delete: HashMap::new(),
+        }
+    }
+
+    pub fn dump_schema(&mut self) {
+        if self.schema_updated {
+            dump_schema_to_shm(format!("{}_schema", self.partition_prefix.as_str()).as_str(), &self.graph_schema);
+            self.schema_updated = false;
         }
     }
 
@@ -400,6 +423,24 @@ where
                 }
             }
         }
+    }
+
+    pub fn remove_vertex_index_prop(&mut self, index_name: &str, vertex_label: LabelId) {
+        self.graph_schema.remove_vertex_index_prop(index_name, vertex_label);
+        self.vertex_prop_table[vertex_label as usize].remove_column(index_name);
+        self.schema_updated = true;
+    }
+
+    pub fn remove_edge_index_prop(&mut self, index_name: &str, src_label: LabelId, edge_label: LabelId, dst_label: LabelId) {
+        self.graph_schema.remove_edge_index_prop(index_name, src_label, edge_label, dst_label);
+        let idx = self.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
+        if let Some(table) = self.oe_edge_prop_table.get_mut(&idx) {
+            table.remove_column(index_name);
+        }
+        if let Some(table) = self.ie_edge_prop_table.get_mut(&idx) {
+            table.remove_column(index_name);
+        }
+        self.schema_updated = true;
     }
 
     pub fn edge_label_to_index(

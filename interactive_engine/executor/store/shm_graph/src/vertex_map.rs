@@ -11,7 +11,7 @@ use crate::types::LabelId;
 
 pub struct VertexMap<G: Send + Sync + IndexType, I: Send + Sync + IndexType> {
     label_num: LabelId,
-    // vertices_num: Vec<usize>,
+    vertices_num: SharedVec<usize>,
     pub indexers: Vec<Indexer<G>>,
     pub corner_indexers: Vec<Indexer<G>>,
 
@@ -26,32 +26,26 @@ where
     I: Send + Sync + IndexType,
 {
     pub fn load(prefix: &str, num_labels: usize, name: &str) {
+        let mut vertices_num = SharedVec::<usize>::create(format!("{}_vm_vnum", name).as_str(), num_labels);
         for i in 0..num_labels {
-            Indexer::<G>::load(
+            let indexer = Indexer::<G>::load(
                 format!("{}/vm_{}", prefix, i).as_str(),
                 format!("{}_vm_{}", name, i).as_str(),
             );
-            SharedVec::<u8>::load(
-                format!("{}/vm_tomb_{}", prefix, i).as_str(),
-                format!("{}_vm_tomb_{}", name, i).as_str(),
-            );
+            let mut vm_tomb = SharedVec::<u8>::create(format!("{}_vm_tomb_{}", name, i).as_str(), indexer.len());
+            vm_tomb.as_mut_slice().par_iter_mut().for_each(|x| {*x = 0_u8;});
+            vertices_num[i] = indexer.len();
             Indexer::<G>::load(
                 format!("{}/vmc_{}", prefix, i).as_str(),
                 format!("{}_vmc_{}", name, i).as_str(),
             );
-            // SharedVec::<u8>::load(
-            //     format!("{}/vmc_tomb_{}", prefix, i).as_str(),
-            //     format!("{}_vmc_tomb_{}", name, i).as_str(),
-            // );
         }
     }
 
     pub fn open(prefix: &str, num_labels: usize) -> Self {
         let mut indexers = vec![];
-        // let mut vertices_num = Vec::with_capacity(num_labels);
         for i in 0..num_labels {
             let cur_indexer = Indexer::open(format!("{}_vm_{}", prefix, i as usize).as_str());
-            // vertices_num.push(cur_indexer.len());
             indexers.push(cur_indexer);
         }
         let mut tombs = vec![];
@@ -70,7 +64,7 @@ where
         // }
         Self {
             label_num: num_labels as LabelId,
-            // vertices_num,
+            vertices_num: SharedVec::<usize>::open(format!("{}_vm_vnum", prefix).as_str()),
             indexers,
             corner_indexers,
             tombs,
@@ -107,28 +101,22 @@ where
         self.indexers[label as usize].len()
     }
 
-    // pub fn actual_vertices_num(&self, label: LabelId) -> usize {
-    //     self.vertices_num[label as usize]
-    // }
+    pub fn actual_vertices_num(&self, label: LabelId) -> usize {
+        self.vertices_num[label as usize]
+    }
 
     pub fn remove_vertices(&mut self, label: LabelId, id_list: &HashSet<I>) {
         let native_num = self.indexers[label as usize].len();
-        // let mut native_to_remove = vec![];
-        // let mut corner_to_remove = vec![];
+        let mut num_to_remove = 0_usize;
         for v in id_list.iter() {
             if v.index() < native_num {
                 if self.tombs[label as usize][v.index()] == 0 {
                     self.tombs[label as usize][v.index()] = 1;
+                    num_to_remove += 1;
                 }
-                // native_to_remove.push(v.index());
-            } else {
-                // self.corner_tombs[label as usize][<I as IndexType>::max().index() - v.index() - 1] = 1;
-                // corner_to_remove.push(<I as IndexType>::max().index() - v.index() - 1);
             }
         }
-        // let n = self.indexers[label as usize].erase_indices(&native_to_remove);
-        // self.corner_indexers[label as usize].erase_indices(&corner_to_remove);
-        // self.vertices_num[label as usize] -= n;
+        self.vertices_num[label as usize] -= num_to_remove;
     }
 
     pub fn insert_native_vertices(&mut self, label: LabelId, id_list: Vec<G>) -> Vec<usize> {

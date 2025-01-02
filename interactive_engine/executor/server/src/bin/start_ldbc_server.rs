@@ -55,9 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // let shared_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(graph_data_str, config.partition_id)));
     let name = "/SHM_GRAPH_STORE";
-    let schema = GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
+    GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
     let shared_graph =
-        Arc::new(RwLock::new(GraphDB::<usize, usize>::open(graph_data_str, schema, config.partition_id)));
+        Arc::new(RwLock::new(GraphDB::<usize, usize>::open(graph_data_str, config.partition_id)));
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");

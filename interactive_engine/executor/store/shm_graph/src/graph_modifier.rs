@@ -583,8 +583,9 @@ pub fn apply_write_operations(
     let mut insert_vertices_duration = 0.0_f64;
     let mut insert_edges_duration = 0.0_f64;
     let mut delete_edges_duration = 0.0_f64;
-    let mut delete_vertices_duration0 = 0.0_f64;
-    let mut delete_vertices_duration1 = 0.0_f64;
+    let mut delete_vertices_duration = 0.0_f64;
+    let mut set_vertices_duration = 0.0_f64;
+    let mut set_edges_duration = 0.0_f64;
     for mut write_op in write_operations.drain(..) {
         match write_op.write_type() {
             WriteType::Insert => {
@@ -671,7 +672,7 @@ pub fn apply_write_operations(
                         }
                         // delete_vertices(graph, vertex_label, &input, column_mappings, servers);
                     }
-                    delete_vertices_duration0 += start.elapsed().as_secs_f64();
+                    delete_vertices_duration += start.elapsed().as_secs_f64();
                     // println!("delete vertices: {} s", start.elapsed().as_secs_f64());
                 }
                 if let Some(edge_mappings) = write_op.take_edge_mappings() {
@@ -712,6 +713,7 @@ pub fn apply_write_operations(
                 }
 
                 if let Some(mut vertex_mappings) = write_op.take_vertex_mappings() {
+                    let start = Instant::now();
                     let vertex_label = vertex_mappings.vertex_label();
                     let mut inputs = vertex_mappings.take_inputs();
                     let column_mappings = vertex_mappings.column_mappings();
@@ -723,8 +725,10 @@ pub fn apply_write_operations(
                     for ((vertex_label, prop_name), prop_col_builder) in column_builders.into_iter() {
                         graph.set_vertex_property(vertex_label, prop_name.as_str(), prop_col_builder);
                     }
+                    set_vertices_duration += start.elapsed().as_secs_f64();
                 }
                 if let Some(mut edge_mappings) = write_op.take_edge_mappings() {
+                    let start = Instant::now();
                     let src_label = edge_mappings.src_label();
                     let edge_label = edge_mappings.edge_label();
                     let dst_label = edge_mappings.dst_label();
@@ -766,6 +770,7 @@ pub fn apply_write_operations(
                             oe_cb,
                         );
                     }
+                    set_edges_duration += start.elapsed().as_secs_f64();
                 }
             }
         };
@@ -777,11 +782,12 @@ pub fn apply_write_operations(
         let input = Input::memory(DataFrame::new_vertices_ids(vertex_ids));
         delete_vertices(graph, vertex_label, &input, &column_mappings, servers);
     }
-    delete_vertices_duration1 += start.elapsed().as_secs_f64();
+    delete_vertices_duration += start.elapsed().as_secs_f64();
     println!(
-        "insert vertices: {}, insert edges: {}, delete vertices0: {}, delete_vertices1: {}, delete_edges: {}",
-        insert_vertices_duration, insert_edges_duration, delete_vertices_duration0, delete_vertices_duration1, delete_edges_duration
+        "insert vertices: {}, insert edges: {}, delete vertices: {}, delete_edges: {}, set vertices: {}, set edges {}",
+        insert_vertices_duration, insert_edges_duration, delete_vertices_duration, delete_edges_duration, set_vertices_duration, set_edges_duration,
     );
+    graph.dump_schema();
 }
 
 fn insert_vertices<G, I>(
@@ -814,10 +820,7 @@ fn insert_vertices<G, I>(
         .to_vec();
     for (name, _) in vertex_table_header.iter() {
         if !column_map.contains_key(name) {
-            graph
-                .graph_schema
-                .remove_vertex_index_prop(name, vertex_label);
-            graph.vertex_prop_table[vertex_label as usize].remove_column(name);
+            graph.remove_vertex_index_prop(name, vertex_label);
         }
     }
     match input.data_source() {
@@ -919,15 +922,7 @@ pub fn insert_edges<G, I>(
     for (name, _) in edge_table_header.iter() {
         if !column_map.contains_key(name) {
             graph
-                .graph_schema
                 .remove_edge_index_prop(name, src_label, edge_label, dst_label);
-            let idx = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
-            if let Some(table) = graph.oe_edge_prop_table.get_mut(&idx) {
-                table.remove_column(name);
-            }
-            if let Some(table) = graph.ie_edge_prop_table.get_mut(&idx) {
-                table.remove_column(name);
-            }
         }
     }
     let mut src_id_col = -1;
@@ -1271,6 +1266,7 @@ pub fn set_vertices(
                             .graph_schema
                             .add_vertex_index_prop(k.clone(), vertex_label, column_data_type)
                             .unwrap();
+                        graph.schema_updated = true;
                         let vp_prefix = format!(
                             "{}_vp_{}_col_{}",
                             graph.get_partition_prefix(),
@@ -1348,6 +1344,7 @@ pub fn set_edges(
                                     column_data_type,
                                 )
                                 .unwrap();
+                            graph.schema_updated = true;
 
                             let oe_col_size = graph.get_max_edge_offset(
                                 src_label,
@@ -1422,6 +1419,7 @@ pub fn set_edges(
                                     column_data_type,
                                 )
                                 .unwrap();
+                            graph.schema_updated = true;
 
                             let oe_col_size = graph.get_max_edge_offset(
                                 src_label,

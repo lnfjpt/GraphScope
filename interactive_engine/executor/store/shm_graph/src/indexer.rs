@@ -21,12 +21,11 @@ fn hash_integer<T: Hash>(value: T) -> u64 {
 }
 
 impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
-    pub fn load(prefix: &str, name: &str) {
-        SharedVec::<K>::load(format!("{}_keys", prefix).as_str(), format!("{}_keys", name).as_str());
-        SharedVec::<usize>::load(
-            format!("{}_indices", prefix).as_str(),
-            format!("{}_indices", name).as_str(),
-        );
+    pub fn load(prefix: &str, name: &str) -> Self {
+        Self {
+            keys: SharedVec::<K>::load(format!("{}_keys", prefix).as_str(), format!("{}_keys", name).as_str()),
+            indices: SharedVec::<usize>::load(format!("{}_indices", prefix).as_str(),format!("{}_indices", name).as_str()),
+        }
     }
 
     pub fn open(prefix: &str) -> Self {

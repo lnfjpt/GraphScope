@@ -32,7 +32,7 @@ static GLOBAL_MIMALLOC: GlobalMiMalloc = GlobalMiMalloc;
 #[derive(Debug, Clone, StructOpt, Default)]
 pub struct Config {
     #[structopt(short = "g", long = "graph_data")]
-    graph_data: PathBuf,
+    graph_data: Option<PathBuf>,
     #[structopt(short = "s", long = "servers_config")]
     servers_config: PathBuf,
     #[structopt(short = "q", long = "queries_config", default_value = "")]
@@ -72,15 +72,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pegasus_common::logs::init_log();
     let config: Config = Config::from_args();
 
-    let graph_data_str = config.graph_data.to_str().unwrap();
-
     let start = Instant::now();
     let name = "/SHM_GRAPH_STORE";
-    let schema = GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
-    println!("load graph takes: {} s", start.elapsed().as_secs_f64());
+    if let Some(graph_data_path) = config.graph_data {
+        let graph_data_str = graph_data_path.to_str().unwrap();
+        GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
+        println!("load graph takes: {} s", start.elapsed().as_secs_f64());
+    }
     let start = Instant::now();
     let shared_graph =
-        Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, schema, config.partition_id)));
+        Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, config.partition_id)));
     println!("open graph takes: {} s", start.elapsed().as_secs_f64());
 
     let servers_config =

@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use actix_web::cookie::time::Instant;
 use shm_graph::graph_db::GraphDB;
 use shm_graph::graph_modifier::*;
 
@@ -292,11 +293,12 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     params.insert(name, value);
                 }
                 if let Some((queries, query_type)) = self.query_register.get_new_query(&query_name) {
-                    if query_type == "READ_WRITE" {
+                    if query_type == "READ_WRITE" || query_type == "READ" {
                         let mut graph = self.graph_db.write().unwrap();
                         graph.apply_delete_neighbors();
                         drop(graph);
                     }
+                    let start = Instant::now();
                     let resource_maps = DistributedParResourceMaps::default(
                         ServerConf::Partial(self.servers.clone()),
                         self.workers,
@@ -340,6 +342,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                                 }
                             }
                         }
+                        println!("execute dataflow: {}", start.elapsed().as_seconds_f64());
                         drop(graph);
                         let mut graph = self.graph_db.write().unwrap();
                         apply_write_operations(&mut graph, write_operations, self.servers.len());
