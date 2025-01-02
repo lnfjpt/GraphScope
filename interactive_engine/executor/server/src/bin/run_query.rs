@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 use std::fmt::format;
 use std::fs::File;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::future;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
-use std::io::{self, BufRead};
+use std::time::Duration;
+use std::io::{self, BufRead, Write};
 
 #[cfg(feature = "use_mimalloc")]
 use mimalloc::MiMalloc;
+use shm_graph::graph_modifier::*;
 use shm_graph::schema::CsrGraphSchema;
 use shm_graph::graph_db::GraphDB;
 use pegasus::{Configuration, ServerConf};
@@ -38,12 +40,12 @@ pub struct Config {
     servers_config: PathBuf,
     #[structopt(short = "q", long = "queries_config", default_value = "")]
     queries_config: String,
-    #[structopt(short = "n", long = "query_name")]
-    query_name: String,
-    #[structopt(short = "p", long = "params", default_value = "")]
-    parameters: String,
+    #[structopt(short = "p", long = "partition_id", default_value = "")]
+    partition_id: usize,
     #[structopt(short = "o", long = "port_offset", default_value = "0")]
     offset: u16,
+    #[structopt(short = "e", long = "executor_index", default_value = "0")]
+    executor_index: u32
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -62,7 +64,7 @@ fn main() {
     let config: Config = Config::from_args();
 
     let schema_path = config.schema_path;
-    let graph_schema = CsrGraphSchema::from_json_file(&schema_path)?;
+    let graph_schema = CsrGraphSchema::from_json_file(&schema_path).unwrap();
     let name = "/SHM_GRAPH_STORE";
 
     let servers_config =
@@ -78,6 +80,8 @@ fn main() {
         .expect("Could not read worker num");
 
     let port_offset = config.offset;
+    let executor_index = config.executor_index;
+
 
     let mut servers = vec![];
     if let Some(mut network) = server_conf.network.clone() {
@@ -90,6 +94,7 @@ fn main() {
         }
         server_conf.network = Some(network);
     }
+    let servers_len = servers.len();
 
     let file = File::open(config.queries_config.clone()).unwrap();
     let queries_config: rpc_server::request::QueriesConfig =
@@ -115,25 +120,43 @@ fn main() {
 
     pegasus::startup(server_conf.clone()).ok();
     pegasus::wait_servers_ready(&ServerConf::All);
+    let output_path = format!("/root/output{}", executor_index);
+    let mut ready_file = OpenOptions::new()
+                      .write(true)
+                      .create(true)
+                      .truncate(true)
+                      .open(output_path).expect("Failed to open");
+    writeln!(ready_file, "Ready").unwrap();
+    drop(ready_file);
 
-    let query_name = config.query_name;
-    let parameters = config.parameters;
+
     let msg_sender_map = get_msg_sender();
     let recv_register_map = get_recv_register();
 
-    let shm_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, graph_schema, config.partition_id)));
+    let mut shm_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, graph_schema, config.partition_id)));
+    let file_path = "/root/input";
     while true {
-        let stdin = io::stdin();
-        let reader = stdin.lock();
-        for query_name in reader.lines() {
-            let shared_graph = shm_graph.read()
-            if let Ok(query_name) = query_name {
+        if let Ok(inputs_string) = fs::read_to_string(file_path) {
+            if !inputs_string.is_empty() {
+                println!("Get input {}", inputs_string);
+                let inputs: Vec<String> = inputs_string.split('|').map(|s| s.to_string()).collect();
+                let query_name = inputs[0].clone();
+                let mut params = HashMap::<String, String>::new();
+                let mut param_index = 1;
+                while inputs.len() > param_index + 1 {
+                    params.insert(inputs[param_index].clone(), inputs[param_index + 1].clone());
+                    param_index += 2;
+                }
+                let mut file = OpenOptions::new().write(true).truncate(true).open(file_path).unwrap();
+                drop(file);
+                println!("try run query {}", query_name);
                 if let Some(queries) = query_register.get_new_query(&query_name) {
-                    let mut conf = pegasus::JobConf::new(query_name);
+                    let mut conf = pegasus::JobConf::new(query_name.clone());
                     conf.reset_servers(ServerConf::Partial(servers.clone()));
                     conf.set_workers(workers);
                     for query in queries.iter() {
-                        let params = HashMap::<String, String>::new();
+                        let shared_graph = shm_graph.read().expect("unknown graph");
+                        println!("start run query {}", query_name.clone());
                         let results = {
                             pegasus::run(
                                 conf.clone(),
@@ -149,11 +172,44 @@ fn main() {
                             )
                                 .expect("submit query failure")
                         };
-                        for result in results {}
+                        let output_path = format!("/root/output{}", executor_index);
+                        let mut file = OpenOptions::new()
+                          .write(true)
+                          .create(true)
+                          .truncate(true)
+                          .open(output_path).expect("Failed to open");
+                        let mut write_operations = vec![];
+                        for result in results {
+                            if let Ok((worker_id, alias_datas, write_ops, mut query_result)) = result {
+                                if let Some(write_ops) = write_ops {
+                                    for write_op in write_ops {
+                                        write_operations.push(write_op);
+                                    }
+                                }
+                                if let Some(mut query_result) = query_result {
+                                    println!("get result {}", String::from_utf8(query_result.clone()).unwrap());
+                                    writeln!(file, "{}", String::from_utf8(query_result).unwrap()).unwrap(); 
+                                }
+                            }
+                        }
+                        drop(shared_graph);
+                        println!("Write operations size {}", write_operations.len());
+                        if write_operations.len() > 0 {
+                            let mut shared_graph = shm_graph.write().unwrap();
+                            apply_write_operations(&mut shared_graph, write_operations, servers_len);
+                            drop(shared_graph);
+                        }
+                        write!(file, "Finished").unwrap();
                     }
                 }
+            } else {
+                std::thread::sleep(Duration::from_millis(200));
             }
+        } else {
+            std::thread::sleep(Duration::from_millis(200));
         }
+        println!("try read query");
     }
     pegasus::shutdown_all();
+    println!("run_query exits");
 }

@@ -8,6 +8,7 @@ use rayon::prelude::*;
 
 pub use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter, SafeMutPtr};
 use crate::dataframe::DataFrame;
+use crate::vector::SharedVec;
 use crate::graph::IndexType;
 use crate::table::Table;
 use crate::vertex_map::VertexMap;

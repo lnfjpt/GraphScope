@@ -31,7 +31,6 @@ impl<D> BufferRecycleHook<D> {
 
 impl<D> Drop for BufferRecycleHook<D> {
     fn drop(&mut self) {
-        println!("Drop recycle hook");
     }
 }
 
