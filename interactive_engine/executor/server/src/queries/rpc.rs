@@ -7,7 +7,7 @@ use std::io::{BufReader, BufRead, self};
 use std::io::Write;
 use std::path::PathBuf;
 use std::ptr::write;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 use std::fs::{self, OpenOptions};
 use std::task::{Context, Poll};
@@ -263,10 +263,15 @@ pub async fn start_rpc_sever(
         graph_schema_path,
         partition_id,
         < < < < < < < HEAD
+        < < < < < < < HEAD
         == == == =
         current_index: 0,
         latest_index: pool_size as usize,
         > > > > > > > 7a17048da (validation test)
+        == == == =
+        current_index: Arc::new(AtomicU32::new(0)),
+        last_index: Arc::new(AtomicU32::new(pool_size)),
+        > > > > > > > f53d21bb9 (fix index)
     };
     service.start_subprocess();
     let server = RPCJobServer::new(rpc_config, service);
@@ -291,10 +296,15 @@ pub struct JobServiceImpl {
     graph_schema_path: PathBuf,
     partition_id: usize,
     < < < < < < < HEAD
+    < < < < < < < HEAD
     == == == =
     current_index: usize,
     latest_index: usize,
     > > > > > > > 7a17048da (validation test)
+    == == == =
+    current_index: Arc<AtomicU32>,
+    last_index: Arc<AtomicU32>,
+    > > > > > > > f53d21bb9 (fix index)
 }
 
 impl JobServiceImpl {
@@ -316,6 +326,8 @@ impl JobServiceImpl {
                     .arg(self.graph_schema_path.to_str().unwrap())
                     .arg("--partition_id")
                     .arg(self.partition_id.to_string())
+                    .arg("-e")
+                    .arg(format!("{}", i))
                     .spawn()
                     .expect("Failed to execute command");
                 subprocess_write.push_back((i, child));
@@ -339,6 +351,57 @@ impl JobServiceImpl {
             }
         }
     }
+    < < < < < < < HEAD
+    == == == =
+
+    fn switch_subprocess(&self) {
+        if let Some(subprocess) = &self.subprocess {
+            let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
+            if let Some((index, mut child)) = subprocess_write.pop_front() {
+                let _ = child.kill();
+            }
+            let current_index = self.current_index.fetch_add(1, Ordering::SeqCst) + 1;
+            let last_index = self.last_index.fetch_add(1, Ordering::SeqCst);
+            println!("Current index is {}, last {}", current_index, last_index);
+            let mut child = Command::new("/mnt/nas/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
+                .stdin(Stdio::piped())
+                .env("RUST_LOG", "INFO")
+                .arg("-s")
+                .arg("/root/server.toml")
+                .arg("-q")
+                .arg("/mnt/nas/subprocess/queries.yaml")
+                .arg("-o")
+                .arg(format!("{}", last_index))
+                .arg("-i")
+                .arg(self.graph_schema_path.to_str().unwrap())
+                .arg("--partition_id")
+                .arg(self.partition_id.to_string())
+                .arg("-e")
+                .arg(format!("{}", last_index))
+                .spawn()
+                .expect("Failed to execute command");
+            subprocess_write.push_back((last_index, child));
+            let mut is_ready = false;
+            let output_path = format!("/root/output{}", current_index);
+            loop {
+                if let Ok(result) = fs::read_to_string(output_path.clone()) {
+                    let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
+                    if result.contains(&"Ready".to_string()) {
+                        is_ready = true;
+                    }
+                }
+                if is_ready {
+                    let mut file = OpenOptions::new()
+                        .write(true)
+                        .truncate(true)
+                        .open(output_path).expect("failed to open file");
+                    break;
+                }
+            }
+        }
+    }
+
+    > > > > > > > f53d21bb9 (fix index)
 }
 
 #[tonic::async_trait]
@@ -349,6 +412,11 @@ impl pb::job_service_server::JobService for JobServiceImpl {
         let pb::JobRequest { conf, source, plan, resource } = req.into_inner();
         let conf = conf.unwrap();
         let job_id = conf.job_id;
+        println!("Job id is {}", job_id);
+        if job_id > 0 && job_id % 150 == 0 {
+            println!("Start to swtich subprocess");
+            self.switch_subprocess();
+        }
         if let Ok(query) = procedure::Query::decode(&*plan) {
             if let Some(query_name) = query.query_name {
                 let query_name = match query_name.item {
@@ -432,8 +500,9 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     }
                     //let _ = child.wait().expect("Child process wasn't running");
                 }*/
-                        let file_path = format!("/root/input{}", self.current_index);
-                        let output_path = format!("/root/output{}", self.current_index);
+                        let current_index = self.current_index.load(Ordering::SeqCst);
+                        let file_path = format!("/root/input{}", current_index);
+                        let output_path = format!("/root/output{}", current_index);
                         let mut file = OpenOptions::new()
                             .write(true)
                             .truncate(true)

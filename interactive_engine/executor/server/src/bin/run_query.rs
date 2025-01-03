@@ -197,6 +197,9 @@ fn main() {
                         if write_operations.len() > 0 {
                             let mut shared_graph = shm_graph.write().unwrap();
                             apply_write_operations(&mut shared_graph, write_operations, servers_len);
+
+                            let schema_path = PathBuf::from("/root/graph_schema.json");
+                            shared_graph.graph_schema.to_json_file(&schema_path).unwrap();
                             drop(shared_graph);
                         }
                         write!(file, "Finished").unwrap();
@@ -208,7 +211,7 @@ fn main() {
         } else {
             std::thread::sleep(Duration::from_millis(200));
         }
-        println!("try read query");
+        println!("try read query, index {}", executor_index);
     }
     pegasus::shutdown_all();
     println!("run_query exits");

@@ -87,6 +87,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let start = Instant::now();
     let schema = GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
+
+    let schema_path = PathBuf::from("/root/graph_schema.json");
+    schema.to_json_file(&schema_path).unwrap();
     println!("load graph takes: {} s", start.elapsed().as_secs_f64());
     // let start = Instant::now();
     // let shared_graph =
@@ -159,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         workers,
         servers,
         None,
-        graph_schema_path,
+        schema_path,
         config.partition_id
     ));
 
