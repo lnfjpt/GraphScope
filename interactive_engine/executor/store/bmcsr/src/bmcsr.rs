@@ -246,8 +246,9 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
         }
     }
 
-    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32,
-                             nbr_ids: Option<&HashSet<I>>, ) {
+    fn parallel_delete_edges(
+        &mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32, nbr_ids: Option<&HashSet<I>>,
+    ) {
         let mut delete_map: HashMap<I, HashSet<I>> = HashMap::new();
         let mut keys = vec![];
         if reverse {
@@ -298,8 +299,6 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
                 let end_idx = keys_size.min(start_idx + chunk_size);
-                let nbr_start_idx = i * nbr_chunk_size;
-                let nbr_end_idx = self.offsets.len().min(nbr_start_idx + nbr_chunk_size);
                 s.spawn(move |_| {
                     let keys_ref = safe_keys_ptr.get_ref();
                     let offsets_ref = safe_offsets_ptr.get_ref();
@@ -335,9 +334,27 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                         deleted_edges += (deg - new_deg) as usize;
                     }
 
-                    if nbr_ids.is_some() {
-                        let nbr_set = nbr_ids.unwrap();
-                        for index in nbr_start_idx..nbr_end_idx {
+                    tde_ref[i] = deleted_edges;
+                });
+            }
+        });
+
+        if nbr_ids.is_some() {
+            let nbr_set = nbr_ids.unwrap();
+            rayon::scope(|s| {
+                for i in 0..num_threads {
+                    let start_idx = i * nbr_chunk_size;
+                    let end_idx = self
+                        .offsets
+                        .len()
+                        .min(start_idx + nbr_chunk_size);
+                    s.spawn(move |_| {
+                        let offsets_ref = safe_offsets_ptr.get_ref();
+                        let degree_ref = safe_degree_ptr.get_mut();
+                        let neighbors_ref = safe_neighbors_ptr.get_mut();
+                        let tde_ref = safe_tde_ptr.get_mut();
+                        let mut deleted_edges = 0;
+                        for index in start_idx..end_idx {
                             let mut offset = offsets_ref[index];
                             let deg = degree_ref[index];
                             if deg == 0 {
@@ -364,12 +381,11 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
 
                             deleted_edges += (deg - new_deg) as usize;
                         }
-                    }
-
-                    tde_ref[i] = deleted_edges;
-                });
-            }
-        });
+                        tde_ref[i] += deleted_edges;
+                    });
+                }
+            });
+        }
 
         for v in thread_deleted_edges.iter() {
             self.edge_num -= *v;
@@ -431,8 +447,6 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
                 let end_idx = keys_size.min(start_idx + chunk_size);
-                let nbr_start_idx = i * nbr_chunk_size;
-                let nbr_end_idx = self.offsets.len().min(nbr_start_idx + nbr_chunk_size);
                 s.spawn(move |_| {
                     let keys_ref = safe_keys_ptr.get_ref();
                     let offsets_ref = safe_offsets_ptr.get_ref();
@@ -470,9 +484,28 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
                         deleted_edges += (deg - new_deg) as usize;
                     }
 
-                    if nbr_ids.is_some() {
-                        let nbr_set = nbr_ids.unwrap();
-                        for index in nbr_start_idx..nbr_end_idx {
+                    tde_ref[i] = deleted_edges;
+                });
+            }
+        });
+
+        if nbr_ids.is_some() {
+            let nbr_set = nbr_ids.unwrap();
+            rayon::scope(|s| {
+                for i in 0..num_threads {
+                    let start_idx = i * nbr_chunk_size;
+                    let end_idx = self
+                        .offsets
+                        .len()
+                        .min(start_idx + nbr_chunk_size);
+                    s.spawn(move |_| {
+                        let offsets_ref = safe_offsets_ptr.get_ref();
+                        let degree_ref = safe_degree_ptr.get_mut();
+                        let neighbors_ref = safe_neighbors_ptr.get_mut();
+                        let table_ref = safe_table_ptr.get_mut();
+                        let tde_ref = safe_tde_ptr.get_mut();
+                        let mut deleted_edges = 0;
+                        for index in start_idx..end_idx {
                             let mut offset = offsets_ref[index];
                             let deg = degree_ref[index];
                             if deg == 0 {
@@ -500,12 +533,11 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableCsr<I> {
 
                             deleted_edges += (deg - new_deg) as usize;
                         }
-                    }
-
-                    tde_ref[i] = deleted_edges;
-                });
-            }
-        });
+                        tde_ref[i] += deleted_edges;
+                    });
+                }
+            });
+        }
 
         for v in thread_deleted_edges.iter() {
             self.edge_num -= *v;

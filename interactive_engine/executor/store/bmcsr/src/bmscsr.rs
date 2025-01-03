@@ -18,12 +18,12 @@ type ArrayType<T> = HugeVec<T>;
 type ArrayType<T> = Vec<T>;
 
 pub struct BatchMutableSingleCsr<I> {
-    pub nbr_list: ArrayType<I>,
+    nbr_list: ArrayType<I>,
 
     vertex_num: usize,
     edge_num: usize,
 
-    pub vertex_capacity: usize,
+    vertex_capacity: usize,
 }
 
 pub struct BatchMutableSingleCsrBuilder<I> {
@@ -238,7 +238,9 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
         }
     }
 
-    fn parallel_delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32, nbr_ids: Option<&HashSet<I>>) {
+    fn parallel_delete_edges(
+        &mut self, edges: &Vec<(I, I)>, reverse: bool, p: u32, nbr_ids: Option<&HashSet<I>>,
+    ) {
         let edges_num = edges.len();
 
         let safe_nbr_list_ptr = SafeMutPtr::new(&mut self.nbr_list);
@@ -253,8 +255,7 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
                 let end_idx = edges_num.min(start_idx + chunk_size);
-                let nbr_start_idx = i * nbr_chunk_size;
-                let nbr_end_idx = self.nbr_list.len().min(nbr_start_idx + nbr_chunk_size);
+
                 s.spawn(move |_| {
                     let edges_ref = safe_edges_ptr.get_ref();
                     let nbr_list_ref = safe_nbr_list_ptr.get_mut();
@@ -273,21 +274,34 @@ impl<I: IndexType> CsrTrait<I> for BatchMutableSingleCsr<I> {
                             }
                         }
                     }
-                    if nbr_ids.is_some() {
-                        let nbr_set = nbr_ids.unwrap();
+                });
+            }
+        });
+        if nbr_ids.is_some() {
+            let nbr_set = nbr_ids.unwrap();
+            rayon::scope(|s| {
+                for i in 0..num_threads {
+                    let nbr_start_idx = i * nbr_chunk_size;
+                    let nbr_end_idx = self
+                        .nbr_list
+                        .len()
+                        .min(nbr_start_idx + nbr_chunk_size);
+                    s.spawn(move |_| {
+                        let nbr_list_ref = safe_nbr_list_ptr.get_mut();
                         for index in nbr_start_idx..nbr_end_idx {
                             if nbr_set.contains(&nbr_list_ref[index]) {
                                 nbr_list_ref[index] = <I as IndexType>::max();
                             }
                         }
-                    }
-                });
-            }
-        });
+                    });
+                }
+            });
+        }
     }
 
     fn parallel_delete_edges_with_props(
-        &mut self, edges: &Vec<(I, I)>, reverse: bool, _: &mut ColTable, p: u32, nbr_ids: Option<&HashSet<I>>,
+        &mut self, edges: &Vec<(I, I)>, reverse: bool, _: &mut ColTable, p: u32,
+        nbr_ids: Option<&HashSet<I>>,
     ) {
         self.parallel_delete_edges(edges, reverse, p, nbr_ids);
     }

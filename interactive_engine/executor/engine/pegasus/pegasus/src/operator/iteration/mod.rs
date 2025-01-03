@@ -59,7 +59,7 @@ where
     let (mut leave, enter) = stream
         .enter()?
         .binary_branch_notify("switch", |info| {
-            SwitchOperator::<D>::new(info.scope_level, emit_kind, until)
+            SwitchOperator::<D>::new(info.scope_level, emit_kind, until, worker_index)
         })?;
     let index = enter.get_upstream_port().index;
     let after_body = func(enter)?;
