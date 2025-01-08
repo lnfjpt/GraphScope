@@ -75,8 +75,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pegasus_common::logs::init_log();
     let config: Config = Config::from_args();
 
-    let graph_schema_path = config.graph_data.clone().join("graph_schema").join("schema.json");
-    let graph_data_str = config.graph_data.to_str().unwrap();
     let pool_size = config.pool_size;
 
     let start = Instant::now();
@@ -89,14 +87,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // is_load = true;
     }
     let start = Instant::now();
-    let schema = GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
-
-    let schema_path = PathBuf::from("/root/graph_schema.json");
-    schema.to_json_file(&schema_path).unwrap();
-    println!("load graph takes: {} s", start.elapsed().as_secs_f64());
-    // let start = Instant::now();
-    // let shared_graph =
-    //     Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, schema, config.partition_id)));
     println!("open graph takes: {} s", start.elapsed().as_secs_f64());
 
     let servers_config =
@@ -161,7 +151,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         workers,
         servers,
         None,
-        schema_path,
         config.partition_id
     ));
 

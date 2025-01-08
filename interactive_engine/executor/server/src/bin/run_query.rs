@@ -34,8 +34,6 @@ static GLOBAL_MIMALLOC: GlobalMiMalloc = GlobalMiMalloc;
 
 #[derive(Debug, Clone, StructOpt, Default)]
 pub struct Config {
-    #[structopt(short = "i", long = "schema_path")]
-    schema_path: PathBuf,
     #[structopt(short = "s", long = "servers_config")]
     servers_config: PathBuf,
     #[structopt(short = "q", long = "queries_config", default_value = "")]
@@ -63,8 +61,6 @@ fn main() {
     pegasus_common::logs::init_log();
     let config: Config = Config::from_args();
 
-    let schema_path = config.schema_path;
-    let graph_schema = CsrGraphSchema::from_json_file(&schema_path).unwrap();
     let name = "/SHM_GRAPH_STORE";
 
     let servers_config =
@@ -133,7 +129,7 @@ fn main() {
     let msg_sender_map = get_msg_sender();
     let recv_register_map = get_recv_register();
 
-    let mut shm_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, graph_schema, config.partition_id)));
+    let mut shm_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, config.partition_id)));
     while true {
         let file_path = format!("/root/input{}", executor_index);
         if let Ok(inputs_string) = fs::read_to_string(file_path.clone()) {
@@ -150,7 +146,15 @@ fn main() {
                 let mut file = OpenOptions::new().write(true).truncate(true).open(file_path).unwrap();
                 drop(file);
                 println!("try run query {}", query_name);
-                if let Some(queries) = query_register.get_new_query(&query_name) {
+                for (k, v) in params.iter() {
+                    println!("{} {}", k, v);
+                }
+                if let Some((queries, query_type)) = query_register.get_new_query(&query_name) {
+                    if query_type == "READ_WRITE" || query_type == "READ" {
+                        let mut shared_graph = shm_graph.write().unwrap();
+                         shared_graph.apply_delete_neighbors();
+                         drop(shared_graph);
+                    } 
                     let mut conf = pegasus::JobConf::new(query_name.clone());
                     conf.reset_servers(ServerConf::Partial(servers.clone()));
                     conf.set_workers(workers);
@@ -197,9 +201,6 @@ fn main() {
                         if write_operations.len() > 0 {
                             let mut shared_graph = shm_graph.write().unwrap();
                             apply_write_operations(&mut shared_graph, write_operations, servers_len);
-
-                            let schema_path = PathBuf::from("/root/graph_schema.json");
-                            shared_graph.graph_schema.to_json_file(&schema_path).unwrap();
                             drop(shared_graph);
                         }
                         write!(file, "Finished").unwrap();

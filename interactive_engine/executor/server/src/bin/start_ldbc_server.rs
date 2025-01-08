@@ -97,7 +97,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         workers,
         servers,
         None,
-        config.graph_data.clone(),
         config.partition_id
     )
     .await?;
