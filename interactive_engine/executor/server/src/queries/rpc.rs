@@ -13,7 +13,6 @@ use std::fs::{self, OpenOptions};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use actix_web::cookie::time::Instant;
 use shm_graph::graph_db::GraphDB;
 use shm_graph::graph_modifier::*;
 
@@ -239,17 +238,17 @@ impl RPCServerConfig {
 
 pub async fn start_all(
     rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, pool_size: u32, workers: u32,
-    servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, graph_schema_path: PathBuf, partition_id: usize,
+    servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, partition_id: usize,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_id = server_config.server_id();
-    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db, graph_schema_path, partition_id)
+    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db, partition_id)
         .await?;
     Ok(())
 }
 
 pub async fn start_rpc_sever(
     server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, pool_size: u32, workers: u32,
-    servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, graph_schema_path: PathBuf, partition_id: usize,
+    servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, partition_id: usize,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut service = JobServiceImpl {
         query_register,
@@ -260,18 +259,9 @@ pub async fn start_rpc_sever(
         report: true,
         graph_db,
         subprocess: Some(Arc::new(RwLock::new(VecDeque::new()))),
-        graph_schema_path,
         partition_id,
-        < < < < < < < HEAD
-        < < < < < < < HEAD
-        == == == =
-        current_index: 0,
-        latest_index: pool_size as usize,
-        > > > > > > > 7a17048da (validation test)
-        == == == =
         current_index: Arc::new(AtomicU32::new(0)),
         last_index: Arc::new(AtomicU32::new(pool_size)),
-        > > > > > > > f53d21bb9 (fix index)
     };
     service.start_subprocess();
     let server = RPCJobServer::new(rpc_config, service);
@@ -293,25 +283,15 @@ pub struct JobServiceImpl {
     report: bool,
     graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>,
     subprocess: Option<Arc<RwLock<VecDeque<(u32, std::process::Child)>>>>,
-    graph_schema_path: PathBuf,
     partition_id: usize,
-    < < < < < < < HEAD
-    < < < < < < < HEAD
-    == == == =
-    current_index: usize,
-    latest_index: usize,
-    > > > > > > > 7a17048da (validation test)
-    == == == =
     current_index: Arc<AtomicU32>,
     last_index: Arc<AtomicU32>,
-    > > > > > > > f53d21bb9 (fix index)
 }
 
 impl JobServiceImpl {
     pub fn start_subprocess(&mut self) {
         if let Some(subprocess) = &self.subprocess {
             let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
-            println!("graph schema path is {}", self.graph_schema_path.to_str().unwrap());
             for i in 0..self.pool_size {
                 let mut child = Command::new("/mnt/nas/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
                     .stdin(Stdio::piped())
@@ -322,8 +302,6 @@ impl JobServiceImpl {
                     .arg("/mnt/nas/subprocess/queries.yaml")
                     .arg("-o")
                     .arg(format!("{}", i))
-                    .arg("-i")
-                    .arg(self.graph_schema_path.to_str().unwrap())
                     .arg("--partition_id")
                     .arg(self.partition_id.to_string())
                     .arg("-e")
@@ -351,8 +329,6 @@ impl JobServiceImpl {
             }
         }
     }
-    < < < < < < < HEAD
-    == == == =
 
     fn switch_subprocess(&self) {
         if let Some(subprocess) = &self.subprocess {
@@ -372,8 +348,6 @@ impl JobServiceImpl {
                 .arg("/mnt/nas/subprocess/queries.yaml")
                 .arg("-o")
                 .arg(format!("{}", last_index))
-                .arg("-i")
-                .arg(self.graph_schema_path.to_str().unwrap())
                 .arg("--partition_id")
                 .arg(self.partition_id.to_string())
                 .arg("-e")
@@ -400,8 +374,6 @@ impl JobServiceImpl {
             }
         }
     }
-
-    > > > > > > > f53d21bb9 (fix index)
 }
 
 #[tonic::async_trait]
@@ -433,12 +405,23 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     };
                     params.insert(name, value);
                 }
+                let parameters: String = params.iter()
+                    .flat_map(|(k, v)| vec![k.as_str(), v.as_str()])
+                    .collect::<Vec<&str>>()
+                    .join("|");
+                let inputs = if params.is_empty() {
+                    inputs
+                } else {
+                    format!("{}|{}", inputs, parameters)
+                };
                 if let Some((queries, query_type)) = self.query_register.get_new_query(&query_name) {
-                    if query_type == "READ_WRITE" || query_type == "READ" {
-                        let mut graph = self.graph_db.write().unwrap();
-                        graph.apply_delete_neighbors();
-                        drop(graph);
-                    }
+             /*       if query_type == "READ_WRITE" || query_type == "READ" {
+                        if let Some(graph_db) = &self.graph_db {
+                         let mut graph = graph_db.write().unwrap();
+                         graph.apply_delete_neighbors();
+                         drop(graph);
+                        }
+                    } */
                     let start = Instant::now();
                     let resource_maps = DistributedParResourceMaps::default(
                         ServerConf::Partial(self.servers.clone()),
@@ -449,57 +432,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     let msg_sender_map = get_msg_sender();
                     let recv_register_map = get_recv_register();
                     for query in queries.into_iter() {
-                        let graph = self.graph_db.read().unwrap();
-                        let results = {
-                            pegasus::run_with_resource_map(
-                                conf.clone(),
-                                Some(resource_maps.clone()),
-                                || {
-                                    query.Query(
-                                        conf.clone(),
-                                        &graph,
-                                        params.clone(),
-                                        None,
-                                        msg_sender_map.clone(),
-                                        recv_register_map.clone(),
-                                    )
-                                },
-                            )
-                                .expect("submit query failure")
-                        };
-                        let mut write_operations = vec![];
-                        let mut bytes_result = vec![];
-                        for result in results {
-                            if let Ok((worker_id, alias_datas, write_ops, mut query_result)) = result {
-                                if let Some(write_ops) = write_ops {
-                                    for write_op in write_ops {
-                                        write_operations.push(write_op);
-                                    }
-                                }
-                                if let Some(mut query_result) = query_result {
-                                    let len = query_result.len();
-                                    bytes_result.append(&mut len.to_le_bytes().to_vec());
-                                    bytes_result.append(&mut query_result);
-                                }
-                            }
-                        }
-                        println!("execute dataflow: {}", start.elapsed().as_seconds_f64());
-                        drop(graph);
-                        let mut graph = self.graph_db.write().unwrap();
-                        apply_write_operations(&mut graph, write_operations, self.servers.len());
-
-
                         let start = Instant::now();
-                        /*if let Some(subprocess) = &self.subprocess {
-                    let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
-                    let (ref mut index, ref mut child) = subprocess_write.front_mut().expect("subprocess queue is empty");
-                    {
-                        let stdin = child.stdin.as_mut().expect("Failed to open stdin");
-                        write!(stdin, "test");
-                        stdin.flush()?;
-                    }
-                    //let _ = child.wait().expect("Child process wasn't running");
-                }*/
                         let current_index = self.current_index.load(Ordering::SeqCst);
                         let file_path = format!("/root/input{}", current_index);
                         let output_path = format!("/root/output{}", current_index);
