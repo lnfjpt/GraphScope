@@ -97,7 +97,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         workers,
         servers,
         None,
-        config.partition_id
+        config.partition_id,
+        "".to_string(),
+        "".to_string()
     )
     .await?;
     Ok(())

@@ -1,4 +1,5 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -239,9 +240,10 @@ impl RPCServerConfig {
 pub async fn start_all(
     rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, pool_size: u32, workers: u32,
     servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, partition_id: usize,
+    server_config_path: String, query_config_path: String
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_id = server_config.server_id();
-    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db, partition_id)
+    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db, partition_id, server_config_path, query_config_path)
         .await?;
     Ok(())
 }
@@ -249,7 +251,9 @@ pub async fn start_all(
 pub async fn start_rpc_sever(
     server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, pool_size: u32, workers: u32,
     servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, partition_id: usize,
+    server_config_path: String, query_config_path: String
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    println!("Try to start rpc server");
     let mut service = JobServiceImpl {
         query_register,
         workers,
@@ -262,9 +266,15 @@ pub async fn start_rpc_sever(
         partition_id,
         current_index: Arc::new(AtomicU32::new(0)),
         last_index: Arc::new(AtomicU32::new(pool_size)),
+        server_config_path,
+        query_config_path,
+        execute_task: Arc::new(RwLock::new(HashSet::new()))
     };
+    println!("Try to start subprocess");
     service.start_subprocess();
+    println!("Try to create server");
     let server = RPCJobServer::new(rpc_config, service);
+    println!("Try to run server");
     server
         .run(server_id, StandaloneServiceListener {})
         .await?;
@@ -286,20 +296,30 @@ pub struct JobServiceImpl {
     partition_id: usize,
     current_index: Arc<AtomicU32>,
     last_index: Arc<AtomicU32>,
+    server_config_path: String,
+    query_config_path: String,
+    execute_task: Arc<RwLock<HashSet<String>>>
 }
 
 impl JobServiceImpl {
     pub fn start_subprocess(&mut self) {
         if let Some(subprocess) = &self.subprocess {
+            let bin_path = env::current_exe().expect("Failed to get current binary path");
+            let mut run_query_path = String::new();
+            if let Some(parent) = bin_path.parent() {
+                let new_path = parent.join("run_query");
+                run_query_path = new_path.to_str().unwrap().to_string();
+            }
+            println!("run_query_path: {}\nservers_path: {}", run_query_path, self.server_config_path);
             let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
             for i in 0..self.pool_size {
-                let mut child = Command::new("/mnt/nas/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
+                let mut child = Command::new(run_query_path.clone())
                     .stdin(Stdio::piped())
                     .env("RUST_LOG", "INFO")
                     .arg("-s")
-                    .arg("/root/server.toml")
+                    .arg(self.server_config_path.clone())
                     .arg("-q")
-                    .arg("/mnt/nas/subprocess/queries.yaml")
+                    .arg(self.query_config_path.clone())
                     .arg("-o")
                     .arg(format!("{}", i))
                     .arg("--partition_id")
@@ -312,6 +332,7 @@ impl JobServiceImpl {
             }
             let mut is_ready = false;
             let output_path = "/root/output0";
+            println!("wait for subprocess ready");
             loop {
                 if let Ok(result) = fs::read_to_string(output_path.clone()) {
                     let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
@@ -326,12 +347,20 @@ impl JobServiceImpl {
                         .open(output_path).expect("failed to open file");
                     break;
                 }
+                std::thread::sleep(Duration::from_millis(200));
             }
         }
     }
 
     fn switch_subprocess(&self) {
+        println!("Start switch subprocess");
         if let Some(subprocess) = &self.subprocess {
+            let bin_path = env::current_exe().expect("Failed to get current binary path");
+            let mut run_query_path = String::new();
+            if let Some(parent) = bin_path.parent() {
+                let new_path = parent.join("run_query");
+                run_query_path = new_path.to_str().unwrap().to_string();
+            }
             let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
             if let Some((index, mut child)) = subprocess_write.pop_front() {
                 let _ = child.kill();
@@ -339,13 +368,13 @@ impl JobServiceImpl {
             let current_index = self.current_index.fetch_add(1, Ordering::SeqCst) + 1;
             let last_index = self.last_index.fetch_add(1, Ordering::SeqCst);
             println!("Current index is {}, last {}", current_index, last_index);
-            let mut child = Command::new("/mnt/nas/subprocess/gie-codegen/GraphScope/interactive_engine/executor/server/target/release/run_query")
+            let mut child = Command::new(run_query_path.clone())
                 .stdin(Stdio::piped())
                 .env("RUST_LOG", "INFO")
                 .arg("-s")
-                .arg("/root/server.toml")
+                .arg(self.server_config_path.clone())
                 .arg("-q")
-                .arg("/mnt/nas/subprocess/queries.yaml")
+                .arg(self.query_config_path.clone())
                 .arg("-o")
                 .arg(format!("{}", last_index))
                 .arg("--partition_id")
@@ -357,6 +386,7 @@ impl JobServiceImpl {
             subprocess_write.push_back((last_index, child));
             let mut is_ready = false;
             let output_path = format!("/root/output{}", current_index);
+            println!("Try to check subprocess state {}", output_path);
             loop {
                 if let Ok(result) = fs::read_to_string(output_path.clone()) {
                     let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
@@ -372,6 +402,7 @@ impl JobServiceImpl {
                     break;
                 }
             }
+            println!("Finished switch subprocess");
         }
     }
 }
@@ -385,9 +416,11 @@ impl pb::job_service_server::JobService for JobServiceImpl {
         let conf = conf.unwrap();
         let job_id = conf.job_id;
         println!("Job id is {}", job_id);
-        if job_id > 0 && job_id % 150 == 0 {
-            println!("Start to swtich subprocess");
+        let mut task_set = self.execute_task.write().unwrap();
+        if task_set.len() > 2 {
+            println!("Start to switch subprocess");
             self.switch_subprocess();
+            task_set.clear();
         }
         if let Ok(query) = procedure::Query::decode(&*plan) {
             if let Some(query_name) = query.query_name {
@@ -395,6 +428,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     Some(common::name_or_id::Item::Name(name)) => name,
                     _ => "unknown".to_string(),
                 };
+                task_set.insert(query_name.clone());
                 let mut inputs = query_name.clone();
                 let mut params = HashMap::<String, String>::new();
                 for argument in query.arguments {
@@ -415,13 +449,6 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     format!("{}|{}", inputs, parameters)
                 };
                 if let Some((queries, query_type)) = self.query_register.get_new_query(&query_name) {
-             /*       if query_type == "READ_WRITE" || query_type == "READ" {
-                        if let Some(graph_db) = &self.graph_db {
-                         let mut graph = graph_db.write().unwrap();
-                         graph.apply_delete_neighbors();
-                         drop(graph);
-                        }
-                    } */
                     let start = Instant::now();
                     let resource_maps = DistributedParResourceMaps::default(
                         ServerConf::Partial(self.servers.clone()),
@@ -450,7 +477,6 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                             if let Ok(result) = fs::read_to_string(output_path.clone()) {
                                 let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
                                 if result.contains(&"Finished".to_string()) {
-                                    println!("Find finished in final");
                                     for i in 0..result.len() - 1 {
                                         let query_result: Vec<u8> = result[i].as_bytes().to_vec();
                                         let len = query_result.len();

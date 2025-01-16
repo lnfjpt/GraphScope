@@ -80,11 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let name = "/SHM_GRAPH_STORE";
     if let Some(graph_data_path) = config.graph_data {
         let graph_data_str = graph_data_path.to_str().unwrap();
-        GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
+    //    GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
         println!("load graph takes: {} s", start.elapsed().as_secs_f64());
     }
     let start = Instant::now();
     println!("open graph takes: {} s", start.elapsed().as_secs_f64());
+    let server_config_path = config.servers_config.clone();
+    let query_config_path = config.queries_config.clone();
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
@@ -148,7 +150,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         workers,
         servers,
         None,
-        config.partition_id
+        config.partition_id,
+        server_config_path.to_str().unwrap().to_string(),
+        query_config_path
     ));
 
     if let Some(proxy_endpoint) = proxy_endpoint {
