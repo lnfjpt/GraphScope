@@ -58,6 +58,7 @@ pub struct ServerConfig {
 }
 
 fn main() {
+    println!("Start a run query");
     pegasus_common::logs::init_log();
     let config: Config = Config::from_args();
 
@@ -69,6 +70,7 @@ fn main() {
     let mut server_conf =
         if let Some(servers) = servers_conf.network_config { servers } else { Configuration::singleton() };
 
+    println!("Read servers file");
     let workers = servers_conf
         .pegasus_config
         .expect("Could not read pegasus config")
@@ -77,8 +79,10 @@ fn main() {
 
     let port_offset = config.offset;
     let executor_index = config.executor_index;
+    let mut job_id = executor_index as u64 * 150;
 
 
+    println!("Create server config");
     let mut servers = vec![];
     if let Some(mut network) = server_conf.network.clone() {
         for i in 0..network.servers_size {
@@ -92,6 +96,7 @@ fn main() {
     }
     let servers_len = servers.len();
 
+    println!("Read query config");
     let file = File::open(config.queries_config.clone()).unwrap();
     let queries_config: rpc_server::request::QueriesConfig =
         serde_yaml::from_reader(file).expect("Could not read values");
@@ -129,11 +134,14 @@ fn main() {
     let msg_sender_map = get_msg_sender();
     let recv_register_map = get_recv_register();
 
-    let mut shm_graph = Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, config.partition_id)));
+    let mut shm_graph = None;
     while true {
         let file_path = format!("/root/input{}", executor_index);
         if let Ok(inputs_string) = fs::read_to_string(file_path.clone()) {
             if !inputs_string.is_empty() {
+                if shm_graph.is_none() {
+                    shm_graph = Some(Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, config.partition_id))));
+                }
                 println!("Get input {}", inputs_string);
                 let inputs: Vec<String> = inputs_string.split('|').map(|s| s.to_string()).collect();
                 let query_name = inputs[0].clone();
@@ -151,15 +159,17 @@ fn main() {
                 }
                 if let Some((queries, query_type)) = query_register.get_new_query(&query_name) {
                     if query_type == "READ_WRITE" || query_type == "READ" {
-                        let mut shared_graph = shm_graph.write().unwrap();
+                        let mut shared_graph = shm_graph.as_ref().unwrap().write().unwrap();
                          shared_graph.apply_delete_neighbors();
                          drop(shared_graph);
                     } 
                     let mut conf = pegasus::JobConf::new(query_name.clone());
                     conf.reset_servers(ServerConf::Partial(servers.clone()));
                     conf.set_workers(workers);
+                    job_id += 1;
+                    conf.job_id = job_id;
                     for query in queries.iter() {
-                        let shared_graph = shm_graph.read().expect("unknown graph");
+                        let shared_graph = shm_graph.as_ref().unwrap().read().expect("unknown graph");
                         println!("start run query {}", query_name.clone());
                         let results = {
                             pegasus::run(
@@ -199,10 +209,11 @@ fn main() {
                         drop(shared_graph);
                         println!("Write operations size {}", write_operations.len());
                         if write_operations.len() > 0 {
-                            let mut shared_graph = shm_graph.write().unwrap();
+                            let mut shared_graph = shm_graph.as_ref().unwrap().write().unwrap();
                             apply_write_operations(&mut shared_graph, write_operations, servers_len);
                             drop(shared_graph);
                         }
+                        println!("Finished run query");
                         write!(file, "Finished").unwrap();
                     }
                 }
