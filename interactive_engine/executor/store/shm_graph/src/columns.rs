@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
 use csv::StringRecord;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use dyn_type::object::RawType;
@@ -13,6 +14,7 @@ use dyn_type::CastError;
 use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
 
+use crate::csr_trait::SafeMutPtr;
 use crate::dataframe::*;
 use crate::dataframe::{DateTimeHColumn, HeapColumn, I32HColumn, I64HColumn, StringHColumn};
 use crate::date::{parse_date, Date};
@@ -596,12 +598,13 @@ impl Column for Int32Column {
                 .as_any()
                 .downcast_ref::<I32HColumn>()
                 .unwrap();
-            for (index, i) in index.iter().enumerate() {
-                if *i != usize::MAX {
-                    assert!(*i < self.data.len());
-                    self.data[*i] = casted_col.data[index];
+            let mut_self_data = SafeMutPtr::new(&mut self.data);
+            index.par_iter().enumerate().for_each(|(idx, val)| {
+                if *val != usize::MAX {
+                    assert!(*val < self.data.len());
+                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
                 }
-            }
+            });
         }
     }
 
@@ -771,12 +774,13 @@ impl Column for Int64Column {
                 .as_any()
                 .downcast_ref::<I64HColumn>()
                 .unwrap();
-            for (index, i) in index.iter().enumerate() {
-                if *i != usize::MAX {
-                    assert!(*i < self.data.len());
-                    self.data[*i] = casted_col.data[index];
+            let mut_self_data = SafeMutPtr::new(&mut self.data);
+            index.par_iter().enumerate().for_each(|(idx, val)| {
+                if *val != usize::MAX {
+                    assert!(*val < self.data.len());
+                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
                 }
-            }
+            });
         }
     }
 
@@ -864,12 +868,13 @@ impl Column for UInt64Column {
                 .as_any()
                 .downcast_ref::<U64HColumn>()
                 .unwrap();
-            for (index, i) in index.iter().enumerate() {
-                if *i != usize::MAX {
-                    assert!(*i < self.data.len());
-                    self.data[*i] = casted_col.data[index];
+            let mut_self_data = SafeMutPtr::new(&mut self.data);
+            index.par_iter().enumerate().for_each(|(idx, val)| {
+                if *val != usize::MAX {
+                    assert!(*val < self.data.len());
+                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
                 }
-            }
+            });
         }
     }
 
@@ -957,12 +962,13 @@ impl Column for IDColumn {
                 .as_any()
                 .downcast_ref::<IDHColumn>()
                 .unwrap();
-            for (index, i) in index.iter().enumerate() {
-                if *i != usize::MAX {
-                    assert!(*i < self.data.len());
-                    self.data[*i] = casted_col.data[index];
+            let mut_self_data = SafeMutPtr::new(&mut self.data);
+            index.par_iter().enumerate().for_each(|(idx, val)| {
+                if *val != usize::MAX {
+                    assert!(*val < self.data.len());
+                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
                 }
-            }
+            });
         }
     }
 
@@ -1214,13 +1220,14 @@ impl Column for LCStringColumn {
                 .as_any()
                 .downcast_ref::<StringHColumn>()
                 .unwrap();
-            for (index, i) in index.iter().enumerate() {
-                if *i != usize::MAX {
-                    assert!(*i < self.index.len());
-                    let value = self.table.get(&casted_col.data[index]).unwrap();
-                    self.index[*i] = *value;
+            let mut_self_data = SafeMutPtr::new(&mut self.index);
+            index.par_iter().enumerate().for_each(|(idx, val)| {
+                if *val != usize::MAX {
+                    assert!(*val < self.index.len());
+                    let value = self.table.get(&casted_col.data[idx]).unwrap();
+                    mut_self_data.get_mut()[*val] = *value;
                 }
-            }
+            });
         }
     }
 
@@ -1318,12 +1325,13 @@ impl Column for DateColumn {
                 .as_any()
                 .downcast_ref::<DateHColumn>()
                 .unwrap();
-            for (index, i) in index.iter().enumerate() {
-                if *i != usize::MAX {
-                    assert!(*i < self.data.len());
-                    self.data[*i] = casted_col.data[index];
+            let mut_self_data = SafeMutPtr::new(&mut self.data);
+            index.par_iter().enumerate().for_each(|(idx, val)| {
+                if *val < usize::MAX {
+                    assert!(*val < self.data.len());
+                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
                 }
-            }
+            });
         }
     }
 
@@ -1411,12 +1419,13 @@ impl Column for DateTimeColumn {
                 .as_any()
                 .downcast_ref::<DateTimeHColumn>()
                 .unwrap();
-            for (index, i) in index.iter().enumerate() {
-                if *i != usize::MAX {
-                    assert!(*i < self.data.len());
-                    self.data[*i] = casted_col.data[index];
+            let mut_self_data = SafeMutPtr::new(&mut self.data);
+            index.par_iter().enumerate().for_each(|(idx, val)| {
+                if *val != usize::MAX {
+                    assert!(*val < self.data.len());
+                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
                 }
-            }
+            });
         }
     }
 

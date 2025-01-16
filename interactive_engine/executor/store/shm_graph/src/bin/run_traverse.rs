@@ -55,8 +55,8 @@ fn main() {
 
     let name = "/SHM_GRAPH_STORE_SF10";
     for i in 0..partition_num {
-        let schema = GraphDB::<usize, usize>::load(graph_data_dir.as_str(), i, name);
-        let db = GraphDB::<usize, usize>::open(name, schema, i);
+        GraphDB::<usize, usize>::load(graph_data_dir.as_str(), i, name);
+        let db = GraphDB::<usize, usize>::open(name, i);
 
         traverse(&db, format!("{}/part_{}/", output_dir, i).as_str());
     }
