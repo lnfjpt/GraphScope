@@ -417,17 +417,17 @@ impl pb::job_service_server::JobService for JobServiceImpl {
         let job_id = conf.job_id;
         println!("Job id is {}", job_id);
         let mut task_set = self.execute_task.write().unwrap();
-        if task_set.len() > 2 {
-            println!("Start to switch subprocess");
-            self.switch_subprocess();
-            task_set.clear();
-        }
         if let Ok(query) = procedure::Query::decode(&*plan) {
             if let Some(query_name) = query.query_name {
                 let query_name = match query_name.item {
                     Some(common::name_or_id::Item::Name(name)) => name,
                     _ => "unknown".to_string(),
                 };
+                if task_set.len() >= 1 && !task_set.contains(&query_name) {
+            println!("Start to switch subprocess");
+            self.switch_subprocess();
+            task_set.clear();
+        }
                 task_set.insert(query_name.clone());
                 let mut inputs = query_name.clone();
                 let mut params = HashMap::<String, String>::new();
