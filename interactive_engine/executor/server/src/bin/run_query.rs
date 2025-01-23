@@ -145,6 +145,18 @@ fn main() {
                 println!("Get input {}", inputs_string);
                 let inputs: Vec<String> = inputs_string.split('|').map(|s| s.to_string()).collect();
                 let query_name = inputs[0].clone();
+                if query_name == "switch" {
+                    let mut shared_graph = shm_graph.as_ref().unwrap().write().unwrap();
+                    shared_graph.apply_delete_neighbors();
+                    drop(shared_graph);
+                    let output_path = format!("/root/output{}", executor_index);
+                    let mut file = OpenOptions::new()
+                      .write(true)
+                      .create(true)
+                      .truncate(true)
+                      .open(output_path).expect("Failed to open");
+                    write!(file, "Finished");
+                }
                 let mut params = HashMap::<String, String>::new();
                 let mut param_index = 1;
                 while inputs.len() > param_index + 1 {

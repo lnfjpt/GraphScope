@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let mut is_load = false;
     if let Some(graph_data_path) = config.graph_data {
         let graph_data_str = graph_data_path.to_str().unwrap();
-    //    GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
+        GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
         println!("load graph takes: {} s", start.elapsed().as_secs_f64());
         // is_load = true;
     }
