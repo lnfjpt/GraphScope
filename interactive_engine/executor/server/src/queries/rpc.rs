@@ -355,6 +355,33 @@ impl JobServiceImpl {
     fn switch_subprocess(&self) {
         println!("Start switch subprocess");
         if let Some(subprocess) = &self.subprocess {
+            {
+                let current_index = self.current_index.load(Ordering::SeqCst);
+                        let file_path = format!("/root/input{}", current_index);
+                        let output_path = format!("/root/output{}", current_index);
+                        let mut file = OpenOptions::new()
+                            .write(true)
+                            .truncate(true)
+                            .create(true)
+                            .open(file_path.clone()).expect("failed to open file");
+                        write!(file, "switch").expect("Failed to write");
+                            let mut is_finished = false;
+                        loop {
+                            if let Ok(result) = fs::read_to_string(output_path.clone()) {
+                                let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
+                                if result.contains(&"Finished".to_string()) {
+                                    is_finished = true;
+                                }
+                            }
+                            if is_finished {
+                                let mut file = OpenOptions::new()
+                                    .write(true)
+                                    .truncate(true)
+                                    .open(output_path).expect("failed to open file");
+                                break;
+                            }
+                        }
+            }
             let bin_path = env::current_exe().expect("Failed to get current binary path");
             let mut run_query_path = String::new();
             if let Some(parent) = bin_path.parent() {
@@ -423,12 +450,11 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     Some(common::name_or_id::Item::Name(name)) => name,
                     _ => "unknown".to_string(),
                 };
-                if task_set.len() >= 1 && !task_set.contains(&query_name) {
+                if task_set.len() >= 15 && !task_set.contains(&query_name) {
             println!("Start to switch subprocess");
             self.switch_subprocess();
             task_set.clear();
         }
-                task_set.insert(query_name.clone());
                 let mut inputs = query_name.clone();
                 let mut params = HashMap::<String, String>::new();
                 for argument in query.arguments {
@@ -449,6 +475,9 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     format!("{}|{}", inputs, parameters)
                 };
                 if let Some((queries, query_type)) = self.query_register.get_new_query(&query_name) {
+                    if query_type == "READ_WRITE" || query_type == "READ" {
+                        task_set.insert(query_name.clone());
+                    }
                     let start = Instant::now();
                     let resource_maps = DistributedParResourceMaps::default(
                         ServerConf::Partial(self.servers.clone()),
