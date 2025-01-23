@@ -13,10 +13,8 @@ pub struct VertexMap<G: Send + Sync + IndexType, I: Send + Sync + IndexType> {
     label_num: LabelId,
     vertices_num: SharedVec<usize>,
     pub indexers: Vec<Indexer<G>>,
-    pub corner_indexers: Vec<Indexer<G>>,
 
     pub tombs: Vec<SharedVec<u8>>,
-    // pub corner_tombs: Vec<SharedVec<u8>>,
     ph: PhantomData<I>,
 }
 
@@ -35,10 +33,6 @@ where
             let mut vm_tomb = SharedVec::<u8>::create(format!("{}_vm_tomb_{}", name, i).as_str(), indexer.len());
             vm_tomb.as_mut_slice().par_iter_mut().for_each(|x| {*x = 0_u8;});
             vertices_num[i] = indexer.len();
-            Indexer::<G>::load(
-                format!("{}/vmc_{}", prefix, i).as_str(),
-                format!("{}_vmc_{}", name, i).as_str(),
-            );
         }
     }
 
@@ -52,23 +46,11 @@ where
         for i in 0..num_labels {
             tombs.push(SharedVec::<u8>::open(format!("{}_vm_tomb_{}", prefix, i as usize).as_str()));
         }
-        let mut corner_indexers = vec![];
-        for i in 0..num_labels {
-            let cur_indexer = Indexer::open(format!("{}_vmc_{}", prefix, i as usize).as_str());
-            corner_indexers.push(cur_indexer);
-        }
-        // let mut corner_tombs = vec![];
-        // for i in 0..num_labels {
-        //     corner_tombs
-        //         .push(SharedVec::<u8>::open(format!("{}_vmc_tomb_{}", prefix, i as usize).as_str()));
-        // }
         Self {
             label_num: num_labels as LabelId,
             vertices_num: SharedVec::<usize>::open(format!("{}_vm_vnum", prefix).as_str()),
             indexers,
-            corner_indexers,
             tombs,
-            // corner_tombs,
             ph: PhantomData,
         }
     }
@@ -77,8 +59,6 @@ where
         let label_id = LDBCVertexParser::get_label_id(global_id);
         if let Some(internal_id) = self.indexers[label_id as usize].get_index(global_id) {
             Some((label_id, I::new(internal_id)))
-        } else if let Some(internal_id) = self.corner_indexers[label_id as usize].get_index(global_id) {
-            Some((label_id, I::new(<I as IndexType>::max().index() - internal_id - 1)))
         } else {
             None
         }
@@ -89,7 +69,7 @@ where
         if internal_id < self.indexers[label as usize].len() {
             self.indexers[label as usize].get_key(internal_id)
         } else {
-            self.corner_indexers[label as usize].get_key(<I as IndexType>::max().index() - internal_id - 1)
+            None
         }
     }
 
@@ -136,9 +116,5 @@ where
         } else {
             false
         }
-    }
-
-    pub fn insert_corner_vertices(&mut self, label: LabelId, id_list: Vec<G>) {
-        self.corner_indexers[label as usize].insert_batch_beta(id_list);
     }
 }

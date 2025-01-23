@@ -1422,6 +1422,9 @@ impl Column for DateTimeColumn {
             let mut_self_data = SafeMutPtr::new(&mut self.data);
             index.par_iter().enumerate().for_each(|(idx, val)| {
                 if *val != usize::MAX {
+                    if *val >= self.data.len() {
+                        println!("val = {}, data.len() = {}", *val, self.data.len());
+                    }
                     assert!(*val < self.data.len());
                     mut_self_data.get_mut()[*val] = casted_col.data[idx];
                 }

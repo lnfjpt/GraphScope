@@ -1110,6 +1110,7 @@ where
 {
     let start = Instant::now();
     let mut lids = HashSet::new();
+    let mut neighbors = HashSet::new();
     for v in global_ids.iter() {
         if v.index() as u64 == u64::MAX {
             continue;
@@ -1117,6 +1118,7 @@ where
         if let Some(internal_id) = graph.vertex_map.get_internal_id(*v) {
             lids.insert(internal_id.1);
         }
+        neighbors.insert(*v);
     }
     let t0 = start.elapsed().as_secs_f64();
     let mut t1 = 0_f64;
@@ -1145,20 +1147,6 @@ where
                 ie_csr.delete_vertices(&lids);
                 t1 += start.elapsed().as_secs_f64();
             }
-            // if let Some(oe_csr) = graph.oe.get_mut(&index) {
-            //     if let Some(table) = graph.oe_edge_prop_table.get_mut(&index) {
-            //         let start = Instant::now();
-            //         let shuffle_indices = oe_csr.delete_neighbors_with_ret(&lids);
-            //         if !shuffle_indices.is_empty() {
-            //             table.parallel_move(&shuffle_indices);
-            //         }
-            //         t2 += start.elapsed().as_secs_f64();
-            //     } else {
-            //         let start = Instant::now();
-            //         oe_csr.delete_neighbors(&lids);
-            //         t3 += start.elapsed().as_secs_f64();
-            //     }
-            // }
         }
         for dst_label_i in 0..vertex_label_num {
             if graph
@@ -1179,18 +1167,6 @@ where
                 oe_csr.delete_vertices(&lids);
                 t1 += start.elapsed().as_secs_f64();
             }
-            // if let Some(ie_csr) = graph.ie.get_mut(&index) {
-            //     if let Some(table) = graph.ie_edge_prop_table.get_mut(&index) {
-            //         let start = Instant::now();
-            //         let shuffle_indices = ie_csr.delete_neighbors_with_ret(&lids);
-            //         table.parallel_move(&shuffle_indices);
-            //         t2 += start.elapsed().as_secs_f64();
-            //     } else {
-            //         let start = Instant::now();
-            //         ie_csr.delete_neighbors(&lids);
-            //         t3 += start.elapsed().as_secs_f64();
-            //     }
-            // }
         }
     }
 
@@ -1200,9 +1176,9 @@ where
         .remove_vertices(vertex_label, &lids);
 
     if let Some(vertex_set) = graph.pending_to_delete.get_mut(&vertex_label) {
-        vertex_set.extend(lids.iter());
+        vertex_set.extend(neighbors.iter());
     } else {
-        graph.pending_to_delete.insert(vertex_label, lids);
+        graph.pending_to_delete.insert(vertex_label, neighbors);
     }
 
     let t4 = start.elapsed().as_secs_f64();
@@ -1631,21 +1607,7 @@ impl GraphModifier {
                         }
                     }
                     if keep_vertex {
-                        if let Some((got_src_label, src_lid)) = graph
-                            .vertex_map
-                            .get_internal_id(edge_meta.src_global_id)
-                        {
-                            if let Some((got_dst_label, dst_lid)) = graph
-                                .vertex_map
-                                .get_internal_id(edge_meta.dst_global_id)
-                            {
-                                if got_src_label != src_label || got_dst_label != dst_label {
-                                    return;
-                                }
-
-                                delete_edge_set.push((src_lid, dst_lid));
-                            }
-                        }
+                        delete_edge_set.push((edge_meta.src_global_id, edge_meta.dst_global_id));
                     }
                 },
                 self.skip_header,
@@ -1658,13 +1620,13 @@ impl GraphModifier {
 
         let index = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
         if let Some(csr) = graph.oe.get_mut(&index) {
-            let shuffle_indices = csr.delete_edges(&delete_edge_set, false);
+            let shuffle_indices = csr.delete_edges(&delete_edge_set, false, &graph.vertex_map);
             if let Some(table) = graph.oe_edge_prop_table.get_mut(&index) {
                 table.parallel_move(&shuffle_indices);
             }
         }
         if let Some(csr) = graph.ie.get_mut(&index) {
-            let shuffle_indices = csr.delete_edges(&delete_edge_set, true);
+            let shuffle_indices = csr.delete_edges(&delete_edge_set, true, &graph.vertex_map);
             if let Some(table) = graph.ie_edge_prop_table.get_mut(&index) {
                 table.parallel_move(&shuffle_indices);
             }
@@ -1725,7 +1687,7 @@ impl GraphModifier {
         }
         let mut df = DataFrame::new(&header);
         let mut id_list = vec![];
-        let mut corner_id_list = vec![];
+        // let mut corner_id_list = vec![];
         let t0 = start.elapsed().as_secs_f64();
         let start = Instant::now();
         for vertex_file in vertex_files.iter() {
@@ -1757,8 +1719,8 @@ impl GraphModifier {
                         if vertex_meta.global_id.index() % self.partitions == graph.partition {
                             id_vec.push(vertex_meta.global_id);
                             prop_vec.push(parse_properties_by_mappings(&x, &header, mappings).unwrap());
-                        } else {
-                            corner_vec.push(vertex_meta.global_id);
+                        // } else {
+                        //     corner_vec.push(vertex_meta.global_id);
                         }
                         (id_vec, prop_vec, corner_vec)
                     },
@@ -1768,7 +1730,7 @@ impl GraphModifier {
                     |a, b| (vec![a.0, b.0].concat(), vec![a.1, b.1].concat(), vec![a.2, b.2].concat()),
                 );
             id_list.extend(ids);
-            corner_id_list.extend(corners);
+            // corner_id_list.extend(corners);
             df.append_rows(props);
         }
         let t1 = start.elapsed().as_secs_f64();
@@ -1778,9 +1740,9 @@ impl GraphModifier {
             .insert_native_vertices(label, id_list);
         let t2 = start.elapsed().as_secs_f64();
         let start = Instant::now();
-        graph
-            .vertex_map
-            .insert_corner_vertices(label, corner_id_list);
+        // graph
+        //     .vertex_map
+        //     .insert_corner_vertices(label, corner_id_list);
         let t3 = start.elapsed().as_secs_f64();
         let start = Instant::now();
         graph.vertex_prop_table[label as usize].resize(graph.vertex_map.indexers[label as usize].len());
@@ -1914,40 +1876,40 @@ impl GraphModifier {
         let t1 = start.elapsed().as_secs_f64();
         let start = Instant::now();
 
-        let mut corner_src_vertices = HashSet::new();
-        let mut corner_dst_vertices = HashSet::new();
-        for (src, dst) in edges.iter() {
-            if src.index() % self.partitions != graph.partition {
-                corner_src_vertices.insert(*src);
-            }
-            if dst.index() % self.partitions != graph.partition {
-                corner_dst_vertices.insert(*dst);
-            }
-        }
-        graph.vertex_map.insert_corner_vertices(
-            src_label,
-            corner_src_vertices
-                .into_iter()
-                .collect::<Vec<G>>(),
-        );
-        graph.vertex_map.insert_corner_vertices(
-            dst_label,
-            corner_dst_vertices
-                .into_iter()
-                .collect::<Vec<G>>(),
-        );
+        // let mut corner_src_vertices = HashSet::new();
+        // let mut corner_dst_vertices = HashSet::new();
+        // for (src, dst) in edges.iter() {
+        //     if src.index() % self.partitions != graph.partition {
+        //         corner_src_vertices.insert(*src);
+        //     }
+        //     if dst.index() % self.partitions != graph.partition {
+        //         corner_dst_vertices.insert(*dst);
+        //     }
+        // }
+        // graph.vertex_map.insert_corner_vertices(
+        //     src_label,
+        //     corner_src_vertices
+        //         .into_iter()
+        //         .collect::<Vec<G>>(),
+        // );
+        // graph.vertex_map.insert_corner_vertices(
+        //     dst_label,
+        //     corner_dst_vertices
+        //         .into_iter()
+        //         .collect::<Vec<G>>(),
+        // );
         let t2 = start.elapsed().as_secs_f64();
         let start = Instant::now();
 
-        let parsed_edges: Vec<(I, I)> = edges
-            .into_par_iter()
-            .map(|(src, dst)| {
-                (
-                    graph.vertex_map.get_internal_id(src).unwrap().1,
-                    graph.vertex_map.get_internal_id(dst).unwrap().1,
-                )
-            })
-            .collect();
+        // let parsed_edges: Vec<(I, I)> = edges
+        //     .into_par_iter()
+        //     .map(|(src, dst)| {
+        //         (
+        //             graph.vertex_map.get_internal_id(src).unwrap().1,
+        //             graph.vertex_map.get_internal_id(dst).unwrap().1,
+        //         )
+        //     })
+        //     .collect();
         let t3 = start.elapsed().as_secs_f64();
         let start = Instant::now();
 
@@ -1957,10 +1919,11 @@ impl GraphModifier {
         if let Some(csr) = graph.oe.get_mut(&index) {
             csr.insert_edges_beta(
                 new_src_num,
-                &parsed_edges,
+                // &parsed_edges,
+                &edges,
                 prop_table.as_ref(),
                 false,
-                graph.oe_edge_prop_table.get_mut(&index),
+                graph.oe_edge_prop_table.get_mut(&index), &graph.vertex_map, dst_label,
             );
         }
         let t4 = start.elapsed().as_secs_f64();
@@ -1970,10 +1933,11 @@ impl GraphModifier {
         if let Some(csr) = graph.ie.get_mut(&index) {
             csr.insert_edges_beta(
                 new_dst_num,
-                &parsed_edges,
+                // &parsed_edges,
+                &edges,
                 prop_table.as_ref(),
                 true,
-                graph.ie_edge_prop_table.get_mut(&index),
+                graph.ie_edge_prop_table.get_mut(&index), &graph.vertex_map, src_label,
             );
         }
         let t5 = start.elapsed().as_secs_f64();

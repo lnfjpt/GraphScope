@@ -95,7 +95,7 @@ where
                     "{}|{}",
                     LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
                         .index(),
-                    LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, e).unwrap())
+                    LDBCVertexParser::<G>::get_original_id(e)
                         .index(),
                 )
                 .unwrap();
@@ -120,7 +120,7 @@ fn output_single_sub_graph<G, I>(
                     "{}|{}",
                     LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
                         .index(),
-                    LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, e).unwrap())
+                    LDBCVertexParser::<G>::get_original_id(e)
                         .index(),
                 )
                 .unwrap();
