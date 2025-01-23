@@ -450,7 +450,7 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     Some(common::name_or_id::Item::Name(name)) => name,
                     _ => "unknown".to_string(),
                 };
-                if task_set.len() >= 15 && !task_set.contains(&query_name) {
+                if task_set.len() >= 2 && !task_set.contains(&query_name) {
             println!("Start to switch subprocess");
             self.switch_subprocess();
             task_set.clear();
