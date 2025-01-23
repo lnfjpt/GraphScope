@@ -5,10 +5,12 @@ use bmcsr::columns::*;
 use bmcsr::csr::CsrTrait;
 use bmcsr::graph::IndexType;
 use bmcsr::schema::Schema;
+use rayon::prelude::*;
 use clap::{App, Arg};
 
 use bmcsr::bmcsr::BatchMutableCsr;
 use bmcsr::bmscsr::BatchMutableSingleCsr;
+use bmcsr::vertex_map::VertexMap;
 use bmcsr::date::Date;
 use bmcsr::date_time::DateTime;
 use bmcsr::graph_db::GraphDB;
@@ -25,8 +27,42 @@ fn dump_csr<I: IndexType>(prefix: &str, csr: &BatchMutableCsr<I>) {
     SharedVec::<usize>::dump_vec(format!("{}_meta", prefix).as_str(), &tmp_vec);
 }
 
+fn dump_csr_global_id<I: IndexType>(prefix: &str, csr: &BatchMutableCsr<I>, vertex_map: &VertexMap<usize, I>, nbr_label: LabelId) {
+    // SharedVec::<I>::dump_vec(format!("{}_nbrs", prefix).as_str(), &csr.neighbors);
+    SharedVec::<usize>::dump_vec(format!("{}_offsets", prefix).as_str(), &csr.offsets);
+    SharedVec::<i32>::dump_vec(format!("{}_degree", prefix).as_str(), &csr.degree);
+
+    let nbrs_global_id: Vec<usize> = csr.neighbors.par_iter().map(|v| {
+        if let Some(vg) = vertex_map.get_global_id(nbr_label, *v) {
+            vg
+        } else {
+            usize::MAX
+        }
+    }).collect();
+    SharedVec::<usize>::dump_vec(format!("{}_nbrs", prefix).as_str(), &nbrs_global_id);
+
+    let tmp_vec = vec![csr.edge_num()];
+    SharedVec::<usize>::dump_vec(format!("{}_meta", prefix).as_str(), &tmp_vec);
+}
+
 fn dump_scsr<I: IndexType>(prefix: &str, csr: &BatchMutableSingleCsr<I>) {
     SharedVec::<I>::dump_vec(format!("{}_nbrs", prefix).as_str(), &csr.nbr_list);
+
+    let tmp_vec = vec![csr.max_edge_offset(), csr.edge_num(), csr.vertex_capacity];
+    SharedVec::<usize>::dump_vec(format!("{}_meta", prefix).as_str(), &tmp_vec);
+}
+
+fn dump_scsr_global_id<I: IndexType>(prefix: &str, csr: &BatchMutableSingleCsr<I>, vertex_map: &VertexMap<usize, I>, nbr_label: LabelId) {
+    // SharedVec::<I>::dump_vec(format!("{}_nbrs", prefix).as_str(), &csr.nbr_list);
+
+    let nbrs_global_id: Vec<usize> = csr.nbr_list.par_iter().map(|v| {
+        if let Some(vg) = vertex_map.get_global_id(nbr_label, *v) {
+            vg
+        } else {
+            usize::MAX
+        }
+    }).collect();
+    SharedVec::<usize>::dump_vec(format!("{}_nbrs", prefix).as_str(), &nbrs_global_id);
 
     let tmp_vec = vec![csr.max_edge_offset(), csr.edge_num(), csr.vertex_capacity];
     SharedVec::<usize>::dump_vec(format!("{}_meta", prefix).as_str(), &tmp_vec);
@@ -147,9 +183,9 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
             &native_tomb,
         );
 
-        println!("start dump vmc: {}", vl);
-        let vmc_bin_path = format!("{}/vmc_{}", output_partition_dir, vl as usize);
-        Indexer::dump(vmc_bin_path.as_str(), &graph.vertex_map.index_to_corner_global_id[vl]);
+        // println!("start dump vmc: {}", vl);
+        // let vmc_bin_path = format!("{}/vmc_{}", output_partition_dir, vl as usize);
+        // Indexer::dump(vmc_bin_path.as_str(), &graph.vertex_map.index_to_corner_global_id[vl]);
 
         // let mut corner_tomb = vec![0_u8; graph.index_to_corner_global_id[vl].len()];
         // SharedVec::<u8>::dump_vec(format!("{}/vmc_tomb", output_partition_dir).as_str(), &corner_tomb);
@@ -180,7 +216,7 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                         edge_label as LabelId,
                         dst_label as LabelId,
                     ) {
-                        dump_csr(
+                        dump_csr_global_id(
                             format!(
                                 "{}/oe_{}_{}_{}",
                                 output_partition_dir, src_label, edge_label, dst_label
@@ -190,9 +226,11 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                                 .as_any()
                                 .downcast_ref::<BatchMutableCsr<usize>>()
                                 .unwrap(),
+                            &graph.vertex_map,
+                            dst_label as LabelId,
                         );
                     } else {
-                        dump_scsr(
+                        dump_scsr_global_id(
                             format!(
                                 "{}/oe_{}_{}_{}",
                                 output_partition_dir, src_label, edge_label, dst_label
@@ -202,6 +240,8 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                                 .as_any()
                                 .downcast_ref::<BatchMutableSingleCsr<usize>>()
                                 .unwrap(),
+                            &graph.vertex_map,
+                            dst_label as LabelId,
                         );
                     }
 
@@ -228,7 +268,7 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                         edge_label as LabelId,
                         dst_label as LabelId,
                     ) {
-                        dump_csr(
+                        dump_csr_global_id(
                             format!(
                                 "{}/ie_{}_{}_{}",
                                 output_partition_dir, src_label, edge_label, dst_label
@@ -238,9 +278,11 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                                 .as_any()
                                 .downcast_ref::<BatchMutableCsr<usize>>()
                                 .unwrap(),
+                            &graph.vertex_map,
+                            src_label as LabelId,
                         );
                     } else {
-                        dump_scsr(
+                        dump_scsr_global_id(
                             format!(
                                 "{}/ie_{}_{}_{}",
                                 output_partition_dir, src_label, edge_label, dst_label
@@ -250,6 +292,8 @@ fn convert_graph(input_dir: &String, output_dir: &String, partition: usize) {
                                 .as_any()
                                 .downcast_ref::<BatchMutableSingleCsr<usize>>()
                                 .unwrap(),
+                            &graph.vertex_map,
+                            src_label as LabelId,
                         );
                     }
 

@@ -113,8 +113,8 @@ impl<I: IndexType> Range<I> {
 
 pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + IndexType = InternalId> {
     pub partition: usize,
-    pub ie: HashMap<usize, Box<dyn CsrTrait<I>>>,
-    pub oe: HashMap<usize, Box<dyn CsrTrait<I>>>,
+    pub ie: HashMap<usize, Box<dyn CsrTrait<G, I>>>,
+    pub oe: HashMap<usize, Box<dyn CsrTrait<G, I>>>,
 
     pub graph_schema: CsrGraphSchema,
     pub schema_updated: bool,
@@ -131,7 +131,7 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
     // pub root_path: String,
     pub partition_prefix: String,
 
-    pub pending_to_delete: HashMap<LabelId, HashSet<I>>,
+    pub pending_to_delete: HashMap<LabelId, HashSet<G>>,
 }
 
 fn dump_schema_to_shm(name: &str, schema: &CsrGraphSchema) {
@@ -199,9 +199,9 @@ impl<G, I> GraphDB<G, I>
                             edge_label as LabelId,
                             dst_label as LabelId,
                         ) {
-                            SCsr::<I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
+                            SCsr::<G, I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
                         } else {
-                            Csr::<I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
+                            Csr::<G, I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
                         }
 
                         let oep_prefix = format!(
@@ -237,9 +237,9 @@ impl<G, I> GraphDB<G, I>
                             edge_label as LabelId,
                             dst_label as LabelId,
                         ) {
-                            SCsr::<I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
+                            SCsr::<G, I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
                         } else {
-                            Csr::<I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
+                            Csr::<G, I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
                         }
 
                         let iep_prefix = format!(
@@ -286,8 +286,8 @@ impl<G, I> GraphDB<G, I>
 
         let edge_label_num = graph_schema.edge_type_to_id.len();
 
-        let mut ie = HashMap::<usize, Box<dyn CsrTrait<I>>>::new();
-        let mut oe = HashMap::<usize, Box<dyn CsrTrait<I>>>::new();
+        let mut ie = HashMap::<usize, Box<dyn CsrTrait<G, I>>>::new();
+        let mut oe = HashMap::<usize, Box<dyn CsrTrait<G, I>>>::new();
 
         let mut ie_edge_prop_table = HashMap::<usize, Table>::new();
         let mut oe_edge_prop_table = HashMap::<usize, Table>::new();
@@ -526,7 +526,7 @@ impl<G, I> GraphDB<G, I>
                     .get(&index)
                     .unwrap()
                     .as_any()
-                    .downcast_ref::<Csr<I>>()
+                    .downcast_ref::<Csr<G, I>>()
                     .unwrap(),
                 &self.vertex_map,
                 src_label,
@@ -541,7 +541,7 @@ impl<G, I> GraphDB<G, I>
                     .get(&index)
                     .unwrap()
                     .as_any()
-                    .downcast_ref::<Csr<I>>()
+                    .downcast_ref::<Csr<G, I>>()
                     .unwrap(),
                 &self.vertex_map,
                 src_label,
@@ -564,7 +564,7 @@ impl<G, I> GraphDB<G, I>
                     .get(&index)
                     .unwrap()
                     .as_any()
-                    .downcast_ref::<SCsr<I>>()
+                    .downcast_ref::<SCsr<G, I>>()
                     .unwrap(),
                 &self.vertex_map,
                 src_label,
@@ -579,7 +579,7 @@ impl<G, I> GraphDB<G, I>
                     .get(&index)
                     .unwrap()
                     .as_any()
-                    .downcast_ref::<SCsr<I>>()
+                    .downcast_ref::<SCsr<G, I>>()
                     .unwrap(),
                 &self.vertex_map,
                 src_label,

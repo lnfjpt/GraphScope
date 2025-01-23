@@ -8,7 +8,7 @@ use crate::vertex_map::VertexMap;
 
 #[derive(Copy, Clone)]
 pub struct SubGraph<'a, G: Send + Sync + IndexType = DefaultId, I: Send + Sync + IndexType = InternalId> {
-    pub csr: &'a Csr<I>,
+    pub csr: &'a Csr<G, I>,
     pub vm: &'a VertexMap<G, I>,
     pub src_label: LabelId,
     pub dst_label: LabelId,
@@ -20,7 +20,7 @@ pub struct SubGraph<'a, G: Send + Sync + IndexType = DefaultId, I: Send + Sync +
 
 impl<'a, G: Send + Sync + IndexType, I: Send + Sync + IndexType> SubGraph<'a, G, I> {
     pub fn new(
-        csr: &'a Csr<I>, vm: &'a VertexMap<G, I>, src_label: LabelId, dst_label: LabelId, e_label: LabelId,
+        csr: &'a Csr<G, I>, vm: &'a VertexMap<G, I>, src_label: LabelId, dst_label: LabelId, e_label: LabelId,
         vertex_data: &'a Table, edge_data: Option<&'a Table>,
     ) -> Self {
         SubGraph { csr, vm, src_label, dst_label, e_label, vertex_data, edge_data }
@@ -30,11 +30,11 @@ impl<'a, G: Send + Sync + IndexType, I: Send + Sync + IndexType> SubGraph<'a, G,
         self.csr.vertex_num()
     }
 
-    pub fn get_adj_list(&self, src: I) -> Option<NbrIter<I>> {
+    pub fn get_adj_list(&self, src: I) -> Option<NbrIter<G>> {
         self.csr.get_edges(src)
     }
 
-    pub fn get_adj_list_with_offset(&self, src: I) -> Option<NbrOffsetIter<I>> {
+    pub fn get_adj_list_with_offset(&self, src: I) -> Option<NbrOffsetIter<G>> {
         self.csr.get_edges_with_offset(src)
     }
 
@@ -53,7 +53,7 @@ pub struct SingleSubGraph<
     G: Send + Sync + IndexType = DefaultId,
     I: Send + Sync + IndexType = InternalId,
 > {
-    pub csr: &'a SCsr<I>,
+    pub csr: &'a SCsr<G, I>,
     pub vm: &'a VertexMap<G, I>,
     pub src_label: LabelId,
     pub dst_label: LabelId,
@@ -69,7 +69,7 @@ where
     I: Send + Sync + IndexType,
 {
     pub fn new(
-        csr: &'a SCsr<I>, vm: &'a VertexMap<G, I>, src_label: LabelId, dst_label: LabelId,
+        csr: &'a SCsr<G, I>, vm: &'a VertexMap<G, I>, src_label: LabelId, dst_label: LabelId,
         e_label: LabelId, vertex_data: &'a Table, edge_data: Option<&'a Table>,
     ) -> Self {
         Self { csr, vm, src_label, dst_label, e_label, vertex_data, edge_data }
@@ -83,19 +83,19 @@ where
         self.edge_data
     }
 
-    pub fn get_adj_list(&self, src: I) -> Option<NbrIter<I>> {
+    pub fn get_adj_list(&self, src: I) -> Option<NbrIter<G>> {
         self.csr.get_edges(src)
     }
 
-    pub fn get_adj_list_with_offset(&self, src: I) -> Option<NbrOffsetIter<I>> {
+    pub fn get_adj_list_with_offset(&self, src: I) -> Option<NbrOffsetIter<G>> {
         self.csr.get_edges_with_offset(src)
     }
 
-    pub fn get_edge(&self, src: I) -> Option<I> {
+    pub fn get_edge(&self, src: I) -> Option<G> {
         self.csr.get_edge(src)
     }
 
-    pub fn get_edge_with_offset(&self, src: I) -> Option<(I, usize)> {
+    pub fn get_edge_with_offset(&self, src: I) -> Option<(G, usize)> {
         self.csr.get_edge_with_offset(src)
     }
 

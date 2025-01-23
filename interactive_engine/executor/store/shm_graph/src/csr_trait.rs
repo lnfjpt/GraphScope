@@ -3,7 +3,9 @@ use std::{any::Any, collections::HashSet};
 
 use crate::dataframe::DataFrame;
 use crate::graph::IndexType;
+use crate::vertex_map::VertexMap;
 use crate::table::Table;
+use crate::types::LabelId;
 
 pub struct NbrIter<I> {
     start: *const I,
@@ -60,28 +62,24 @@ impl<I: IndexType> Iterator for NbrOffsetIter<I> {
     }
 }
 
-pub trait CsrTrait<I: IndexType>: Send + Sync {
+pub trait CsrTrait<G: IndexType, I: IndexType>: Send + Sync {
     fn vertex_num(&self) -> I;
     fn max_edge_offset(&self) -> usize;
     fn edge_num(&self) -> usize;
     fn degree(&self, u: I) -> usize;
 
-    fn get_edges(&self, u: I) -> Option<NbrIter<I>>;
-    fn get_edges_with_offset(&self, u: I) -> Option<NbrOffsetIter<I>>;
+    fn get_edges(&self, u: I) -> Option<NbrIter<G>>;
+    fn get_edges_with_offset(&self, u: I) -> Option<NbrOffsetIter<G>>;
 
-    fn delete_edges(&mut self, edges: &Vec<(I, I)>, reverse: bool) -> Vec<(usize, usize)>;
+    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>) -> Vec<(usize, usize)>;
 
     fn delete_vertices(&mut self, vertices: &HashSet<I>);
-    fn delete_neighbors(&mut self, neighbors: &HashSet<I>);
-    fn delete_neighbors_with_ret(&mut self, neighbors: &HashSet<I>) -> Vec<(usize, usize)>;
+    fn delete_neighbors(&mut self, neighbors: &HashSet<G>);
+    fn delete_neighbors_with_ret(&mut self, neighbors: &HashSet<G>) -> Vec<(usize, usize)>;
 
-    fn insert_edges(
-        &mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>,
-        reverse: bool, edges_prop: Option<&mut Table>,
-    );
     fn insert_edges_beta(
-        &mut self, vertex_num: usize, edges: &Vec<(I, I)>, insert_edges_prop: Option<&DataFrame>,
-        reverse: bool, edges_prop: Option<&mut Table>,
+        &mut self, vertex_num: usize, edges: &Vec<(G, G)>, insert_edges_prop: Option<&DataFrame>,
+        reverse: bool, edges_prop: Option<&mut Table>, vertex_map: &VertexMap<G, I>, label: LabelId,
     );
 
     fn as_any(&self) -> &dyn Any;
