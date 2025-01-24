@@ -1923,7 +1923,7 @@ impl GraphModifier {
                 &edges,
                 prop_table.as_ref(),
                 false,
-                graph.oe_edge_prop_table.get_mut(&index), &graph.vertex_map, dst_label,
+                graph.oe_edge_prop_table.get_mut(&index), &graph.vertex_map, src_label,
             );
         }
         let t4 = start.elapsed().as_secs_f64();
@@ -1937,7 +1937,7 @@ impl GraphModifier {
                 &edges,
                 prop_table.as_ref(),
                 true,
-                graph.ie_edge_prop_table.get_mut(&index), &graph.vertex_map, src_label,
+                graph.ie_edge_prop_table.get_mut(&index), &graph.vertex_map, dst_label,
             );
         }
         let t5 = start.elapsed().as_secs_f64();

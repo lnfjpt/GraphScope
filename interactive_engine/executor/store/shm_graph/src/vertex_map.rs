@@ -106,6 +106,7 @@ where
         self.tombs[label as usize].as_mut_slice()[old_vertices_num..]
             .par_iter_mut()
             .for_each(|x| *x = 0);
+        self.vertices_num[label as usize] += ret.len();
         ret
     }
 

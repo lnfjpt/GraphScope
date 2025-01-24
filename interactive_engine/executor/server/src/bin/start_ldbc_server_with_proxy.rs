@@ -16,6 +16,7 @@ use rpc_server::queries::rpc::RPCServerConfig;
 use rpc_server::request::JobClient;
 use serde::Deserialize;
 use shm_graph::graph_db::GraphDB;
+// use shm_graph::traverse::traverse;
 use structopt::StructOpt;
 
 #[cfg(feature = "use_mimalloc")]
@@ -74,15 +75,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start = Instant::now();
     let name = "/SHM_GRAPH_STORE";
+    // let mut is_load = false;
     if let Some(graph_data_path) = config.graph_data {
         let graph_data_str = graph_data_path.to_str().unwrap();
         GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name);
         println!("load graph takes: {} s", start.elapsed().as_secs_f64());
+        // is_load = true;
     }
     let start = Instant::now();
     let shared_graph =
         Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, config.partition_id)));
     println!("open graph takes: {} s", start.elapsed().as_secs_f64());
+    // if !is_load {
+    //     traverse(&shared_graph.read().unwrap(), "/mnt/nas/luoxiaojian/traverse_output");
+    // }
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");

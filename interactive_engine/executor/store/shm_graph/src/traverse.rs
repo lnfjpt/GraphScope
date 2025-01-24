@@ -225,6 +225,7 @@ where
     G: Send + Sync + IndexType,
     I: Send + Sync + IndexType,
 {
-    output_vertices(db, output_dir);
-    output_edges(db, output_dir);
+    let partition_prefix = format!("{}/part-{}/", output_dir, db.partition);
+    output_vertices(db, partition_prefix.as_str());
+    output_edges(db, partition_prefix.as_str());
 }
