@@ -109,11 +109,9 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for SCsr<G, I> {
                 if let Some(set) = delete_map.get_mut(&dst) {
                     set.insert(*src);
                 } else {
-                    if dst.index() < self.nbr_list.len() {
-                        let mut set = HashSet::<G>::new();
-                        set.insert(*src);
-                        delete_map.insert(*dst, set);
-                    }
+                    let mut set = HashSet::<G>::new();
+                    set.insert(*src);
+                    delete_map.insert(*dst, set);
                 }
             }
         } else {
@@ -121,11 +119,9 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for SCsr<G, I> {
                 if let Some(set) = delete_map.get_mut(&src) {
                     set.insert(*dst);
                 } else {
-                    if src.index() < self.nbr_list.len() {
-                        let mut set = HashSet::<G>::new();
-                        set.insert(*dst);
-                        delete_map.insert(*src, set);
-                    }
+                    let mut set = HashSet::<G>::new();
+                    set.insert(*dst);
+                    delete_map.insert(*src, set);
                 }
             }
         }

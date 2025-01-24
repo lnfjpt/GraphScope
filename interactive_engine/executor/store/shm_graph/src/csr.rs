@@ -209,11 +209,9 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
                 if let Some(set) = delete_map.get_mut(&dst) {
                     set.insert(*src);
                 } else {
-                    if dst.index() < self.offsets.len() {
-                        let mut set = HashSet::<G>::new();
-                        set.insert(*src);
-                        delete_map.insert(*dst, set);
-                    }
+                    let mut set = HashSet::<G>::new();
+                    set.insert(*src);
+                    delete_map.insert(*dst, set);
                 }
             }
         } else {
@@ -221,11 +219,9 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
                 if let Some(set) = delete_map.get_mut(&src) {
                     set.insert(*dst);
                 } else {
-                    if src.index() < self.offsets.len() {
-                        let mut set = HashSet::<G>::new();
-                        set.insert(*dst);
-                        delete_map.insert(*src, set);
-                    }
+                    let mut set = HashSet::<G>::new();
+                    set.insert(*dst);
+                    delete_map.insert(*src, set);
                 }
             }
         }
@@ -237,9 +233,10 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
             .par_iter()
             .flat_map(|(v, delete_set)| {
                 let mut ret = vec![];
-                let deg = safe_degree_list.get_mut()[v.index()];
                 let mut found = 0;
                 if let Some((_, v_lid)) = vertex_map.get_internal_id(*v) {
+                    assert!(v_lid.index() < safe_degree_list.get_mut().len());
+                    let deg = safe_degree_list.get_mut()[v_lid.index()];
                     if deg != 0 {
                         let mut from = offsets_slice[v_lid.index()];
                         let mut last = from + deg as usize - 1;

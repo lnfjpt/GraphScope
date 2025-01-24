@@ -16,6 +16,7 @@ use rpc_server::queries::rpc::RPCServerConfig;
 use rpc_server::request::JobClient;
 use serde::Deserialize;
 use shm_graph::graph_db::GraphDB;
+// use shm_graph::traverse::traverse;
 use structopt::StructOpt;
 
 #[cfg(feature = "use_mimalloc")]
