@@ -137,7 +137,8 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
 fn dump_schema_to_shm(name: &str, schema: &CsrGraphSchema) {
     let encoded: Vec<u8> = bincode::serialize(schema).unwrap();
     let mut shm = SharedVec::<u8>::create(name, encoded.len());
-    shm.as_mut_slice().copy_from_slice(encoded.as_slice());
+    shm.as_mut_slice()
+        .copy_from_slice(encoded.as_slice());
 }
 
 fn load_schema_from_shm(name: &str) -> CsrGraphSchema {
@@ -375,7 +376,10 @@ where
 
     pub fn dump_schema(&mut self) {
         if self.schema_updated {
-            dump_schema_to_shm(format!("{}_schema", self.partition_prefix.as_str()).as_str(), &self.graph_schema);
+            dump_schema_to_shm(
+                format!("{}_schema", self.partition_prefix.as_str()).as_str(),
+                &self.graph_schema,
+            );
             self.schema_updated = false;
         }
     }
@@ -426,13 +430,17 @@ where
     }
 
     pub fn remove_vertex_index_prop(&mut self, index_name: &str, vertex_label: LabelId) {
-        self.graph_schema.remove_vertex_index_prop(index_name, vertex_label);
+        self.graph_schema
+            .remove_vertex_index_prop(index_name, vertex_label);
         self.vertex_prop_table[vertex_label as usize].remove_column(index_name);
         self.schema_updated = true;
     }
 
-    pub fn remove_edge_index_prop(&mut self, index_name: &str, src_label: LabelId, edge_label: LabelId, dst_label: LabelId) {
-        self.graph_schema.remove_edge_index_prop(index_name, src_label, edge_label, dst_label);
+    pub fn remove_edge_index_prop(
+        &mut self, index_name: &str, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
+    ) {
+        self.graph_schema
+            .remove_edge_index_prop(index_name, src_label, edge_label, dst_label);
         let idx = self.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
         if let Some(table) = self.oe_edge_prop_table.get_mut(&idx) {
             table.remove_column(index_name);
@@ -585,11 +593,20 @@ where
             let start = Instant::now();
             for e_label_i in 0..self.edge_label_num {
                 for src_label_i in 0..self.vertex_label_num {
-                    if self.graph_schema.get_edge_header(src_label_i as LabelId, e_label_i as LabelId, vertex_label as LabelId).is_none() {
+                    if self
+                        .graph_schema
+                        .get_edge_header(
+                            src_label_i as LabelId,
+                            e_label_i as LabelId,
+                            vertex_label as LabelId,
+                        )
+                        .is_none()
+                    {
                         continue;
                     }
 
-                    let index = self.edge_label_to_index(src_label_i as LabelId,
+                    let index = self.edge_label_to_index(
+                        src_label_i as LabelId,
                         vertex_label as LabelId,
                         e_label_i as LabelId,
                         Direction::Outgoing,
@@ -607,7 +624,15 @@ where
                     }
                 }
                 for dst_label_i in 0..self.vertex_label_num {
-                    if self.graph_schema.get_edge_header(vertex_label as LabelId, e_label_i as LabelId, dst_label_i as LabelId).is_none() {
+                    if self
+                        .graph_schema
+                        .get_edge_header(
+                            vertex_label as LabelId,
+                            e_label_i as LabelId,
+                            dst_label_i as LabelId,
+                        )
+                        .is_none()
+                    {
                         continue;
                     }
                     let index = self.edge_label_to_index(
@@ -628,7 +653,12 @@ where
                     }
                 }
             }
-            println!("delete pended vertices - {}: {} elapsed {} s", vertex_label as LabelId, vertex_set.len(), start.elapsed().as_secs_f64());
+            println!(
+                "delete pended vertices - {}: {} elapsed {} s",
+                vertex_label as LabelId,
+                vertex_set.len(),
+                start.elapsed().as_secs_f64()
+            );
         }
         self.pending_to_delete.clear();
     }

@@ -5,14 +5,13 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
 use csv::StringRecord;
-use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
-
 use dyn_type::object::RawType;
 use dyn_type::CastError;
-
 use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
+use shm_container::{SharedStringVec, SharedVec};
 
 use crate::csr_trait::SafeMutPtr;
 use crate::dataframe::*;
@@ -21,7 +20,6 @@ use crate::date::{parse_date, Date};
 use crate::date_time::{parse_datetime, DateTime};
 use crate::error::GDBResult;
 use crate::types::DefaultId;
-use shm_container::{SharedStringVec, SharedVec};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum DataType {
@@ -522,9 +520,7 @@ impl Column for NullColumn {
     ) {
     }
 
-    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        
-    }
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {}
 }
 
 pub struct Int32Column {
@@ -599,12 +595,15 @@ impl Column for Int32Column {
                 .downcast_ref::<I32HColumn>()
                 .unwrap();
             let mut_self_data = SafeMutPtr::new(&mut self.data);
-            index.par_iter().enumerate().for_each(|(idx, val)| {
-                if *val != usize::MAX {
-                    assert!(*val < self.data.len());
-                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
-                }
-            });
+            index
+                .par_iter()
+                .enumerate()
+                .for_each(|(idx, val)| {
+                    if *val != usize::MAX {
+                        assert!(*val < self.data.len());
+                        mut_self_data.get_mut()[*val] = casted_col.data[idx];
+                    }
+                });
         }
     }
 
@@ -616,7 +615,8 @@ impl Column for Int32Column {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.data.inplace_parallel_range_move(new_size, range_diff);
+        self.data
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -698,7 +698,8 @@ impl Column for UInt32Column {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.data.inplace_parallel_range_move(new_size, range_diff);
+        self.data
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -775,12 +776,15 @@ impl Column for Int64Column {
                 .downcast_ref::<I64HColumn>()
                 .unwrap();
             let mut_self_data = SafeMutPtr::new(&mut self.data);
-            index.par_iter().enumerate().for_each(|(idx, val)| {
-                if *val != usize::MAX {
-                    assert!(*val < self.data.len());
-                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
-                }
-            });
+            index
+                .par_iter()
+                .enumerate()
+                .for_each(|(idx, val)| {
+                    if *val != usize::MAX {
+                        assert!(*val < self.data.len());
+                        mut_self_data.get_mut()[*val] = casted_col.data[idx];
+                    }
+                });
         }
     }
 
@@ -792,7 +796,8 @@ impl Column for Int64Column {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.data.inplace_parallel_range_move(new_size, range_diff);
+        self.data
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -869,12 +874,15 @@ impl Column for UInt64Column {
                 .downcast_ref::<U64HColumn>()
                 .unwrap();
             let mut_self_data = SafeMutPtr::new(&mut self.data);
-            index.par_iter().enumerate().for_each(|(idx, val)| {
-                if *val != usize::MAX {
-                    assert!(*val < self.data.len());
-                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
-                }
-            });
+            index
+                .par_iter()
+                .enumerate()
+                .for_each(|(idx, val)| {
+                    if *val != usize::MAX {
+                        assert!(*val < self.data.len());
+                        mut_self_data.get_mut()[*val] = casted_col.data[idx];
+                    }
+                });
         }
     }
 
@@ -886,7 +894,8 @@ impl Column for UInt64Column {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.data.inplace_parallel_range_move(new_size, range_diff);
+        self.data
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -963,12 +972,15 @@ impl Column for IDColumn {
                 .downcast_ref::<IDHColumn>()
                 .unwrap();
             let mut_self_data = SafeMutPtr::new(&mut self.data);
-            index.par_iter().enumerate().for_each(|(idx, val)| {
-                if *val != usize::MAX {
-                    assert!(*val < self.data.len());
-                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
-                }
-            });
+            index
+                .par_iter()
+                .enumerate()
+                .for_each(|(idx, val)| {
+                    if *val != usize::MAX {
+                        assert!(*val < self.data.len());
+                        mut_self_data.get_mut()[*val] = casted_col.data[idx];
+                    }
+                });
         }
     }
 
@@ -980,7 +992,8 @@ impl Column for IDColumn {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.data.inplace_parallel_range_move(new_size, range_diff);
+        self.data
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -1062,7 +1075,8 @@ impl Column for DoubleColumn {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.data.inplace_parallel_range_move(new_size, range_diff);
+        self.data
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -1135,7 +1149,8 @@ impl Column for StringColumn {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.data.inplace_parallel_range_move(new_size, range_diff);
+        self.data
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -1230,13 +1245,16 @@ impl Column for LCStringColumn {
                 .downcast_ref::<StringHColumn>()
                 .unwrap();
             let mut_self_data = SafeMutPtr::new(&mut self.index);
-            index.par_iter().enumerate().for_each(|(idx, val)| {
-                if *val != usize::MAX {
-                    assert!(*val < self.index.len());
-                    let value = self.table.get(&casted_col.data[idx]).unwrap();
-                    mut_self_data.get_mut()[*val] = *value;
-                }
-            });
+            index
+                .par_iter()
+                .enumerate()
+                .for_each(|(idx, val)| {
+                    if *val != usize::MAX {
+                        assert!(*val < self.index.len());
+                        let value = self.table.get(&casted_col.data[idx]).unwrap();
+                        mut_self_data.get_mut()[*val] = *value;
+                    }
+                });
         }
     }
 
@@ -1248,7 +1266,8 @@ impl Column for LCStringColumn {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.index.inplace_parallel_range_move(new_size, range_diff);
+        self.index
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -1335,12 +1354,15 @@ impl Column for DateColumn {
                 .downcast_ref::<DateHColumn>()
                 .unwrap();
             let mut_self_data = SafeMutPtr::new(&mut self.data);
-            index.par_iter().enumerate().for_each(|(idx, val)| {
-                if *val < usize::MAX {
-                    assert!(*val < self.data.len());
-                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
-                }
-            });
+            index
+                .par_iter()
+                .enumerate()
+                .for_each(|(idx, val)| {
+                    if *val < usize::MAX {
+                        assert!(*val < self.data.len());
+                        mut_self_data.get_mut()[*val] = casted_col.data[idx];
+                    }
+                });
         }
     }
 
@@ -1352,7 +1374,8 @@ impl Column for DateColumn {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.data.inplace_parallel_range_move(new_size, range_diff);
+        self.data
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 
@@ -1429,15 +1452,18 @@ impl Column for DateTimeColumn {
                 .downcast_ref::<DateTimeHColumn>()
                 .unwrap();
             let mut_self_data = SafeMutPtr::new(&mut self.data);
-            index.par_iter().enumerate().for_each(|(idx, val)| {
-                if *val != usize::MAX {
-                    if *val >= self.data.len() {
-                        println!("val = {}, data.len() = {}", *val, self.data.len());
+            index
+                .par_iter()
+                .enumerate()
+                .for_each(|(idx, val)| {
+                    if *val != usize::MAX {
+                        if *val >= self.data.len() {
+                            println!("val = {}, data.len() = {}", *val, self.data.len());
+                        }
+                        assert!(*val < self.data.len());
+                        mut_self_data.get_mut()[*val] = casted_col.data[idx];
                     }
-                    assert!(*val < self.data.len());
-                    mut_self_data.get_mut()[*val] = casted_col.data[idx];
-                }
-            });
+                });
         }
     }
 
@@ -1449,7 +1475,8 @@ impl Column for DateTimeColumn {
     }
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
-        self.data.inplace_parallel_range_move(new_size, range_diff);
+        self.data
+            .inplace_parallel_range_move(new_size, range_diff);
     }
 }
 

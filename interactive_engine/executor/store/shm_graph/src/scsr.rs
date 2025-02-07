@@ -6,13 +6,13 @@ use std::time::Instant;
 use std::usize;
 
 use rayon::prelude::*;
+use shm_container::SharedVec;
 
 use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter, SafeMutPtr};
 use crate::graph::IndexType;
 use crate::table::Table;
 use crate::types::LabelId;
 use crate::vertex_map::{self, VertexMap};
-use shm_container::SharedVec;
 
 pub struct SCsr<G: Copy + Sized, I: Copy + Sized> {
     nbr_list: SharedVec<G>,
@@ -102,7 +102,9 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for SCsr<G, I> {
         }
     }
 
-    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>) -> Vec<(usize, usize)> {
+    fn delete_edges(
+        &mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>,
+    ) -> Vec<(usize, usize)> {
         let mut delete_map = HashMap::<G, HashSet<G>>::new();
         if reverse {
             for (src, dst) in edges.iter() {
@@ -193,29 +195,35 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for SCsr<G, I> {
         let mut t3 = 0_f64;
         let mut insert_counter = 0;
         let parsed_vertices: Vec<I> = if reverse {
-            edges.par_iter().map(|edge| {
-                if let Some((label_id, lid)) = vertex_map.get_internal_id(edge.1) {
-                    if label_id == label {
-                        lid
+            edges
+                .par_iter()
+                .map(|edge| {
+                    if let Some((label_id, lid)) = vertex_map.get_internal_id(edge.1) {
+                        if label_id == label {
+                            lid
+                        } else {
+                            <I as IndexType>::max()
+                        }
                     } else {
                         <I as IndexType>::max()
                     }
-                } else {
-                    <I as IndexType>::max()
-                }
-            }).collect()
+                })
+                .collect()
         } else {
-            edges.par_iter().map(|edge| {
-                if let Some((label_id, lid)) = vertex_map.get_internal_id(edge.0) {
-                    if label_id == label {
-                        lid
+            edges
+                .par_iter()
+                .map(|edge| {
+                    if let Some((label_id, lid)) = vertex_map.get_internal_id(edge.0) {
+                        if label_id == label {
+                            lid
+                        } else {
+                            <I as IndexType>::max()
+                        }
                     } else {
                         <I as IndexType>::max()
                     }
-                } else {
-                    <I as IndexType>::max()
-                }
-            }).collect()
+                })
+                .collect()
         };
         if let Some(it) = insert_edges_prop {
             let start = Instant::now();

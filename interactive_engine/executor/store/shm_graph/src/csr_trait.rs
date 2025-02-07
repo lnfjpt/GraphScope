@@ -3,9 +3,9 @@ use std::{any::Any, collections::HashSet};
 
 use crate::dataframe::DataFrame;
 use crate::graph::IndexType;
-use crate::vertex_map::VertexMap;
 use crate::table::Table;
 use crate::types::LabelId;
+use crate::vertex_map::VertexMap;
 
 pub struct NbrIter<I> {
     start: *const I,
@@ -71,7 +71,9 @@ pub trait CsrTrait<G: IndexType, I: IndexType>: Send + Sync {
     fn get_edges(&self, u: I) -> Option<NbrIter<G>>;
     fn get_edges_with_offset(&self, u: I) -> Option<NbrOffsetIter<G>>;
 
-    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>) -> Vec<(usize, usize)>;
+    fn delete_edges(
+        &mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>,
+    ) -> Vec<(usize, usize)>;
 
     fn delete_vertices(&mut self, vertices: &HashSet<I>);
     fn delete_neighbors(&mut self, neighbors: &HashSet<G>);

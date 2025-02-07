@@ -1,10 +1,8 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
+use crate::graph::IndexType;
 use rayon::prelude::*;
 use shm_container::SharedVec;
-
-use crate::graph::IndexType;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 const INITIAL_SIZE: usize = 16;
 const MAX_LOAD_FACTOR: f64 = 0.875;
@@ -25,14 +23,8 @@ fn hash_integer<T: Hash>(value: T) -> u64 {
 impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
     pub fn load(prefix: &str, name: &str) -> Self {
         Self {
-            keys: SharedVec::<K>::load(
-                format!("{}_keys", prefix).as_str(),
-                format!("{}_keys", name).as_str(),
-            ),
-            indices: SharedVec::<usize>::load(
-                format!("{}_indices", prefix).as_str(),
-                format!("{}_indices", name).as_str(),
-            ),
+            keys: SharedVec::<K>::load(format!("{}_keys", prefix).as_str(), format!("{}_keys", name).as_str()),
+            indices: SharedVec::<usize>::load(format!("{}_indices", prefix).as_str(),format!("{}_indices", name).as_str()),
         }
     }
 
@@ -250,3 +242,4 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
         ret
     }
 }
+

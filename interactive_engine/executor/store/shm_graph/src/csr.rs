@@ -5,15 +5,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use rayon::prelude::*;
+use shm_container::SharedVec;
 
 pub use crate::csr_trait::{CsrTrait, NbrIter, NbrOffsetIter, SafeMutPtr};
 use crate::dataframe::DataFrame;
 use crate::graph::IndexType;
 use crate::table::Table;
-use crate::vertex_map::VertexMap;
 use crate::types::LabelId;
-
-use shm_container::SharedVec;
+use crate::vertex_map::VertexMap;
 
 pub struct Csr<G: IndexType, I: Copy + Sized> {
     neighbors: SharedVec<G>,
@@ -200,7 +199,9 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
         }
     }
 
-    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>) -> Vec<(usize, usize)> {
+    fn delete_edges(
+        &mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>,
+    ) -> Vec<(usize, usize)> {
         let offsets_slice = self.offsets.as_slice();
 
         let mut delete_map = HashMap::<G, HashSet<G>>::new();
@@ -400,29 +401,35 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
         let old_vertex_num = self.degree.len();
         assert!(old_vertex_num <= vertex_num);
         let parsed_vertices: Vec<I> = if reverse {
-            edges.par_iter().map(|edge| {
-                if let Some((label_id, lid)) = vertex_map.get_internal_id(edge.1) {
-                    if label_id == label {
-                        lid
+            edges
+                .par_iter()
+                .map(|edge| {
+                    if let Some((label_id, lid)) = vertex_map.get_internal_id(edge.1) {
+                        if label_id == label {
+                            lid
+                        } else {
+                            <I as IndexType>::max()
+                        }
                     } else {
                         <I as IndexType>::max()
                     }
-                } else {
-                    <I as IndexType>::max()
-                }
-            }).collect()
+                })
+                .collect()
         } else {
-            edges.par_iter().map(|edge| {
-                if let Some((label_id, lid)) = vertex_map.get_internal_id(edge.0) {
-                    if label_id == label {
-                        lid
+            edges
+                .par_iter()
+                .map(|edge| {
+                    if let Some((label_id, lid)) = vertex_map.get_internal_id(edge.0) {
+                        if label_id == label {
+                            lid
+                        } else {
+                            <I as IndexType>::max()
+                        }
                     } else {
                         <I as IndexType>::max()
                     }
-                } else {
-                    <I as IndexType>::max()
-                }
-            }).collect()
+                })
+                .collect()
         };
         let (e_range_diff, new_edges_num) =
             generate_new_offsets(vertex_num, self.degree.as_slice(), &mut self.offsets, &parsed_vertices);

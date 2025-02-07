@@ -30,8 +30,14 @@ where
                 format!("{}/vm_{}", prefix, i).as_str(),
                 format!("{}_vm_{}", name, i).as_str(),
             );
-            let mut vm_tomb = SharedVec::<u8>::create(format!("{}_vm_tomb_{}", name, i).as_str(), indexer.len());
-            vm_tomb.as_mut_slice().par_iter_mut().for_each(|x| {*x = 0_u8;});
+            let mut vm_tomb =
+                SharedVec::<u8>::create(format!("{}_vm_tomb_{}", name, i).as_str(), indexer.len());
+            vm_tomb
+                .as_mut_slice()
+                .par_iter_mut()
+                .for_each(|x| {
+                    *x = 0_u8;
+                });
             vertices_num[i] = indexer.len();
         }
     }
