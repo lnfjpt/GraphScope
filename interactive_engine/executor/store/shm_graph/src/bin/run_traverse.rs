@@ -1,7 +1,7 @@
-use clap::{App, Arg};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use clap::{App, Arg};
 use shm_graph::graph_db::GraphDB;
 use shm_graph::traverse::traverse;
 use shm_graph::types::*;

@@ -13,8 +13,8 @@ use bmcsr::date::Date;
 use bmcsr::date_time::DateTime;
 use bmcsr::graph_db::GraphDB;
 use bmcsr::types::{DefaultId, LabelId, NAME, VERSION};
+use bmcsr::indexer::Indexer;
 use shm_container::{SharedStringVec, SharedVec};
-use shm_graph::indexer::Indexer;
 
 fn dump_csr<I: IndexType>(prefix: &str, csr: &BatchMutableCsr<I>) {
     SharedVec::<I>::dump_vec(format!("{}_nbrs", prefix).as_str(), &csr.neighbors);

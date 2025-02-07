@@ -8,7 +8,7 @@ clap = "2.32.0"
 byteorder = "1.5.0"
 env_logger = "0.7.1"
 chrono = "0.4.23"
-pegasus_common = { path = "../../engine/pegasus/common"}
+pegasus_common = { path = "../../engine/pegasus/common" }
 dyn_type = { path = "../../common/dyn_type" }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
@@ -24,3 +24,4 @@ libc = "0.2.167"
 regex = "1.7.1"
 rust-htslib = { version = "0.46.0", default-features = false, features = ["bzip2", "lzma"] }
 shm_container = { path = "../../common/shm_container" }
+bmcsr = { path = "../bmcsr" }

@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 // use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use csv::{ReaderBuilder, StringRecord};
 use rust_htslib::bgzf::Reader as GzReader;
+
 //
 // use crate::columns::{DataType, Item};
 // use crate::error::GDBResult;

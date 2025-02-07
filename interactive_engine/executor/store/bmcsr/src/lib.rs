@@ -21,6 +21,7 @@ pub mod graph;
 pub mod graph_db;
 pub mod graph_loader;
 pub mod graph_modifier;
+pub mod indexer;
 pub mod ldbc_parser;
 pub mod schema;
 pub mod sub_graph;

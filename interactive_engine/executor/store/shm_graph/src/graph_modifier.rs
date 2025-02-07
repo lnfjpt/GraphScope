@@ -921,8 +921,7 @@ pub fn insert_edges<G, I>(
         .to_vec();
     for (name, _) in edge_table_header.iter() {
         if !column_map.contains_key(name) {
-            graph
-                .remove_edge_index_prop(name, src_label, edge_label, dst_label);
+            graph.remove_edge_index_prop(name, src_label, edge_label, dst_label);
         }
     }
     let mut src_id_col = -1;
@@ -1206,7 +1205,16 @@ where
     }
 
     let t4 = start.elapsed().as_secs_f64();
-    println!("delete_vertices_by_ids[{}][{}]: {}, {}, {}, {}, {}", vertex_label as usize, global_ids.len(), t0, t1, t2, t3, t4);
+    println!(
+        "delete_vertices_by_ids[{}][{}]: {}, {}, {}, {}, {}",
+        vertex_label as usize,
+        global_ids.len(),
+        t0,
+        t1,
+        t2,
+        t3,
+        t4
+    );
 }
 
 pub fn set_vertices(
