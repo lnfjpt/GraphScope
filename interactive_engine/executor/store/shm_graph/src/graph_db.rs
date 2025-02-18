@@ -10,7 +10,7 @@ use crate::columns::Column;
 use crate::csr::Csr;
 use crate::csr_trait::CsrTrait;
 use crate::graph::*;
-use crate::schema::CsrGraphSchema;
+use crate::schema::{CsrGraphSchema, LoadStrategy};
 use crate::schema::Schema;
 use crate::scsr::SCsr;
 use crate::sub_graph::SingleSubGraph;
@@ -185,79 +185,84 @@ impl<G, I> GraphDB<G, I>
                         edge_label as LabelId,
                         dst_label as LabelId,
                     ) {
-                        let oe_prefix = format!(
-                            "{}/oe_{}_{}_{}",
-                            partition_prefix.as_str(),
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
-                        let oe_name_prefix =
-                            format!("{}_oe_{}_{}_{}", shm_name, src_label, edge_label, dst_label);
-                        if graph_schema.is_single_oe(
-                            src_label as LabelId,
-                            edge_label as LabelId,
-                            dst_label as LabelId,
-                        ) {
-                            SCsr::<G, I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
-                        } else {
-                            Csr::<G, I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
-                        }
+                        let load_strategy = graph_schema.get_edge_load_strategy(src_label as LabelId, edge_label as LabelId, dst_label as LabelId);
+                        if load_strategy == LoadStrategy::OnlyOut || load_strategy == LoadStrategy::BothOutIn {
+                            let oe_prefix = format!(
+                                "{}/oe_{}_{}_{}",
+                                partition_prefix.as_str(),
+                                src_label,
+                                edge_label,
+                                dst_label,
+                            );
+                            let oe_name_prefix =
+                                format!("{}_oe_{}_{}_{}", shm_name, src_label, edge_label, dst_label);
+                            if graph_schema.is_single_oe(
+                                src_label as LabelId,
+                                edge_label as LabelId,
+                                dst_label as LabelId,
+                            ) {
+                                SCsr::<G, I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
+                            } else {
+                                Csr::<G, I>::load(oe_prefix.as_str(), oe_name_prefix.as_str());
+                            }
 
-                        let oep_prefix = format!(
-                            "{}/oep_{}_{}_{}",
-                            partition_prefix.as_str(),
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
-                        let oep_name_prefix =
-                            format!("{}_oep_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
-                        if let Some(header) = graph_schema.get_edge_header(
-                            src_label as LabelId,
-                            edge_label as LabelId,
-                            dst_label as LabelId,
-                        ) {
-                            if !header.is_empty() {
-                                Table::load(oep_prefix.as_str(), header, oep_name_prefix.as_str(), mmap_prefix);
+                            let oep_prefix = format!(
+                                "{}/oep_{}_{}_{}",
+                                partition_prefix.as_str(),
+                                src_label,
+                                edge_label,
+                                dst_label,
+                            );
+                            let oep_name_prefix =
+                                format!("{}_oep_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
+                            if let Some(header) = graph_schema.get_edge_header(
+                                src_label as LabelId,
+                                edge_label as LabelId,
+                                dst_label as LabelId,
+                            ) {
+                                if !header.is_empty() {
+                                    Table::load(oep_prefix.as_str(), header, oep_name_prefix.as_str(), mmap_prefix);
+                                }
                             }
                         }
 
-                        let ie_prefix = format!(
-                            "{}/ie_{}_{}_{}",
-                            partition_prefix.as_str(),
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
-                        let ie_name_prefix =
-                            format!("{}_ie_{}_{}_{}", shm_name, src_label, edge_label, dst_label);
-                        if graph_schema.is_single_ie(
-                            src_label as LabelId,
-                            edge_label as LabelId,
-                            dst_label as LabelId,
-                        ) {
-                            SCsr::<G, I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
-                        } else {
-                            Csr::<G, I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
-                        }
+                        if load_strategy == LoadStrategy::OnlyIn || load_strategy == LoadStrategy::BothOutIn {
+                            let ie_prefix = format!(
+                                "{}/ie_{}_{}_{}",
+                                partition_prefix.as_str(),
+                                src_label,
+                                edge_label,
+                                dst_label,
+                            );
+                            let ie_name_prefix =
+                                format!("{}_ie_{}_{}_{}", shm_name, src_label, edge_label, dst_label);
+                            if graph_schema.is_single_ie(
+                                src_label as LabelId,
+                                edge_label as LabelId,
+                                dst_label as LabelId,
+                            ) {
+                                SCsr::<G, I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
+                            } else {
+                                Csr::<G, I>::load(ie_prefix.as_str(), ie_name_prefix.as_str());
+                            }
 
-                        let iep_prefix = format!(
-                            "{}/iep_{}_{}_{}",
-                            partition_prefix.as_str(),
-                            src_label,
-                            edge_label,
-                            dst_label,
-                        );
-                        let iep_name_prefix =
-                            format!("{}_iep_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
-                        if let Some(header) = graph_schema.get_edge_header(
-                            src_label as LabelId,
-                            edge_label as LabelId,
-                            dst_label as LabelId,
-                        ) {
-                            if !header.is_empty() {
-                                Table::load(iep_prefix.as_str(), header, iep_name_prefix.as_str(), mmap_prefix);
+                            let iep_prefix = format!(
+                                "{}/iep_{}_{}_{}",
+                                partition_prefix.as_str(),
+                                src_label,
+                                edge_label,
+                                dst_label,
+                            );
+                            let iep_name_prefix =
+                                format!("{}_iep_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
+                            if let Some(header) = graph_schema.get_edge_header(
+                                src_label as LabelId,
+                                edge_label as LabelId,
+                                dst_label as LabelId,
+                            ) {
+                                if !header.is_empty() {
+                                    Table::load(iep_prefix.as_str(), header, iep_name_prefix.as_str(), mmap_prefix);
+                                }
                             }
                         }
                     }
@@ -386,10 +391,6 @@ impl<G, I> GraphDB<G, I>
             self.schema_updated = false;
         }
     }
-
-    // pub fn get_root_path(&self) -> &str {
-    //     self.root_path.as_str()
-    // }
 
     pub fn get_partition_prefix(&self) -> &str {
         self.partition_prefix.as_str()
@@ -614,15 +615,17 @@ impl<G, I> GraphDB<G, I>
                         e_label_i as LabelId,
                         Direction::Outgoing,
                     );
-
-                    if let Some(oe_csr) = self.oe.get_mut(&index) {
-                        if let Some(table) = self.oe_edge_prop_table.get_mut(&index) {
-                            let shuffle_indices = oe_csr.delete_neighbors_with_ret(vertex_set);
-                            if !shuffle_indices.is_empty() {
-                                table.parallel_move(&shuffle_indices);
+                    let load_strategy = self.graph_schema.get_edge_load_strategy(src_label_i as LabelId, e_label_i as LabelId, vertex_label as LabelId);
+                    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                        if let Some(oe_csr) = self.oe.get_mut(&index) {
+                            if let Some(table) = self.oe_edge_prop_table.get_mut(&index) {
+                                let shuffle_indices = oe_csr.delete_neighbors_with_ret(vertex_set);
+                                if !shuffle_indices.is_empty() {
+                                    table.parallel_move(&shuffle_indices);
+                                }
+                            } else {
+                                oe_csr.delete_neighbors(vertex_set);
                             }
-                        } else {
-                            oe_csr.delete_neighbors(vertex_set);
                         }
                     }
                 }
@@ -644,14 +647,17 @@ impl<G, I> GraphDB<G, I>
                         e_label_i as LabelId,
                         Direction::Outgoing,
                     );
-                    if let Some(ie_csr) = self.ie.get_mut(&index) {
-                        if let Some(table) = self.ie_edge_prop_table.get_mut(&index) {
-                            let shuffle_indices = ie_csr.delete_neighbors_with_ret(vertex_set);
-                            if !shuffle_indices.is_empty() {
-                                table.parallel_move(&shuffle_indices);
+                    let load_strategy = self.graph_schema.get_edge_load_strategy(vertex_label as LabelId, e_label_i as LabelId, dst_label_i as LabelId);
+                    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                        if let Some(ie_csr) = self.ie.get_mut(&index) {
+                            if let Some(table) = self.ie_edge_prop_table.get_mut(&index) {
+                                let shuffle_indices = ie_csr.delete_neighbors_with_ret(vertex_set);
+                                if !shuffle_indices.is_empty() {
+                                    table.parallel_move(&shuffle_indices);
+                                }
+                            } else {
+                                ie_csr.delete_neighbors(vertex_set);
                             }
-                        } else {
-                            ie_csr.delete_neighbors(vertex_set);
                         }
                     }
                 }
