@@ -25,6 +25,7 @@ impl<I: IndexType> SCsr<I> {
     }
 
     pub fn load(prefix: &str, name: &str) {
+
         SharedVec::<usize>::load(format!("{}_meta", prefix).as_str(), format!("{}_meta", name).as_str());
         SharedVec::<I>::load(format!("{}_nbrs", prefix).as_str(), format!("{}_nbrs", name).as_str());
     }

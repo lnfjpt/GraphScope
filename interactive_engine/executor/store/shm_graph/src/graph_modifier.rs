@@ -20,7 +20,7 @@ use crate::graph::IndexType;
 use crate::graph_db::GraphDB;
 use crate::graph_loader::get_files_list;
 use crate::ldbc_parser::{LDBCEdgeParser, LDBCVertexParser};
-use crate::schema::Schema;
+use crate::schema::{LoadStrategy, Schema};
 use crate::traverse::traverse;
 use crate::types::LabelId;
 
@@ -405,6 +405,7 @@ impl Decode for WriteOperation {
 }
 
 unsafe impl Send for WriteOperation {}
+
 unsafe impl Sync for WriteOperation {}
 
 impl WriteOperation {
@@ -523,6 +524,7 @@ impl Clone for AliasData {
 }
 
 unsafe impl Send for AliasData {}
+
 unsafe impl Sync for AliasData {}
 
 fn get_next_output_dir(prefix: &str, partition: usize) -> String {
@@ -751,7 +753,7 @@ pub fn apply_write_operations(
                         );
                     }
                     for ((src_label, edge_label, dst_label, col_name), (ie_cb, oe_cb)) in
-                        column_builders.into_iter()
+                    column_builders.into_iter()
                     {
                         graph.set_edge_property(
                             dst_label,
@@ -870,13 +872,11 @@ fn insert_vertices<G, I>(
     }
 }
 
-pub fn insert_edges<G, I>(
-    graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, input: &Input,
+pub fn insert_edges(
+    graph: &mut GraphDB<usize, usize>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, input: &Input,
     src_vertex_mappings: &Vec<ColumnMappings>, dst_vertex_mappings: &Vec<ColumnMappings>,
     column_mappings: &Vec<ColumnMappings>, servers: usize,
-) where
-    I: Send + Sync + IndexType,
-    G: FromStr + Send + Sync + IndexType + Eq,
+)
 {
     let mut column_map = HashMap::new();
     let mut max_col = 0;
@@ -977,9 +977,125 @@ pub fn insert_edges<G, I>(
             }
         }
         DataSource::Memory => {
-            panic!("not supposed to reach here...");
+            if let Some(memory_data) = input.memory_data() {
+                let data = memory_data.columns();
+                let src_id_column = data
+                    .get(src_id_col as usize)
+                    .expect("Failed to get id column");
+                let dst_id_column = data
+                    .get(dst_id_col as usize)
+                    .expect("Failed to get id column");
+                if let Some(src_uint64_column) = src_id_column
+                    .data()
+                    .as_any()
+                    .downcast_ref::<U64HColumn>()
+                {
+                    if let Some(dst_uint64_column) = dst_id_column
+                        .data()
+                        .as_any()
+                        .downcast_ref::<U64HColumn>()
+                    {
+                        let edges_size = src_uint64_column.len();
+                        let mut edges = Vec::with_capacity(edges_size);
+                        for i in 0..edges_size {
+                            edges.push((src_uint64_column.data[i] as usize, dst_uint64_column.data[i] as usize));
+                        }
+                        if !edges.is_empty() {
+                            insert_edges_by_ids(graph, src_label, edge_label, dst_label, &edges, servers);
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+pub fn insert_edges_by_ids<G, I>(graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId, edges: &Vec<(G, G)>, servers: usize)
+    where
+        I: Send + Sync + IndexType,
+        G: FromStr + Send + Sync + IndexType + Eq,
+{
+    let start = Instant::now();
+    let graph_header = graph
+        .graph_schema
+        .get_edge_header(src_label, edge_label, dst_label)
+        .unwrap();
+    let is_src_static = graph.graph_schema.is_static_vertex(src_label);
+    let is_dst_static = graph.graph_schema.is_static_vertex(dst_label);
+    let load_strategy = graph.graph_schema.get_edge_load_strategy(src_label, edge_label, dst_label);
+
+    let mut corner_src_vertices = HashSet::new();
+    let mut corner_dst_vertices = HashSet::new();
+    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+        for (src, dst) in edges.iter() {
+            if dst.index() % servers != graph.partition {
+                corner_dst_vertices.insert(*dst);
+            }
+        }
+    }
+    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+        for (src, dst) in edges.iter() {
+            if src.index() % servers != graph.partition {
+                corner_src_vertices.insert(*src);
+            }
+        }
+    }
+    graph.vertex_map.insert_corner_vertices(
+        src_label,
+        corner_src_vertices
+            .into_iter()
+            .collect::<Vec<G>>(),
+    );
+    graph.vertex_map.insert_corner_vertices(
+        dst_label,
+        corner_dst_vertices
+            .into_iter()
+            .collect::<Vec<G>>(),
+    );
+    let t0 = start.elapsed().as_secs_f64();
+    let start = Instant::now();
+    let parsed_edges: Vec<(I, I)> = edges
+        .into_par_iter()
+        .map(|(src, dst)| {
+            (
+                graph.vertex_map.get_internal_id(*src).unwrap().1,
+                graph.vertex_map.get_internal_id(*dst).unwrap().1,
+            )
+        })
+        .collect();
+    let t1 = start.elapsed().as_secs_f64();
+    let start = Instant::now();
+    let index = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
+
+    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+        let new_src_num = graph.vertex_map.vertex_num(src_label);
+        if let Some(csr) = graph.oe.get_mut(&index) {
+            csr.insert_edges_beta(
+                new_src_num,
+                &parsed_edges,
+                None,
+                false,
+                graph.oe_edge_prop_table.get_mut(&index),
+            );
+        }
+    }
+    let t2 = start.elapsed().as_secs_f64();
+    let start = Instant::now();
+
+    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+        let new_dst_num = graph.vertex_map.vertex_num(dst_label);
+        if let Some(csr) = graph.ie.get_mut(&index) {
+            csr.insert_edges_beta(
+                new_dst_num,
+                &parsed_edges,
+                None,
+                true,
+                graph.ie_edge_prop_table.get_mut(&index),
+            );
+        }
+    }
+    let t3 = start.elapsed().as_secs_f64();
+    println!("insert edges by id: {}, {}, {}, {}", t0, t1, t2, t3);
 }
 
 pub fn delete_vertices(
@@ -1103,9 +1219,9 @@ pub fn delete_edges(
 }
 
 pub fn delete_vertices_by_ids<G, I>(graph: &mut GraphDB<G, I>, vertex_label: LabelId, global_ids: &Vec<G>)
-where
-    I: Send + Sync + IndexType,
-    G: FromStr + Send + Sync + IndexType + Eq,
+    where
+        I: Send + Sync + IndexType,
+        G: FromStr + Send + Sync + IndexType + Eq,
 {
     let start = Instant::now();
     let mut lids = HashSet::new();
@@ -1476,8 +1592,8 @@ pub fn set_edges(
 }
 
 fn process_csv_rows<F>(path: &PathBuf, mut process_row: F, skip_header: bool, delim: u8)
-where
-    F: FnMut(&csv::StringRecord),
+    where
+        F: FnMut(&csv::StringRecord),
 {
     if let Some(path_str) = path.clone().to_str() {
         if path_str.ends_with(".csv.gz") {
@@ -1685,9 +1801,9 @@ impl GraphModifier {
         &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
         filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32,
     ) -> GDBResult<()>
-    where
-        G: FromStr + Send + Sync + IndexType + Eq,
-        I: Send + Sync + IndexType,
+        where
+            G: FromStr + Send + Sync + IndexType + Eq,
+            I: Send + Sync + IndexType,
     {
         let mut input_header: Vec<(String, DataType)> = vec![];
         input_header.resize(
@@ -1705,9 +1821,9 @@ impl GraphModifier {
         &mut self, graph: &mut GraphDB<G, I>, label: LabelId, filenames: &Vec<String>, id_col: i32,
         mappings: &Vec<i32>,
     ) -> GDBResult<()>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         let start = Instant::now();
         let graph_header = graph
@@ -1811,9 +1927,9 @@ impl GraphModifier {
         &mut self, graph: &mut GraphDB<G, I>, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
         filenames: &Vec<String>, src_id_col: i32, dst_id_col: i32, mappings: &Vec<i32>,
     ) -> GDBResult<()>
-    where
-        I: Send + Sync + IndexType,
-        G: FromStr + Send + Sync + IndexType + Eq,
+        where
+            I: Send + Sync + IndexType,
+            G: FromStr + Send + Sync + IndexType + Eq,
     {
         let start = Instant::now();
         let mut parser = LDBCEdgeParser::<G>::new(src_label, dst_label, edge_label);
