@@ -26,6 +26,7 @@ use rust_htslib::bgzf::Reader as GzReader;
 use shm_container::{SharedStringVec, SharedVec};
 
 use crate::indexer::Indexer;
+use bmcsr::schema::LoadStrategy;
 
 pub fn get_files_list(prefix: &PathBuf, file_strings: &Vec<String>) -> GDBResult<Vec<PathBuf>> {
     let mut path_lists = vec![];
@@ -566,210 +567,245 @@ impl GraphLoader {
                             }
                         }
                     }
-                    if parsed_edges.is_empty() {
-                        continue;
-                    }
-                    let src_label_name =
-                        self.graph_schema.vertex_label_names()[src_label_i as usize].clone();
-                    let dst_label_name =
-                        self.graph_schema.vertex_label_names()[dst_label_i as usize].clone();
-                    let cols = self
+                    // if parsed_edges.is_empty() {
+                    //     continue;
+                    // }
+                    if let Some(cols) = self
                         .graph_schema
-                        .get_edge_header(src_label_i, e_label_i, dst_label_i)
-                        .unwrap();
-                    let mut header = vec![];
-                    for pair in cols.iter() {
-                        header.push((pair.1.clone(), pair.0.clone()));
-                    }
-                    let mut ie_edge_properties = ColTable::new(header.clone());
-                    let mut oe_edge_properties = ColTable::new(header.clone());
-                    if self
-                        .graph_schema
-                        .is_single_ie(src_label_i, e_label_i, dst_label_i)
-                    {
-                        let mut ie_csr_builder = BatchMutableSingleCsrBuilder::<usize>::new();
-                        let mut oe_csr_builder = BatchMutableCsrBuilder::<usize>::new();
-                        ie_csr_builder.init(&idegree, 1.2);
-                        oe_csr_builder.init(&odegree, 1.2);
-                        for e in parsed_edges.iter() {
-                            let ie_offset = ie_csr_builder.put_edge(e.1, e.0).unwrap();
-                            let oe_offset = oe_csr_builder.put_edge(e.0, e.1).unwrap();
-                            if e.2.len() > 0 {
-                                if ie_offset != usize::MAX {
-                                    ie_edge_properties.insert(ie_offset, &e.2);
+                        .get_edge_header(src_label_i, e_label_i, dst_label_i) {
+                        let load_strategy = self.graph_schema.get_edge_load_strategy(src_label_i, e_label_i, dst_label_i);
+                        let src_label_name =
+                            self.graph_schema.vertex_label_names()[src_label_i as usize].clone();
+                        let dst_label_name =
+                            self.graph_schema.vertex_label_names()[dst_label_i as usize].clone();
+                        let mut header = vec![];
+                        for pair in cols.iter() {
+                            header.push((pair.1.clone(), pair.0.clone()));
+                        }
+                        let mut ie_edge_properties = ColTable::new(header.clone());
+                        let mut oe_edge_properties = ColTable::new(header.clone());
+                        if self
+                            .graph_schema
+                            .is_single_ie(src_label_i, e_label_i, dst_label_i)
+                        {
+                            let mut ie_csr_builder = BatchMutableSingleCsrBuilder::<usize>::new();
+                            let mut oe_csr_builder = BatchMutableCsrBuilder::<usize>::new();
+                            ie_csr_builder.init(&idegree, 1.2);
+                            oe_csr_builder.init(&odegree, 1.2);
+                            for e in parsed_edges.iter() {
+                                if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                                    let ie_offset = ie_csr_builder.put_edge(e.1, e.0).unwrap();
+                                    if e.2.len() > 0 {
+                                        if ie_offset != usize::MAX {
+                                            ie_edge_properties.insert(ie_offset, &e.2);
+                                        }
+                                    }
                                 }
-                                if oe_offset != usize::MAX {
-                                    oe_edge_properties.insert(oe_offset, &e.2);
+                                if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                                    let oe_offset = oe_csr_builder.put_edge(e.0, e.1).unwrap();
+                                    if e.2.len() > 0 {
+                                        if oe_offset != usize::MAX {
+                                            oe_edge_properties.insert(oe_offset, &e.2);
+                                        }
+                                    }
                                 }
                             }
-                        }
 
-                        let ie_csr = ie_csr_builder.finish().unwrap();
-                        let oe_csr = oe_csr_builder.finish().unwrap();
+                            let ie_csr = ie_csr_builder.finish().unwrap();
+                            let oe_csr = oe_csr_builder.finish().unwrap();
 
-                        info!("start export ie");
-                        dump_scsr(
-                            format!(
-                                "{}/ie_{}_{}_{}",
-                                self.partition_dir.to_str().unwrap(),
-                                src_label_i,
-                                e_label_i,
-                                dst_label_i
-                            )
-                            .as_str(),
-                            &ie_csr
-                                .as_any()
-                                .downcast_ref::<BatchMutableSingleCsr<usize>>()
-                                .unwrap(),
-                        );
-                        info!("start export oe");
-                        dump_csr(
-                            format!(
-                                "{}/oe_{}_{}_{}",
-                                self.partition_dir.to_str().unwrap(),
-                                src_label_i,
-                                e_label_i,
-                                dst_label_i
-                            )
-                            .as_str(),
-                            &oe_csr
-                                .as_any()
-                                .downcast_ref::<BatchMutableCsr<usize>>()
-                                .unwrap(),
-                        );
-                        info!("finished export");
-                    } else if self
-                        .graph_schema
-                        .is_single_oe(src_label_i, e_label_i, dst_label_i)
-                    {
-                        let mut ie_csr_builder = BatchMutableCsrBuilder::<usize>::new();
-                        let mut oe_csr_builder = BatchMutableSingleCsrBuilder::<usize>::new();
-                        ie_csr_builder.init(&idegree, 1.2);
-                        oe_csr_builder.init(&odegree, 1.2);
-                        for e in parsed_edges.iter() {
-                            let ie_offset = ie_csr_builder.put_edge(e.1, e.0).unwrap();
-                            let oe_offset = oe_csr_builder.put_edge(e.0, e.1).unwrap();
-                            if e.2.len() > 0 {
-                                if ie_offset != usize::MAX {
-                                    ie_edge_properties.insert(ie_offset, &e.2);
+                            info!("start export ie");
+                            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                                dump_scsr(
+                                    format!(
+                                        "{}/ie_{}_{}_{}",
+                                        self.partition_dir.to_str().unwrap(),
+                                        src_label_i,
+                                        e_label_i,
+                                        dst_label_i
+                                    )
+                                        .as_str(),
+                                    &ie_csr
+                                        .as_any()
+                                        .downcast_ref::<BatchMutableSingleCsr<usize>>()
+                                        .unwrap(),
+                                );
+                            }
+                            info!("start export oe");
+                            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                                dump_csr(
+                                    format!(
+                                        "{}/oe_{}_{}_{}",
+                                        self.partition_dir.to_str().unwrap(),
+                                        src_label_i,
+                                        e_label_i,
+                                        dst_label_i
+                                    )
+                                        .as_str(),
+                                    &oe_csr
+                                        .as_any()
+                                        .downcast_ref::<BatchMutableCsr<usize>>()
+                                        .unwrap(),
+                                );
+                            }
+                            info!("finished export");
+                        } else if self
+                            .graph_schema
+                            .is_single_oe(src_label_i, e_label_i, dst_label_i)
+                        {
+                            let mut ie_csr_builder = BatchMutableCsrBuilder::<usize>::new();
+                            let mut oe_csr_builder = BatchMutableSingleCsrBuilder::<usize>::new();
+                            ie_csr_builder.init(&idegree, 1.2);
+                            oe_csr_builder.init(&odegree, 1.2);
+                            for e in parsed_edges.iter() {
+                                if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                                    let ie_offset = ie_csr_builder.put_edge(e.1, e.0).unwrap();
+                                    if e.2.len() > 0 {
+                                        if ie_offset != usize::MAX {
+                                            ie_edge_properties.insert(ie_offset, &e.2);
+                                        }
+                                    }
                                 }
-                                if oe_offset != usize::MAX {
-                                    oe_edge_properties.insert(oe_offset, &e.2);
+                                if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                                    let oe_offset = oe_csr_builder.put_edge(e.0, e.1).unwrap();
+                                    if e.2.len() > 0 {
+                                        if oe_offset != usize::MAX {
+                                            oe_edge_properties.insert(oe_offset, &e.2);
+                                        }
+                                    }
                                 }
                             }
-                        }
 
-                        let ie_csr = ie_csr_builder.finish().unwrap();
-                        let oe_csr = oe_csr_builder.finish().unwrap();
+                            let ie_csr = ie_csr_builder.finish().unwrap();
+                            let oe_csr = oe_csr_builder.finish().unwrap();
 
-                        info!("start export ie");
-                        dump_csr(
-                            format!(
-                                "{}/ie_{}_{}_{}",
-                                self.partition_dir.to_str().unwrap(),
-                                src_label_i,
-                                e_label_i,
-                                dst_label_i
-                            )
-                            .as_str(),
-                            &ie_csr
-                                .as_any()
-                                .downcast_ref::<BatchMutableCsr<usize>>()
-                                .unwrap(),
-                        );
-                        info!("start export oe");
-                        dump_scsr(
-                            format!(
-                                "{}/oe_{}_{}_{}",
-                                self.partition_dir.to_str().unwrap(),
-                                src_label_i,
-                                e_label_i,
-                                dst_label_i
-                            )
-                            .as_str(),
-                            &oe_csr
-                                .as_any()
-                                .downcast_ref::<BatchMutableSingleCsr<usize>>()
-                                .unwrap(),
-                        );
-                        info!("finished export");
-                    } else {
-                        let mut ie_csr_builder = BatchMutableCsrBuilder::<usize>::new();
-                        let mut oe_csr_builder = BatchMutableCsrBuilder::<usize>::new();
-                        ie_csr_builder.init(&idegree, 1.2);
-                        oe_csr_builder.init(&odegree, 1.2);
-                        for e in parsed_edges.iter() {
-                            let ie_offset = ie_csr_builder.put_edge(e.1, e.0).unwrap();
-                            let oe_offset = oe_csr_builder.put_edge(e.0, e.1).unwrap();
-                            if e.2.len() > 0 {
-                                if ie_offset != usize::MAX {
-                                    ie_edge_properties.insert(ie_offset, &e.2);
+                            info!("start export ie");
+                            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                                dump_csr(
+                                    format!(
+                                        "{}/ie_{}_{}_{}",
+                                        self.partition_dir.to_str().unwrap(),
+                                        src_label_i,
+                                        e_label_i,
+                                        dst_label_i
+                                    )
+                                        .as_str(),
+                                    &ie_csr
+                                        .as_any()
+                                        .downcast_ref::<BatchMutableCsr<usize>>()
+                                        .unwrap(),
+                                );
+                            }
+                            info!("start export oe");
+                            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                                dump_scsr(
+                                    format!(
+                                        "{}/oe_{}_{}_{}",
+                                        self.partition_dir.to_str().unwrap(),
+                                        src_label_i,
+                                        e_label_i,
+                                        dst_label_i
+                                    )
+                                        .as_str(),
+                                    &oe_csr
+                                        .as_any()
+                                        .downcast_ref::<BatchMutableSingleCsr<usize>>()
+                                        .unwrap(),
+                                );
+                            }
+                            info!("finished export");
+                        } else {
+                            let mut ie_csr_builder = BatchMutableCsrBuilder::<usize>::new();
+                            let mut oe_csr_builder = BatchMutableCsrBuilder::<usize>::new();
+                            ie_csr_builder.init(&idegree, 1.2);
+                            oe_csr_builder.init(&odegree, 1.2);
+                            for e in parsed_edges.iter() {
+                                if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                                    let ie_offset = ie_csr_builder.put_edge(e.1, e.0).unwrap();
+                                    if e.2.len() > 0 {
+                                        if ie_offset != usize::MAX {
+                                            ie_edge_properties.insert(ie_offset, &e.2);
+                                        }
+                                    }
                                 }
-                                if oe_offset != usize::MAX {
-                                    oe_edge_properties.insert(oe_offset, &e.2);
+                                if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                                    let oe_offset = oe_csr_builder.put_edge(e.0, e.1).unwrap();
+                                    if e.2.len() > 0 {
+                                        if oe_offset != usize::MAX {
+                                            oe_edge_properties.insert(oe_offset, &e.2);
+                                        }
+                                    }
                                 }
                             }
+
+                            let ie_csr = ie_csr_builder.finish().unwrap();
+                            let oe_csr = oe_csr_builder.finish().unwrap();
+
+                            info!("start export ie, edge size {}", ie_csr.edge_num());
+                            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                                dump_csr(
+                                    format!(
+                                        "{}/ie_{}_{}_{}",
+                                        self.partition_dir.to_str().unwrap(),
+                                        src_label_i,
+                                        e_label_i,
+                                        dst_label_i
+                                    )
+                                        .as_str(),
+                                    &ie_csr
+                                        .as_any()
+                                        .downcast_ref::<BatchMutableCsr<usize>>()
+                                        .unwrap(),
+                                );
+                            }
+                            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                                dump_csr(
+                                    format!(
+                                        "{}/oe_{}_{}_{}",
+                                        self.partition_dir.to_str().unwrap(),
+                                        src_label_i,
+                                        e_label_i,
+                                        dst_label_i
+                                    )
+                                        .as_str(),
+                                    &oe_csr
+                                        .as_any()
+                                        .downcast_ref::<BatchMutableCsr<usize>>()
+                                        .unwrap(),
+                                );
+                            }
+                            info!("finished export");
                         }
-
-                        let ie_csr = ie_csr_builder.finish().unwrap();
-                        let oe_csr = oe_csr_builder.finish().unwrap();
-
-                        info!("start export ie, edge size {}", ie_csr.edge_num());
-                        dump_csr(
-                            format!(
-                                "{}/ie_{}_{}_{}",
-                                self.partition_dir.to_str().unwrap(),
-                                src_label_i,
-                                e_label_i,
-                                dst_label_i
-                            )
-                            .as_str(),
-                            &ie_csr
-                                .as_any()
-                                .downcast_ref::<BatchMutableCsr<usize>>()
-                                .unwrap(),
-                        );
-                        dump_csr(
-                            format!(
-                                "{}/oe_{}_{}_{}",
-                                self.partition_dir.to_str().unwrap(),
-                                src_label_i,
-                                e_label_i,
-                                dst_label_i
-                            )
-                            .as_str(),
-                            &oe_csr
-                                .as_any()
-                                .downcast_ref::<BatchMutableCsr<usize>>()
-                                .unwrap(),
-                        );
-                        info!("finished export");
-                    }
-                    if oe_edge_properties.row_num() > 0 {
-                        dump_table(
-                            format!(
-                                "{}/oep_{}_{}_{}",
-                                self.partition_dir.to_str().unwrap(),
-                                src_label_i,
-                                e_label_i,
-                                dst_label_i
-                            )
-                            .as_str(),
-                            &oe_edge_properties,
-                        );
-                    }
-                    if ie_edge_properties.row_num() > 0 {
-                        dump_table(
-                            format!(
-                                "{}/iep_{}_{}_{}",
-                                self.partition_dir.to_str().unwrap(),
-                                src_label_i,
-                                e_label_i,
-                                dst_label_i
-                            )
-                            .as_str(),
-                            &ie_edge_properties,
-                        );
+                        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                            if oe_edge_properties.row_num() > 0 {
+                                dump_table(
+                                    format!(
+                                        "{}/oep_{}_{}_{}",
+                                        self.partition_dir.to_str().unwrap(),
+                                        src_label_i,
+                                        e_label_i,
+                                        dst_label_i
+                                    )
+                                        .as_str(),
+                                    &oe_edge_properties,
+                                );
+                            }
+                        }
+                        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                            if ie_edge_properties.row_num() > 0 {
+                                dump_table(
+                                    format!(
+                                        "{}/iep_{}_{}_{}",
+                                        self.partition_dir.to_str().unwrap(),
+                                        src_label_i,
+                                        e_label_i,
+                                        dst_label_i
+                                    )
+                                        .as_str(),
+                                    &ie_edge_properties,
+                                );
+                            }
+                        }
                     }
                 }
             }

@@ -74,6 +74,30 @@ impl<'a> From<&'a str> for EdgeStrategy {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+pub enum LoadStrategy {
+    BothOutIn,
+    OnlyOut,
+    OnlyIn,
+}
+
+impl<'a> From<&'a str> for LoadStrategy {
+    fn from(_token: &'a str) -> Self {
+        let token_str = _token.to_uppercase();
+        let token = token_str.as_str();
+        if token == "BOTHOUTIN" {
+            LoadStrategy::BothOutIn
+        } else if token == "ONLYOUT" {
+            LoadStrategy::OnlyOut
+        } else if token == "ONLYIN" {
+            LoadStrategy::OnlyIn
+        } else {
+            error!("Unsupported type {:?}", token);
+            LoadStrategy::BothOutIn
+        }
+    }
+}
+
 /// An edge's label is consisted of three elements:
 /// edge_label, src_vertex_label and dst_vertex_label.
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -123,6 +147,7 @@ pub struct CsrGraphSchema {
     edge_prop_vec: HashMap<(LabelId, LabelId, LabelId), Vec<(String, DataType)>>,
     edge_single_ie: HashSet<(LabelId, LabelId, LabelId)>,
     edge_single_oe: HashSet<(LabelId, LabelId, LabelId)>,
+    edge_load_strategy: HashMap<(LabelId, LabelId, LabelId), LoadStrategy>,
 }
 
 impl CsrGraphSchema {
@@ -179,6 +204,17 @@ impl CsrGraphSchema {
             true
         } else {
             false
+        }
+    }
+
+    pub fn get_edge_load_strategy(&self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId) -> LoadStrategy {
+        if self
+            .edge_load_strategy
+            .contains_key(&(src_label, edge_label, dst_label))
+        {
+            *self.edge_load_strategy.get(&(src_label, edge_label, dst_label)).unwrap()
+        } else {
+            LoadStrategy::BothOutIn
         }
     }
 
@@ -385,6 +421,7 @@ impl<'a> From<&'a CsrGraphSchemaJson> for CsrGraphSchema {
             HashMap::with_capacity(schema_json.edge.len());
         let mut edge_single_ie = HashSet::new();
         let mut edge_single_oe = HashSet::new();
+        let mut edge_load_strategy = HashMap::new();
 
         for vertex_info in &schema_json.vertex {
             let label_id = vertex_type_to_id[&vertex_info.label];
@@ -424,6 +461,10 @@ impl<'a> From<&'a CsrGraphSchemaJson> for CsrGraphSchema {
                 edge_single_oe.insert((src_label_id, label_id, dst_label_id));
             }
 
+            if edge_info.load_strategy.is_some() {
+                edge_load_strategy.insert((src_label_id, label_id, dst_label_id), *edge_info.load_strategy.as_ref().unwrap());
+            }
+
             if let Some(properties) = &edge_info.properties {
                 for (index, column) in properties.iter().enumerate() {
                     edge_map.insert(column.name.clone(), (column.data_type.clone(), index));
@@ -442,6 +483,7 @@ impl<'a> From<&'a CsrGraphSchemaJson> for CsrGraphSchema {
             edge_prop_vec,
             edge_single_ie,
             edge_single_oe,
+            edge_load_strategy,
         }
     }
 }
@@ -607,6 +649,8 @@ struct EdgeInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     oe_strategy: Option<EdgeStrategy>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    load_strategy: Option<LoadStrategy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     properties: Option<Vec<ColumnInfo>>,
 }
 
@@ -680,6 +724,11 @@ impl<'a> From<&'a CsrGraphSchema> for CsrGraphSchemaJson {
             } else {
                 None
             };
+            let load_strategy = if schema.edge_load_strategy.contains_key(&(*src_label, *label, *dst_label)) {
+                Some(*schema.edge_load_strategy.get(&(*src_label, *label, *dst_label)).unwrap())
+            } else {
+                None
+            };
             if columns.len() > 0 {
                 let mut properties = vec![];
                 for (col_name, data_type) in columns {
@@ -691,6 +740,7 @@ impl<'a> From<&'a CsrGraphSchema> for CsrGraphSchemaJson {
                     label: label_name,
                     ie_strategy: ie_strategy,
                     oe_strategy: oe_strategy,
+                    load_strategy: load_strategy,
                     properties: Some(properties),
                 });
             } else {
@@ -700,6 +750,7 @@ impl<'a> From<&'a CsrGraphSchema> for CsrGraphSchemaJson {
                     label: label_name,
                     ie_strategy: ie_strategy,
                     oe_strategy: oe_strategy,
+                    load_strategy: load_strategy,
                     properties: None,
                 });
             }
