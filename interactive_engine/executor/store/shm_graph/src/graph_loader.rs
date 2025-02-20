@@ -779,7 +779,7 @@ impl GraphLoader {
         for vl in 0..vertex_label_num {
             println!("start dump vm: {}", vl);
             let vm_bin_path = format!("{}/vm_{}", self.partition_dir.to_str().unwrap(), vl as usize);
-            Indexer::dump(vm_bin_path.as_str(), &self.vertex_map.index_to_global_id[vl as usize]);
+            Indexer::dump(vm_bin_path.as_str(), &self.vertex_map.index_to_global_id[vl as usize], true);
 
             let mut native_tomb = vec![0_u8; self.vertex_map.index_to_global_id[vl as usize].len()];
             SharedVec::<u8>::dump_vec(
@@ -789,7 +789,7 @@ impl GraphLoader {
 
             println!("start dump vmc: {}", vl);
             let vmc_bin_path = format!("{}/vmc_{}", self.partition_dir.to_str().unwrap(), vl as usize);
-            Indexer::dump(vmc_bin_path.as_str(), &self.vertex_map.index_to_corner_global_id[vl as usize]);
+            Indexer::dump(vmc_bin_path.as_str(), &self.vertex_map.index_to_corner_global_id[vl as usize], true);
         }
 
         Ok(())

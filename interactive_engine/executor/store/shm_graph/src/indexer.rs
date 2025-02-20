@@ -1,5 +1,6 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 
 use rayon::prelude::*;
 use shm_container::SharedVec;
@@ -24,16 +25,43 @@ fn hash_integer<T: Hash>(value: T) -> u64 {
 
 impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
     pub fn load(prefix: &str, name: &str) -> Self {
-        Self {
-            keys: SharedVec::<K>::load(
-                format!("{}_keys", prefix).as_str(),
-                format!("{}_keys", name).as_str(),
-            ),
-            indices: SharedVec::<usize>::load(
+        let keys = SharedVec::<K>::load(
+            format!("{}_keys", prefix).as_str(),
+            format!("{}_keys", name).as_str(),
+        );
+        let indices_path = PathBuf::from(format!("{}_indices", prefix));
+        let indices = if indices_path.exists() {
+            SharedVec::<usize>::load(
                 format!("{}_indices", prefix).as_str(),
                 format!("{}_indices", name).as_str(),
-            ),
-        }
+            )
+        } else {
+            let mut len = INITIAL_SIZE;
+            for _ in 0..64 {
+                let rate = keys.len() as f64 / len as f64;
+                if rate > MAX_LOAD_FACTOR {
+                    len *= 2;
+                } else {
+                    break;
+                }
+            }
+
+            let mut indices = SharedVec::<usize>::create(format!("{}_indices", name).as_str(), len);
+            indices.as_mut_slice().par_iter_mut().for_each(|val| {
+                *val = usize::MAX;
+            });
+            for (i, id) in keys.as_slice().iter().enumerate() {
+                let hash = hash_integer(id.index());
+                let mut index = (hash as usize) % len;
+                while indices[index] != usize::MAX {
+                    index = (index + 1) % len;
+                }
+                indices[index] = i;
+            }
+
+            indices
+        };
+        Self { keys, indices }
     }
 
     pub fn open(prefix: &str) -> Self {
@@ -42,33 +70,35 @@ impl<K: Default + Eq + Copy + Sized + IndexType> Indexer<K> {
         Self { keys, indices }
     }
 
-    pub fn dump(prefix: &str, id_list: &Vec<K>) {
+    pub fn dump(prefix: &str, id_list: &Vec<K>, lite: bool) {
         SharedVec::dump_vec(&format!("{}_keys", prefix), &id_list);
-        let mut len = INITIAL_SIZE;
-        for _ in 0..64 {
-            let rate = id_list.len() as f64 / len as f64;
-            if rate > MAX_LOAD_FACTOR {
-                len *= 2;
-            } else {
-                break;
+        if !lite {
+            let mut len = INITIAL_SIZE;
+            for _ in 0..64 {
+                let rate = id_list.len() as f64 / len as f64;
+                if rate > MAX_LOAD_FACTOR {
+                    len *= 2;
+                } else {
+                    break;
+                }
             }
-        }
 
-        let mut indices = vec![usize::MAX; len];
+            let mut indices = vec![usize::MAX; len];
 
-        for (i, id) in id_list.iter().enumerate() {
-            let hash = hash_integer(id.index());
-            let mut index = (hash as usize) % len;
-            while indices[index] != usize::MAX {
-                index = (index + 1) % len;
+            for (i, id) in id_list.iter().enumerate() {
+                let hash = hash_integer(id.index());
+                let mut index = (hash as usize) % len;
+                while indices[index] != usize::MAX {
+                    index = (index + 1) % len;
+                }
+                indices[index] = i;
             }
-            indices[index] = i;
+            SharedVec::dump_vec(&format!("{}_indices", prefix), &indices);
         }
-        SharedVec::dump_vec(&format!("{}_indices", prefix), &indices);
     }
 
     pub fn new(prefix: &str, id_list: Vec<K>) -> Self {
-        Self::dump(prefix, &id_list);
+        Self::dump(prefix, &id_list, false);
         Self {
             keys: SharedVec::<K>::open(&format!("{}_keys", prefix)),
             indices: SharedVec::<usize>::open(&format!("{}_indices", prefix)),

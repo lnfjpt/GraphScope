@@ -28,3 +28,8 @@ pub mod traverse;
 pub mod types;
 pub mod utils;
 pub mod vertex_map;
+pub mod shuffler;
+pub mod vertex_loader;
+pub mod record_batch;
+pub mod graph_loader_beta;
+pub mod edge_loader;

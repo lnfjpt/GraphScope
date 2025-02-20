@@ -1,23 +1,29 @@
 use std::any::Any;
 
+use abomonation::Abomonation;
 use pegasus_common::codec::{Decode, Encode};
 use pegasus_common::io::{ReadExt, WriteExt};
 use rayon::prelude::*;
 
 use crate::columns::{DataType, Item, RefItem};
-use crate::date::Date;
-use crate::date_time::DateTime;
+use crate::date::{Date, parse_date};
+use crate::date_time::{parse_datetime, DateTime};
 use crate::types::DefaultId;
 
 pub trait HeapColumn {
     fn get_type(&self) -> DataType;
     fn get(&self, index: usize) -> Option<RefItem>;
     fn set(&mut self, index: usize, val: Item);
+    fn set_ref(&mut self, index: usize, val: RefItem);
     fn push(&mut self, val: Item);
     fn len(&self) -> usize;
+    fn resize(&mut self, new_len: usize);
     fn as_any(&self) -> &dyn Any;
+    fn as_mut_any(&mut self) -> &mut dyn Any;
 
     fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize);
+    fn append_str(&mut self, val: &str);
+    fn append_col(&mut self, col: Box<dyn HeapColumn>);
 }
 
 pub struct I32HColumn {
@@ -57,6 +63,17 @@ impl HeapColumn for I32HColumn {
         }
     }
 
+    fn set_ref(&mut self, index: usize, val: RefItem) {
+        match val {
+            RefItem::Int32(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = 0;
+            }
+        }
+    }
+
     fn push(&mut self, val: Item) {
         match val {
             Item::Int32(v) => {
@@ -66,6 +83,10 @@ impl HeapColumn for I32HColumn {
                 self.data.push(0);
             }
         }
+    }
+
+    fn resize(&mut self, new_len: usize) {
+        self.data.resize(new_len, 0_i32);
     }
 
     fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
@@ -79,12 +100,26 @@ impl HeapColumn for I32HColumn {
         self.data.extend(new_elems);
     }
 
+    fn append_str(&mut self, val: &str) {
+        self.data.push(val.parse::<i32>().unwrap());
+    }
+
     fn len(&self) -> usize {
         self.data.len()
     }
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn append_col(&mut self, mut col: Box<dyn HeapColumn>) {
+        let col = col.as_mut_any().downcast_mut::<Self>().unwrap();
+        let take_data = std::mem::replace(&mut col.data, Vec::new());
+        self.data.extend(take_data);
     }
 }
 
@@ -125,6 +160,17 @@ impl HeapColumn for I64HColumn {
         }
     }
 
+    fn set_ref(&mut self, index: usize, val: RefItem) {
+        match val {
+            RefItem::Int64(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = 0;
+            }
+        }
+    }
+
     fn push(&mut self, val: Item) {
         match val {
             Item::Int64(v) => {
@@ -134,6 +180,10 @@ impl HeapColumn for I64HColumn {
                 self.data.push(0);
             }
         }
+    }
+
+    fn resize(&mut self, new_len: usize) {
+        self.data.resize(new_len, 0_i64);
     }
 
     fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
@@ -147,12 +197,26 @@ impl HeapColumn for I64HColumn {
         self.data.extend(new_elems);
     }
 
+    fn append_str(&mut self, val: &str) {
+        self.data.push(val.parse::<i64>().unwrap());
+    }
+
     fn len(&self) -> usize {
         self.data.len()
     }
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn append_col(&mut self, mut col: Box<dyn HeapColumn>) {
+        let col = col.as_mut_any().downcast_mut::<Self>().unwrap();
+        let take_data = std::mem::replace(&mut col.data, Vec::new());
+        self.data.extend(take_data);
     }
 }
 
@@ -195,6 +259,17 @@ impl HeapColumn for U64HColumn {
         }
     }
 
+    fn set_ref(&mut self, index: usize, val: RefItem) {
+        match val {
+            RefItem::UInt64(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = 0;
+            }
+        }
+    }
+
     fn push(&mut self, val: Item) {
         match val {
             Item::UInt64(v) => {
@@ -204,6 +279,10 @@ impl HeapColumn for U64HColumn {
                 self.data.push(0);
             }
         }
+    }
+
+    fn resize(&mut self, new_len: usize) {
+        self.data.resize(new_len, 0_u64);
     }
 
     fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
@@ -217,12 +296,26 @@ impl HeapColumn for U64HColumn {
         self.data.extend(new_elems);
     }
 
+    fn append_str(&mut self, val: &str) {
+        self.data.push(val.parse::<u64>().unwrap());
+    }
+
     fn len(&self) -> usize {
         self.data.len()
     }
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn append_col(&mut self, mut col: Box<dyn HeapColumn>) {
+        let col = col.as_mut_any().downcast_mut::<Self>().unwrap();
+        let take_data = std::mem::replace(&mut col.data, Vec::new());
+        self.data.extend(take_data);
     }
 }
 
@@ -265,6 +358,17 @@ impl HeapColumn for IDHColumn {
         }
     }
 
+    fn set_ref(&mut self, index: usize, val: RefItem) {
+        match val {
+            RefItem::VertexId(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = 0;
+            }
+        }
+    }
+
     fn push(&mut self, val: Item) {
         match val {
             Item::VertexId(v) => {
@@ -274,6 +378,10 @@ impl HeapColumn for IDHColumn {
                 self.data.push(0);
             }
         }
+    }
+
+    fn resize(&mut self, new_len: usize) {
+        self.data.resize(new_len, 0_usize);
     }
 
     fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
@@ -287,12 +395,26 @@ impl HeapColumn for IDHColumn {
         self.data.extend(new_elems);
     }
 
+    fn append_str(&mut self, val: &str) {
+        self.data.push(val.parse::<DefaultId>().unwrap());
+    }
+
     fn len(&self) -> usize {
         self.data.len()
     }
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn append_col(&mut self, mut col: Box<dyn HeapColumn>) {
+        let col = col.as_mut_any().downcast_mut::<Self>().unwrap();
+        let take_data = std::mem::replace(&mut col.data, Vec::new());
+        self.data.extend(take_data);
     }
 }
 
@@ -315,7 +437,7 @@ impl StringHColumn {
 
 impl HeapColumn for StringHColumn {
     fn get_type(&self) -> DataType {
-        DataType::ID
+        DataType::String
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
@@ -335,6 +457,17 @@ impl HeapColumn for StringHColumn {
         }
     }
 
+    fn set_ref(&mut self, index: usize, val: RefItem) {
+        match val {
+            RefItem::String(v) => {
+                self.data[index] = v.to_string();
+            }
+            _ => {
+                self.data[index] = "".to_string();
+            }
+        }
+    }
+
     fn push(&mut self, val: Item) {
         match val {
             Item::String(v) => {
@@ -344,6 +477,10 @@ impl HeapColumn for StringHColumn {
                 self.data.push("".to_string());
             }
         }
+    }
+
+    fn resize(&mut self, new_len: usize) {
+        self.data.resize(new_len, "".to_string());
     }
 
     fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
@@ -357,12 +494,26 @@ impl HeapColumn for StringHColumn {
         self.data.extend(new_elems);
     }
 
+    fn append_str(&mut self, val: &str) {
+        self.data.push(val.to_string());
+    }
+
     fn len(&self) -> usize {
         self.data.len()
     }
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn append_col(&mut self, mut col: Box<dyn HeapColumn>) {
+        let col = col.as_mut_any().downcast_mut::<Self>().unwrap();
+        let take_data = std::mem::replace(&mut col.data, Vec::new());
+        self.data.extend(take_data);
     }
 }
 
@@ -403,6 +554,17 @@ impl HeapColumn for DateHColumn {
         }
     }
 
+    fn set_ref(&mut self, index: usize, val: RefItem) {
+        match val {
+            RefItem::Date(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = Date::empty();
+            }
+        }
+    }
+
     fn push(&mut self, val: Item) {
         match val {
             Item::Date(v) => {
@@ -412,6 +574,10 @@ impl HeapColumn for DateHColumn {
                 self.data.push(Date::empty());
             }
         }
+    }
+
+    fn resize(&mut self, new_len: usize) {
+        self.data.resize(new_len, Date::empty());
     }
 
     fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
@@ -425,12 +591,26 @@ impl HeapColumn for DateHColumn {
         self.data.extend(new_elems);
     }
 
+    fn append_str(&mut self, val: &str) {
+        self.data.push(parse_date(val).unwrap());
+    }
+
     fn len(&self) -> usize {
         self.data.len()
     }
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn append_col(&mut self, mut col: Box<dyn HeapColumn>) {
+        let col = col.as_mut_any().downcast_mut::<Self>().unwrap();
+        let take_data = std::mem::replace(&mut col.data, Vec::new());
+        self.data.extend(take_data);
     }
 }
 
@@ -473,6 +653,17 @@ impl HeapColumn for DateTimeHColumn {
         }
     }
 
+    fn set_ref(&mut self, index: usize, val: RefItem) {
+        match val {
+            RefItem::DateTime(v) => {
+                self.data[index] = v;
+            }
+            _ => {
+                self.data[index] = DateTime::empty();
+            }
+        }
+    }
+
     fn push(&mut self, val: Item) {
         match val {
             Item::DateTime(v) => {
@@ -482,6 +673,10 @@ impl HeapColumn for DateTimeHColumn {
                 self.data.push(DateTime::empty());
             }
         }
+    }
+
+    fn resize(&mut self, new_len: usize) {
+        self.data.resize(new_len, DateTime::empty());
     }
 
     fn append_rows(&mut self, rows: &Vec<Vec<Item>>, col_id: usize) {
@@ -495,12 +690,26 @@ impl HeapColumn for DateTimeHColumn {
         self.data.extend(new_elems);
     }
 
+    fn append_str(&mut self, val: &str) {
+        self.data.push(parse_datetime(val));
+    }
+
     fn len(&self) -> usize {
         self.data.len()
     }
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn append_col(&mut self, mut col: Box<dyn HeapColumn>) {
+        let col = col.as_mut_any().downcast_mut::<Self>().unwrap();
+        let take_data = std::mem::replace(&mut col.data, Vec::new());
+        self.data.extend(take_data);
     }
 }
 

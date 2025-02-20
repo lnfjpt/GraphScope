@@ -16,11 +16,12 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use chrono::{Datelike, Duration, NaiveDate};
+use serde::{Deserialize, Serialize};
 
 use crate::date_time::DateTime;
 use crate::error::GDBResult;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct Date {
     inner: i32,
 }

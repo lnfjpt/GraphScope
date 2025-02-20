@@ -18,8 +18,9 @@ use std::fmt::{Debug, Display, Formatter};
 
 use chrono::{DateTime as CDateTime, TimeZone};
 use chrono::{Datelike, Duration, Timelike, Utc};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct DateTime {
     inner: i64,
 }
