@@ -236,11 +236,11 @@ fn reader_routine(
     serialze_handle.join().unwrap();
 }
 
-pub fn load_edge(
+pub fn load_raw_edge(
     input_dir: &PathBuf, input_schema: &InputSchema, graph_schema: &CsrGraphSchema, src_label: LabelId,
-    edge_label: LabelId, dst_label: LabelId, vertex_maps: Arc<Mutex<Vec<RTVertexMap>>>,
+    edge_label: LabelId, dst_label: LabelId,
     shuffler: &mut Shuffler, delim: u8, has_header: bool, reader_num: usize, offset: usize,
-) -> (Vec<usize>, Vec<usize>, Vec<i32>, Vec<i32>, RecordBatch) {
+) -> (Vec<usize>, Vec<usize>, RecordBatch) {
     let input_header = input_schema
         .get_edge_header(src_label, edge_label, dst_label)
         .unwrap();
@@ -296,17 +296,9 @@ pub fn load_edge(
 
     let (tx, rx) = shuffler.shuffle_start();
     let (tx_table, rx_table) = mpsc::channel::<EdgeBatch>();
-    let vertex_maps_clone = vertex_maps.clone();
     let writer_handle = thread::spawn({
         let col_types = col_types.clone();
         move || {
-        let mut vertex_maps = vertex_maps_clone.lock().unwrap();
-        let src_num = vertex_maps[src_label as usize].native_vertex_num();
-        let dst_num = vertex_maps[dst_label as usize].native_vertex_num();
-
-        let mut odegree = vec![0_i32; src_num];
-        let mut idegree = vec![0_i32; dst_num];
-
         let mut src_list = vec![];
         let mut dst_list = vec![];
         let mut properties = RecordBatch::new(&col_types);
@@ -318,70 +310,7 @@ pub fn load_edge(
             properties.append_rb(batch.properties);
         }
 
-        if !is_src_static {
-            let start = Instant::now();
-            let mut src_list_cloned : Vec<usize> = src_list.par_iter().cloned().collect();
-            src_list_cloned.par_sort();
-            src_list_cloned.dedup();
-            let src_vm = &vertex_maps[src_label as usize];
-            let src_corner : Vec<usize> = src_list_cloned.par_iter().filter(|v| {
-                src_vm.get_internal_id(**v).is_none()
-            }).cloned().collect();
-            vertex_maps[src_label as usize].add_corner_vertices2(src_corner);
-            info!("reduce src: {:.2} s", start.elapsed().as_secs_f64());
-        }
-        if !is_dst_static {
-            let start = Instant::now();
-            let mut dst_list_cloned : Vec<usize> = dst_list.par_iter().cloned().collect();
-            dst_list_cloned.par_sort();
-            dst_list_cloned.dedup();
-            let dst_vm = &vertex_maps[dst_label as usize];
-            let dst_corner : Vec<usize> = dst_list_cloned.par_iter().filter(|v| {
-                dst_vm.get_internal_id(**v).is_none()
-            }).cloned().collect();
-            vertex_maps[dst_label as usize].add_corner_vertices2(dst_corner);
-            info!("reduce dst: {:.2} s", start.elapsed().as_secs_f64());
-        }
-
-        let local_src_counts: Vec<HashMap<usize, i32>> = src_list.par_iter_mut().filter_map(|x| {
-            *x = vertex_maps[src_label as usize].get_internal_id(*x).unwrap();
-            if *x < src_num {
-                Some(*x)
-            } else {
-                None
-            }
-        }).fold(
-            || HashMap::new(),
-            |mut acc, x| {
-                *acc.entry(x).or_insert(0) += 1;
-                acc
-            }
-        ).collect();
-        let local_dst_counts: Vec<HashMap<usize, i32>> = dst_list.par_iter_mut().filter_map(|x| {
-            *x = vertex_maps[dst_label as usize].get_internal_id(*x).unwrap();
-            if *x < dst_num {
-                Some(*x)
-            } else {
-                None
-            }
-        }).fold(
-            || HashMap::new(),
-            |mut acc, x| {
-                *acc.entry(x).or_insert(0) += 1;
-                acc
-            }
-        ).collect();
-        for local_count in local_src_counts {
-            for (key, count) in local_count {
-                odegree[key] += count;
-            }
-        }
-        for local_count in local_dst_counts {
-            for (key, count) in local_count {
-                idegree[key] += count;
-            }
-        }
-        (src_list, dst_list, odegree, idegree, properties)
+        (src_list, dst_list, properties)
     }});
 
     let reader_handles: Vec<_> = (0..reader_num)
@@ -420,7 +349,7 @@ pub fn load_edge(
     });
 
     for handle in reader_handles {
-        handle.join();
+        handle.join().unwrap();
     }
     drop(tx);
     shuffler.shuffle_end();
@@ -428,6 +357,91 @@ pub fn load_edge(
 
     writer_handle.join().unwrap()
 }
+
+pub fn load_edge(
+    input_dir: &PathBuf, input_schema: &InputSchema, graph_schema: &CsrGraphSchema, src_label: LabelId,
+    edge_label: LabelId, dst_label: LabelId, vertex_maps: &mut Vec<RTVertexMap>,
+    shuffler: &mut Shuffler, delim: u8, has_header: bool, reader_num: usize, offset: usize,
+) -> (Vec<usize>, Vec<usize>, Vec<i32>, Vec<i32>, RecordBatch) {
+    let src_num = vertex_maps[src_label as usize].native_vertex_num();
+    let dst_num = vertex_maps[dst_label as usize].native_vertex_num();
+
+    let mut odegree = vec![0_i32; src_num];
+    let mut idegree = vec![0_i32; dst_num];
+
+    let (mut src_list, mut dst_list, properties) = load_raw_edge(input_dir, input_schema, graph_schema, src_label, edge_label, dst_label, shuffler, delim, has_header, reader_num, offset);
+
+    let is_src_static = graph_schema.is_static_vertex(src_label);
+    let is_dst_static = graph_schema.is_static_vertex(dst_label);
+
+    if !is_src_static {
+        let start = Instant::now();
+        let mut src_list_cloned : Vec<usize> = src_list.par_iter().cloned().collect();
+        src_list_cloned.par_sort();
+        src_list_cloned.dedup();
+        let src_vm = &vertex_maps[src_label as usize];
+        let src_corner : Vec<usize> = src_list_cloned.par_iter().filter(|v| {
+            src_vm.get_internal_id(**v).is_none()
+        }).cloned().collect();
+        vertex_maps[src_label as usize].add_corner_vertices2(src_corner);
+        info!("reduce src: {:.2} s", start.elapsed().as_secs_f64());
+    }
+    if !is_dst_static {
+        let start = Instant::now();
+        let mut dst_list_cloned : Vec<usize> = dst_list.par_iter().cloned().collect();
+        dst_list_cloned.par_sort();
+        dst_list_cloned.dedup();
+        let dst_vm = &vertex_maps[dst_label as usize];
+        let dst_corner : Vec<usize> = dst_list_cloned.par_iter().filter(|v| {
+            dst_vm.get_internal_id(**v).is_none()
+        }).cloned().collect();
+        vertex_maps[dst_label as usize].add_corner_vertices2(dst_corner);
+        info!("reduce dst: {:.2} s", start.elapsed().as_secs_f64());
+    }
+
+    let local_src_counts: Vec<HashMap<usize, i32>> = src_list.par_iter_mut().filter_map(|x| {
+        *x = vertex_maps[src_label as usize].get_internal_id(*x).unwrap();
+        if *x < src_num {
+            Some(*x)
+        } else {
+            None
+        }
+    }).fold(
+        || HashMap::new(),
+        |mut acc, x| {
+            *acc.entry(x).or_insert(0) += 1;
+            acc
+        }
+    ).collect();
+    let local_dst_counts: Vec<HashMap<usize, i32>> = dst_list.par_iter_mut().filter_map(|x| {
+        *x = vertex_maps[dst_label as usize].get_internal_id(*x).unwrap();
+        if *x < dst_num {
+            Some(*x)
+        } else {
+            None
+        }
+    }).fold(
+        || HashMap::new(),
+        |mut acc, x| {
+            *acc.entry(x).or_insert(0) += 1;
+            acc
+        }
+    ).collect();
+    for local_count in local_src_counts {
+        for (key, count) in local_count {
+            odegree[key] += count;
+        }
+    }
+    for local_count in local_dst_counts {
+        for (key, count) in local_count {
+            idegree[key] += count;
+        }
+    }
+    (src_list, dst_list, odegree, idegree, properties)
+}
+
+
+
 
 fn prefix_sum(deg: &Vec<i32>) -> (Vec<usize>, usize) {
     let mut ret = Vec::with_capacity(deg.len());
@@ -437,6 +451,29 @@ fn prefix_sum(deg: &Vec<i32>) -> (Vec<usize>, usize) {
         cur += *v as usize;
     }
     (ret, cur)
+}
+
+fn generate_degree(v: &Vec<usize>, vm: &RTVertexMap) -> Vec<i32> {
+    let vnum = vm.native_vertex_num();
+    let mut degree = vec![0; vnum];
+
+    let local_counts: Vec<HashMap<usize, i32>> = v.par_iter().filter_map(|x| {
+        vm.get_internal_id(*x)
+    }).fold(
+        || HashMap::new(),
+        |mut acc, x| {
+            *acc.entry(x).or_insert(0) += 1;
+            acc
+        }
+    ).collect();
+
+    for local_count in local_counts {
+        for (key, count) in local_count {
+            degree[key] += count;
+        }
+    }
+
+    degree
 }
 
 fn dump_pod_vec<T: Copy + Sized>(path: &str, v: &Vec<T>) {
@@ -558,6 +595,131 @@ pub fn dump_edge_without_properties(
     }
 }
 
+pub fn dump_edge_no_corner_without_properties(
+    vertex_maps: Arc<Vec<RTVertexMap>>,
+    src_list: Vec<usize>, dst_list: Vec<usize>,
+    src_label: LabelId, dst_label: LabelId,
+    oe_prefix: String,
+    ie_prefix: String, is_single_oe: bool, is_single_ie: bool,
+) {
+    let src_vm = &vertex_maps[src_label as usize];
+    let dst_vm = &vertex_maps[dst_label as usize];
+    let src_num = src_vm.native_vertex_num();
+    let dst_num = dst_vm.native_vertex_num();
+
+    if !is_single_ie && !is_single_oe {
+        let odegree = generate_degree(&src_list, src_vm);
+        let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
+        let idegree = generate_degree(&dst_list, dst_vm);
+        let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
+
+        dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
+        dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
+        dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+        dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+
+        let mut oe_nbrs = vec![usize::MAX; oe_num];
+        let mut ie_nbrs = vec![usize::MAX; ie_num];
+
+        for i in 0..src_list.len() {
+            let src = src_list[i];
+            let dst = dst_list[i];
+            if let Some(src_lid) = src_vm.get_internal_id(src) {
+                let cur_offset = oe_offsets[src_lid];
+                oe_offsets[src_lid] += 1;
+
+                oe_nbrs[cur_offset] = dst;
+            }
+            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                let cur_offset = ie_offsets[dst_lid];
+                ie_offsets[dst_lid] += 1;
+
+                ie_nbrs[cur_offset] = src;
+            }
+        }
+
+        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+    } else if is_single_ie && !is_single_oe {
+        let odegree = generate_degree(&src_list, src_vm);
+        let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
+
+        dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
+        dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+
+        let mut oe_nbrs = vec![usize::MAX; oe_num];
+        let mut ie_nbrs = vec![usize::MAX; dst_num];
+
+        for i in 0..src_list.len() {
+            let src = src_list[i];
+            let dst = dst_list[i];
+            if let Some(src_lid) = src_vm.get_internal_id(src) {
+                let cur_offset = oe_offsets[src_lid];
+                oe_offsets[src_lid] += 1;
+
+                oe_nbrs[cur_offset] = dst;
+            }
+            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                ie_nbrs[dst_lid] = src;
+            }
+        }
+
+        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+    } else if !is_single_ie && is_single_oe {
+        let idegree = generate_degree(&dst_list, dst_vm);
+        let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
+
+        dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
+        dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+
+        let mut oe_nbrs = vec![usize::MAX; src_num];
+        let mut ie_nbrs = vec![usize::MAX; ie_num];
+
+        for i in 0..src_list.len() {
+            let src = src_list[i];
+            let dst = dst_list[i];
+            if let Some(src_lid) = src_vm.get_internal_id(src) {
+                oe_nbrs[src_lid] = dst;
+            }
+            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                let cur_offset = ie_offsets[dst_lid];
+                ie_offsets[dst_lid] += 1;
+
+                ie_nbrs[cur_offset] = src;
+            }
+        }
+
+        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+    } else {
+        let mut oe_nbrs = vec![usize::MAX; src_num];
+        let mut ie_nbrs = vec![usize::MAX; dst_num];
+
+        for i in 0..src_list.len() {
+            let src = src_list[i];
+            let dst = dst_list[i];
+            if let Some(src_lid) = src_vm.get_internal_id(src) {
+                oe_nbrs[src_lid] = dst;
+            }
+            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                ie_nbrs[dst_lid] = src;
+            }
+        }
+
+        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+    }
+}
+
 pub fn dump_properties(
     properties: RecordBatch, oe_order: Vec<usize>, oe_prefix: String, oe_num: usize,
     ie_order: Vec<usize>, ie_prefix: String, ie_num: usize,
@@ -658,12 +820,18 @@ pub fn dump_edge_with_properties(
             let dst = dst_list[i];
             if src < src_num {
                 let cur_offset = oe_offsets[src];
+                oe_prop_index.push(cur_offset);
                 oe_offsets[src] += 1;
 
                 oe_nbrs[cur_offset] = dst;
+            } else {
+                oe_prop_index.push(usize::MAX);
             }
             if dst < dst_num {
                 ie_nbrs[dst] = src;
+                ie_prop_index.push(dst);
+            } else {
+                ie_prop_index.push(usize::MAX);
             }
         }
 
@@ -725,6 +893,167 @@ pub fn dump_edge_with_properties(
             if dst < dst_num {
                 ie_nbrs[dst] = src;
                 ie_prop_index.push(dst);
+            } else {
+                ie_prop_index.push(usize::MAX);
+            }
+        }
+
+        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+    }
+    dump_properties(properties, oe_prop_index, oep_prefix, oe_num_x, ie_prop_index, iep_prefix, ie_num_x);
+}
+
+pub fn dump_edge_no_corner_with_properties(
+    vertex_maps: Arc<Vec<RTVertexMap>>,
+    src_list: Vec<usize>, dst_list: Vec<usize>, properties: RecordBatch,
+    src_label: LabelId, dst_label: LabelId,
+    oe_prefix: String,
+    ie_prefix: String, oep_prefix: String, iep_prefix: String, is_single_oe: bool, is_single_ie: bool,
+) {
+    let src_vm = &vertex_maps[src_label as usize];
+    let dst_vm = &vertex_maps[dst_label as usize];
+    let src_num = src_vm.native_vertex_num();
+    let dst_num = dst_vm.native_vertex_num();
+
+    let edge_num = src_list.len();
+    let mut oe_prop_index = Vec::with_capacity(edge_num);
+    let mut ie_prop_index = Vec::with_capacity(edge_num);
+
+    let mut oe_num_x = 0_usize;
+    let mut ie_num_x = 0_usize;
+
+    if !is_single_ie && !is_single_oe {
+        let odegree = generate_degree(&src_list, src_vm);
+        let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
+        let idegree = generate_degree(&dst_list, dst_vm);
+        let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
+        oe_num_x = oe_num;
+        ie_num_x = ie_num;
+
+        dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
+        dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
+        dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+        dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+
+        let mut oe_nbrs = vec![usize::MAX; oe_num];
+        let mut ie_nbrs = vec![usize::MAX; ie_num];
+
+        for i in 0..src_list.len() {
+            let src = src_list[i];
+            let dst = dst_list[i];
+            if let Some(src_lid) = src_vm.get_internal_id(src) {
+                let cur_offset = oe_offsets[src_lid];
+                oe_prop_index.push(cur_offset);
+                oe_offsets[src_lid] += 1;
+
+                oe_nbrs[cur_offset] = dst;
+            } else {
+                oe_prop_index.push(usize::MAX);
+            }
+            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                let cur_offset = ie_offsets[dst_lid];
+                ie_prop_index.push(cur_offset);
+                ie_offsets[dst_lid] += 1;
+
+                ie_nbrs[cur_offset] = src;
+            } else {
+                ie_prop_index.push(usize::MAX);
+            }
+        }
+
+        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+    } else if is_single_ie && !is_single_oe {
+        let odegree = generate_degree(&src_list, src_vm);
+        let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
+
+        dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
+        dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+
+        let mut oe_nbrs = vec![usize::MAX; oe_num];
+        let mut ie_nbrs = vec![usize::MAX; dst_num];
+        oe_num_x = oe_num;
+        ie_num_x = dst_num;
+
+        for i in 0..src_list.len() {
+            let src = src_list[i];
+            let dst = dst_list[i];
+            if let Some(src_lid) = src_vm.get_internal_id(src) {
+                let cur_offset = oe_offsets[src_lid];
+                oe_prop_index.push(cur_offset);
+                oe_offsets[src_lid] += 1;
+
+                oe_nbrs[cur_offset] = dst;
+            } else {
+                oe_prop_index.push(usize::MAX);
+            }
+            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                ie_nbrs[dst_lid] = src;
+                ie_prop_index.push(dst_lid);
+            } else {
+                ie_prop_index.push(usize::MAX);
+            }
+        }
+
+        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+    } else if !is_single_ie && is_single_oe {
+        let idegree = generate_degree(&dst_list, dst_vm);
+        let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
+
+        dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
+        dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+
+        let mut oe_nbrs = vec![usize::MAX; src_num];
+        let mut ie_nbrs = vec![usize::MAX; ie_num];
+
+        for i in 0..src_list.len() {
+            let src = src_list[i];
+            let dst = dst_list[i];
+            if let Some(src_lid) = src_vm.get_internal_id(src) {
+                oe_nbrs[src_lid] = dst;
+                oe_prop_index.push(src_lid);
+            } else {
+                oe_prop_index.push(usize::MAX);
+            }
+            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                let cur_offset = ie_offsets[dst_lid];
+                ie_prop_index.push(cur_offset);
+                ie_offsets[dst_lid] += 1;
+
+                ie_nbrs[cur_offset] = src;
+            } else {
+                ie_prop_index.push(usize::MAX);
+            }
+        }
+
+        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
+        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+    } else {
+        let mut oe_nbrs = vec![usize::MAX; src_num];
+        let mut ie_nbrs = vec![usize::MAX; dst_num];
+
+        for i in 0..src_list.len() {
+            let src = src_list[i];
+            let dst = dst_list[i];
+            if let Some(src_lid) = src_vm.get_internal_id(src) {
+                oe_nbrs[src_lid] = dst;
+                oe_prop_index.push(src_lid);
+            } else {
+                oe_prop_index.push(usize::MAX);
+            }
+            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                ie_nbrs[dst_lid] = src;
+                ie_prop_index.push(dst_lid);
             } else {
                 ie_prop_index.push(usize::MAX);
             }

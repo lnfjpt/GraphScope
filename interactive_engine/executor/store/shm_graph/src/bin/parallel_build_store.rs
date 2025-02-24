@@ -6,7 +6,7 @@ use std::io::{BufReader, BufRead};
 use bmcsr::graph;
 use clap::{App, Arg};
 use env_logger;
-use shm_graph::graph_loader_beta::load_graph;
+use shm_graph::graph_loader_beta::{load_graph, load_graph_no_corner};
 use shm_graph::shuffler::Shuffler;
 use shm_graph::types::*;
 use shm_graph::schema::{CsrGraphSchema, InputSchema};
@@ -148,7 +148,8 @@ fn main() {
     let output_dir = PathBuf::from(graph_data_dir);
     let input_schema_file = PathBuf::from(input_schema_file);
     let graph_schema_file = PathBuf::from(graph_schema_file);
-    load_graph(
+    // load_graph(
+    load_graph_no_corner(
         input_dir, 
         output_dir,
         input_schema_file, 
