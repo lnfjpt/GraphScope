@@ -1196,6 +1196,7 @@ impl Column for LCStringColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
+
         if index < self.index.len() {
             Some(RefItem::String(
                 self.data

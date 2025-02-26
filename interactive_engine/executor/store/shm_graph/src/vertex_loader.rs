@@ -275,7 +275,8 @@ pub fn load_vertex(
             writer.write(&batch.properties);
             result.extend_from_slice(&batch.id);
         }
-        result    
+        writer.flush();
+        result
     });
 
     let reader_handles: Vec<_> = (0..reader_num).map(|i| {

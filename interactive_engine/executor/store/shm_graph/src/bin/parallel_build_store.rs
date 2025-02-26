@@ -3,7 +3,6 @@ use std::fs::{create_dir_all, File};
 use std::path::{Path, PathBuf};
 use std::io::{BufReader, BufRead};
 
-use bmcsr::graph;
 use clap::{App, Arg};
 use env_logger;
 use shm_graph::graph_loader_beta::{load_graph, load_graph_no_corner};
@@ -94,6 +93,10 @@ fn main() {
                 .long("skip_header")
                 .long_help("Whether skip the first line in input file")
                 .takes_value(false),
+            Arg::with_name("no_corner")
+                .long("no_corner")
+                .long_help("Whether shm graph data has corner vertex")
+                .takes_value(false),
         ])
         .get_matches();
 
@@ -131,6 +134,8 @@ fn main() {
 
     let skip_header = matches.is_present("skip_header");
 
+    let no_corner = matches.is_present("no_corner");
+
     let delimiter = if delimiter_str.as_str() == "COMMA" {
         b','
     } else if delimiter_str.as_str() == "SEMICOLON" {
@@ -148,17 +153,31 @@ fn main() {
     let output_dir = PathBuf::from(graph_data_dir);
     let input_schema_file = PathBuf::from(input_schema_file);
     let graph_schema_file = PathBuf::from(graph_schema_file);
-    // load_graph(
-    load_graph_no_corner(
-        input_dir, 
-        output_dir,
-        input_schema_file, 
-        graph_schema_file, 
-        addrs, 
-        partition_index,
-        partition_num,
-        delimiter,
-        skip_header,
-        reader_num,
-        offset);
+    if no_corner {
+        load_graph_no_corner(
+            input_dir,
+            output_dir,
+            input_schema_file,
+            graph_schema_file,
+            addrs,
+            partition_index,
+            partition_num,
+            delimiter,
+            skip_header,
+            reader_num,
+            offset);
+    } else {
+        load_graph(
+            input_dir,
+            output_dir,
+            input_schema_file,
+            graph_schema_file,
+            addrs,
+            partition_index,
+            partition_num,
+            delimiter,
+            skip_header,
+            reader_num,
+            offset);
+    }
 }
