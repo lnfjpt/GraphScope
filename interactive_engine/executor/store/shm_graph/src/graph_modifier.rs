@@ -707,7 +707,7 @@ pub fn apply_write_operations(
                         get_next_output_dir("/mnt/nas/luoxiaojian/traverse_output_2", graph.partition);
                     if !output_prefix.is_empty() {
                         fs::create_dir_all(output_prefix.as_str()).unwrap();
-                        traverse(&graph, output_prefix.as_str());
+                        traverse(&graph, output_prefix.as_str(), true);
                         traversed = true;
                     }
                 }

@@ -25,4 +25,3 @@ regex = "1.7.1"
 rust-htslib = { version = "0.46.0", default-features = false, features = ["bzip2", "lzma"] }
 shm_container = { path = "../../common/shm_container" }
 dashmap = "5.5.3"
-bmcsr = { path = "../bmcsr" }

@@ -39,6 +39,10 @@ fn main() {
                 .required(true)
                 .takes_value(true)
                 .index(2),
+            Arg::with_name("no_corner")
+                .long("no_corner")
+                .long_help("Whether shm graph data has corner vertex")
+                .takes_value(false),
         ])
         .get_matches();
 
@@ -50,6 +54,7 @@ fn main() {
         .value_of("output_dir")
         .unwrap()
         .to_string();
+    let no_corner = matches.is_present("no_corner");
 
     let partition_num = get_partition_num(&graph_data_dir);
 
@@ -58,6 +63,10 @@ fn main() {
         GraphDB::<usize, usize>::load(graph_data_dir.as_str(), i, name);
         let db = GraphDB::<usize, usize>::open(name, i);
 
-        traverse(&db, format!("{}/part_{}/", output_dir, i).as_str());
+        if no_corner {
+            traverse(&db, format!("{}/part_{}/", output_dir, i).as_str(), false);
+        } else {
+            traverse(&db, format!("{}/part_{}/", output_dir, i).as_str(), true);
+        }
     }
 }

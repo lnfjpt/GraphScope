@@ -13,9 +13,9 @@ use crate::types::LabelId;
 use crate::vertex_map::VertexMap;
 
 fn output_vertices<G, I>(graph: &GraphDB<G, I>, output_dir: &str)
-where
-    G: Send + Sync + IndexType,
-    I: Send + Sync + IndexType,
+    where
+        G: Send + Sync + IndexType,
+        I: Send + Sync + IndexType,
 {
     let vertex_label_names = graph.graph_schema.vertex_label_names();
     let output_dir_path = PathBuf::from_str(output_dir).unwrap();
@@ -64,11 +64,11 @@ where
                                                     c.0.as_str(),
                                                     v.get_index().index(),
                                                 )
-                                                .as_str()
+                                                    .as_str()
                                             )
                                             .to_string()
                                     )
-                                    .unwrap();
+                                        .unwrap();
                                 }
                             }
                             writeln!(writer).unwrap();
@@ -80,32 +80,43 @@ where
     }
 }
 
-fn output_sub_graph<G, I>(csr: &SubGraph<'_, G, I>, vm: &VertexMap<G, I>, file: &mut BufWriter<File>)
-where
-    G: Send + Sync + IndexType,
-    I: Send + Sync + IndexType,
+fn output_sub_graph<G, I>(csr: &SubGraph<'_, G, I>, vm: &VertexMap<G, I>, file: &mut BufWriter<File>, has_corner: bool)
+    where
+        G: Send + Sync + IndexType,
+        I: Send + Sync + IndexType,
 {
     let vertex_num = csr.get_vertex_num().index();
     for src in 0..vertex_num {
         let src = I::new(src);
         if let Some(edges) = csr.get_adj_list(src) {
             for e in edges {
-                writeln!(
-                    file,
-                    "{}|{}",
-                    LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
-                        .index(),
-                    LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, e).unwrap())
-                        .index(),
-                )
-                .unwrap();
+                if has_corner {
+                    writeln!(
+                        file,
+                        "{}|{}",
+                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
+                            .index(),
+                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, e).unwrap())
+                            .index(),
+                    )
+                        .unwrap();
+                } else {
+                    writeln!(
+                        file,
+                        "{}|{}",
+                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
+                            .index(),
+                        LDBCVertexParser::<I>::get_original_id(e).index()
+                    )
+                        .unwrap();
+                }
             }
         }
     }
 }
 
 fn output_single_sub_graph<G, I>(
-    csr: &SingleSubGraph<'_, G, I>, vm: &VertexMap<G, I>, file: &mut BufWriter<File>,
+    csr: &SingleSubGraph<'_, G, I>, vm: &VertexMap<G, I>, file: &mut BufWriter<File>, has_corner: bool,
 ) where
     G: Send + Sync + IndexType,
     I: Send + Sync + IndexType,
@@ -115,24 +126,35 @@ fn output_single_sub_graph<G, I>(
         let src = I::new(src);
         if let Some(edges) = csr.get_adj_list(src) {
             for e in edges {
-                writeln!(
-                    file,
-                    "{}|{}",
-                    LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
-                        .index(),
-                    LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, e).unwrap())
-                        .index(),
-                )
-                .unwrap();
+                if has_corner {
+                    writeln!(
+                        file,
+                        "{}|{}",
+                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
+                            .index(),
+                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, e).unwrap())
+                            .index(),
+                    )
+                        .unwrap();
+                } else {
+                    writeln!(
+                        file,
+                        "{}|{}",
+                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
+                            .index(),
+                        LDBCVertexParser::<I>::get_original_id(e).index()
+                    )
+                        .unwrap();
+                }
             }
         }
     }
 }
 
-fn output_edges<G, I>(graph: &GraphDB<G, I>, output_dir: &str)
-where
-    G: Send + Sync + IndexType,
-    I: Send + Sync + IndexType,
+fn output_edges<G, I>(graph: &GraphDB<G, I>, output_dir: &str, has_corner: bool)
+    where
+        G: Send + Sync + IndexType,
+        I: Send + Sync + IndexType,
 {
     let vertex_label_names = graph.graph_schema.vertex_label_names();
     let edge_label_names = graph.graph_schema.edge_label_names();
@@ -172,7 +194,7 @@ where
                             dst_label as LabelId,
                             Direction::Outgoing,
                         );
-                        output_single_sub_graph(&oe, &graph.vertex_map, &mut oe_writer);
+                        output_single_sub_graph(&oe, &graph.vertex_map, &mut oe_writer, has_corner);
                     } else {
                         let oe = graph.get_sub_graph(
                             src_label as LabelId,
@@ -180,7 +202,7 @@ where
                             dst_label as LabelId,
                             Direction::Outgoing,
                         );
-                        output_sub_graph(&oe, &graph.vertex_map, &mut oe_writer);
+                        output_sub_graph(&oe, &graph.vertex_map, &mut oe_writer, has_corner);
                     }
 
                     let ie_filename = format!(
@@ -204,7 +226,7 @@ where
                             src_label as LabelId,
                             Direction::Incoming,
                         );
-                        output_single_sub_graph(&ie, &graph.vertex_map, &mut ie_writer);
+                        output_single_sub_graph(&ie, &graph.vertex_map, &mut ie_writer, has_corner);
                     } else {
                         let ie = graph.get_sub_graph(
                             dst_label as LabelId,
@@ -212,7 +234,7 @@ where
                             src_label as LabelId,
                             Direction::Incoming,
                         );
-                        output_sub_graph(&ie, &graph.vertex_map, &mut ie_writer);
+                        output_sub_graph(&ie, &graph.vertex_map, &mut ie_writer, has_corner);
                     }
                 }
             }
@@ -220,11 +242,11 @@ where
     }
 }
 
-pub fn traverse<G, I>(db: &GraphDB<G, I>, output_dir: &str)
-where
-    G: Send + Sync + IndexType,
-    I: Send + Sync + IndexType,
+pub fn traverse<G, I>(db: &GraphDB<G, I>, output_dir: &str, has_corner: bool)
+    where
+        G: Send + Sync + IndexType,
+        I: Send + Sync + IndexType,
 {
     output_vertices(db, output_dir);
-    output_edges(db, output_dir);
+    output_edges(db, output_dir, has_corner);
 }
