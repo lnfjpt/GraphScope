@@ -43,15 +43,15 @@ impl<I: IndexType + Sync + Send> LocalVertex<I> {
 }
 
 pub struct Iter<'a, T> {
-    inner: Box<dyn Iterator<Item = T> + 'a + Send>,
+    inner: Box<dyn Iterator<Item=T> + 'a + Send>,
 }
 
 impl<'a, T> Iter<'a, T> {
-    pub fn from_iter<I: Iterator<Item = T> + 'a + Send>(iter: I) -> Self {
+    pub fn from_iter<I: Iterator<Item=T> + 'a + Send>(iter: I) -> Self {
         Iter { inner: Box::new(iter) }
     }
 
-    pub fn from_iter_box(iter: Box<dyn Iterator<Item = T> + 'a + Send>) -> Self {
+    pub fn from_iter_box(iter: Box<dyn Iterator<Item=T> + 'a + Send>) -> Self {
         Iter { inner: iter }
     }
 }
@@ -148,18 +148,18 @@ fn load_schema_from_shm(name: &str) -> CsrGraphSchema {
 }
 
 impl<G, I> GraphDB<G, I>
-where
-    G: Eq + IndexType + Send + Sync,
-    I: IndexType + Send + Sync,
+    where
+        G: Eq + IndexType + Send + Sync,
+        I: IndexType + Send + Sync,
 {
-    pub fn load(prefix: &str, partition: usize, name: &str) {
+    pub fn load(prefix: &str, partition: usize, shm_name: &str, mmap_prefix: Option<&str>) {
         let schema_path = PathBuf::from_str(prefix)
             .unwrap()
             .join(DIR_GRAPH_SCHEMA)
             .join(FILE_SCHEMA);
 
         let graph_schema = CsrGraphSchema::from_json_file(schema_path).unwrap();
-        dump_schema_to_shm(format!("{}_schema", name).as_str(), &graph_schema);
+        dump_schema_to_shm(format!("{}_schema", shm_name).as_str(), &graph_schema);
 
         let partition_prefix = format!("{}/{}/partition_{}", prefix, DIR_BINARY_DATA, partition);
 
@@ -172,7 +172,8 @@ where
                 graph_schema
                     .get_vertex_header(i as LabelId)
                     .unwrap(),
-                format!("{}_vp_{}", name, i).as_str(),
+                format!("{}_vp_{}", shm_name, i).as_str(),
+                mmap_prefix,
             );
         }
 
@@ -192,7 +193,7 @@ where
                             dst_label,
                         );
                         let oe_name_prefix =
-                            format!("{}_oe_{}_{}_{}", name, src_label, edge_label, dst_label);
+                            format!("{}_oe_{}_{}_{}", shm_name, src_label, edge_label, dst_label);
                         if graph_schema.is_single_oe(
                             src_label as LabelId,
                             edge_label as LabelId,
@@ -211,14 +212,14 @@ where
                             dst_label,
                         );
                         let oep_name_prefix =
-                            format!("{}_oep_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                            format!("{}_oep_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
                         if let Some(header) = graph_schema.get_edge_header(
                             src_label as LabelId,
                             edge_label as LabelId,
                             dst_label as LabelId,
                         ) {
                             if !header.is_empty() {
-                                Table::load(oep_prefix.as_str(), header, oep_name_prefix.as_str());
+                                Table::load(oep_prefix.as_str(), header, oep_name_prefix.as_str(), mmap_prefix);
                             }
                         }
 
@@ -230,7 +231,7 @@ where
                             dst_label,
                         );
                         let ie_name_prefix =
-                            format!("{}_ie_{}_{}_{}", name, src_label, edge_label, dst_label);
+                            format!("{}_ie_{}_{}_{}", shm_name, src_label, edge_label, dst_label);
                         if graph_schema.is_single_ie(
                             src_label as LabelId,
                             edge_label as LabelId,
@@ -249,14 +250,14 @@ where
                             dst_label,
                         );
                         let iep_name_prefix =
-                            format!("{}_iep_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                            format!("{}_iep_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
                         if let Some(header) = graph_schema.get_edge_header(
                             src_label as LabelId,
                             edge_label as LabelId,
                             dst_label as LabelId,
                         ) {
                             if !header.is_empty() {
-                                Table::load(iep_prefix.as_str(), header, iep_name_prefix.as_str());
+                                Table::load(iep_prefix.as_str(), header, iep_name_prefix.as_str(), mmap_prefix);
                             }
                         }
                     }
@@ -264,20 +265,21 @@ where
             }
         }
 
-        VertexMap::<G, I>::load(partition_prefix.as_str(), vertex_label_num, name);
+        VertexMap::<G, I>::load(partition_prefix.as_str(), vertex_label_num, shm_name);
     }
 
-    pub fn open(name: &str, partition: usize) -> Self {
-        let graph_schema = load_schema_from_shm(format!("{}_schema", name).as_str());
+    pub fn open(shm_name: &str, mmap_prefix: Option<&str>, partition: usize) -> Self {
+        let graph_schema = load_schema_from_shm(format!("{}_schema", shm_name).as_str());
         let vertex_label_num = graph_schema.vertex_type_to_id.len();
 
         let mut vertex_prop_table = Vec::with_capacity(vertex_label_num);
         for i in 0..vertex_label_num {
             vertex_prop_table.push(Table::open(
-                format!("{}_vp_{}", name, i).as_str(),
+                format!("{}_vp_{}", shm_name, i).as_str(),
                 graph_schema
                     .get_vertex_header(i as LabelId)
                     .unwrap(),
+                mmap_prefix,
             ));
         }
 
@@ -300,7 +302,7 @@ where
                         let index = src_label * vertex_label_num * edge_label_num
                             + dst_label * edge_label_num
                             + edge_label;
-                        let oe_prefix = format!("{}_oe_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                        let oe_prefix = format!("{}_oe_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
                         if graph_schema.is_single_oe(
                             src_label as LabelId,
                             edge_label as LabelId,
@@ -312,18 +314,18 @@ where
                         }
 
                         let oep_prefix =
-                            format!("{}_oep_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                            format!("{}_oep_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
                         if let Some(header) = graph_schema.get_edge_header(
                             src_label as LabelId,
                             edge_label as LabelId,
                             dst_label as LabelId,
                         ) {
                             if !header.is_empty() {
-                                oe_edge_prop_table.insert(index, Table::open(oep_prefix.as_str(), header));
+                                oe_edge_prop_table.insert(index, Table::open(oep_prefix.as_str(), header, None));
                             }
                         }
 
-                        let ie_prefix = format!("{}_ie_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                        let ie_prefix = format!("{}_ie_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
                         if graph_schema.is_single_ie(
                             src_label as LabelId,
                             edge_label as LabelId,
@@ -335,14 +337,14 @@ where
                         }
 
                         let iep_prefix =
-                            format!("{}_iep_{}_{}_{}", name, src_label, edge_label, dst_label,);
+                            format!("{}_iep_{}_{}_{}", shm_name, src_label, edge_label, dst_label, );
                         if let Some(header) = graph_schema.get_edge_header(
                             src_label as LabelId,
                             edge_label as LabelId,
                             dst_label as LabelId,
                         ) {
                             if !header.is_empty() {
-                                ie_edge_prop_table.insert(index, Table::open(iep_prefix.as_str(), header));
+                                ie_edge_prop_table.insert(index, Table::open(iep_prefix.as_str(), header, None));
                             }
                         }
                     }
@@ -358,7 +360,7 @@ where
 
             graph_schema,
             schema_updated: false,
-            vertex_map: VertexMap::open(name, vertex_label_num),
+            vertex_map: VertexMap::open(shm_name, vertex_label_num),
 
             vertex_prop_table,
             ie_edge_prop_table,
@@ -368,7 +370,7 @@ where
             edge_label_num,
 
             // root_path: prefix.to_string(),
-            partition_prefix: name.to_string(),
+            partition_prefix: shm_name.to_string(),
 
             pending_to_delete: HashMap::new(),
         }

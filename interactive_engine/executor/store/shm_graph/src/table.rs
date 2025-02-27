@@ -11,13 +11,19 @@ pub struct Table {
 }
 
 impl Table {
-    pub fn load(prefix: &str, col_headers: &[(String, DataType)], name: &str) {
+    pub fn load(prefix: &str, col_headers: &[(String, DataType, bool)], shm_name: &str, mmap_prefix: Option<&str>) {
         let col_num = col_headers.len();
 
         for col_i in 0..col_num {
             let col_type = col_headers[col_i].1;
+            let low_usage = col_headers[col_i].2;
             let col_path = format!("{}_col_{}", prefix, col_i);
-            let col_name = format!("{}_col_{}", name, col_i);
+            let col_name = format!("{}_col_{}", shm_name, col_i);
+            let mmap_name = if let Some(mmap_prefix) = mmap_prefix {
+                Some(format!("{}/{}_col_{}", mmap_prefix, shm_name, col_i))
+            } else {
+                None
+            };
 
             match col_type {
                 DataType::Int32 => {
@@ -33,10 +39,18 @@ impl Table {
                     UInt64Column::load(col_path.as_str(), col_name.as_str());
                 }
                 DataType::String => {
-                    StringColumn::load(col_path.as_str(), col_name.as_str());
+                    if low_usage && mmap_name.is_some() {
+                        LowUsageStringColumn::load(col_path.as_str(), mmap_name.as_ref().unwrap().as_str());
+                    } else {
+                        StringColumn::load(col_path.as_str(), col_name.as_str());
+                    }
                 }
                 DataType::LCString => {
-                    LCStringColumn::load(col_path.as_str(), col_name.as_str());
+                    if low_usage && mmap_name.is_some() {
+                        LowUsageLCStringColumn::load(col_path.as_str(), mmap_name.as_ref().unwrap().as_str());
+                    } else {
+                        LCStringColumn::load(col_path.as_str(), col_name.as_str());
+                    }
                 }
                 DataType::Double => {
                     DoubleColumn::load(col_path.as_str(), col_name.as_str());
@@ -57,7 +71,7 @@ impl Table {
         }
     }
 
-    pub fn open(prefix: &str, col_headers: &[(String, DataType)]) -> Self {
+    pub fn open(prefix: &str, col_headers: &[(String, DataType, bool)], mmap_prefix: Option<&str>) -> Self {
         let col_num = col_headers.len();
         let mut header = HashMap::new();
         let mut columns = Vec::with_capacity(col_num);
@@ -68,8 +82,14 @@ impl Table {
         for col_i in 0..col_num {
             let col_name = col_headers[col_i].0.clone();
             let col_type = col_headers[col_i].1;
+            let low_usage = col_headers[col_i].2;
             header.insert(col_name, col_i);
             let col_path = format!("{}_col_{}", prefix, col_i);
+            let mmap_path = if let Some(mmap_prefix) = mmap_prefix {
+                Some(format!("{}/{}_col_{}", mmap_prefix, prefix, col_i))
+            } else {
+                None
+            };
 
             match col_type {
                 DataType::Int32 => {
@@ -85,10 +105,18 @@ impl Table {
                     columns.push(Box::new(UInt64Column::open(col_path.as_str())));
                 }
                 DataType::String => {
-                    columns.push(Box::new(StringColumn::open(col_path.as_str())));
+                    if low_usage && mmap_path.is_some() {
+                        columns.push(Box::new(LowUsageStringColumn::open(mmap_path.as_ref().unwrap().as_str())));
+                    } else {
+                        columns.push(Box::new(StringColumn::open(col_path.as_str())));
+                    }
                 }
                 DataType::LCString => {
-                    columns.push(Box::new(LCStringColumn::open(col_path.as_str())));
+                    if low_usage && mmap_path.is_some() {
+                        columns.push(Box::new(LowUsageLCStringColumn::open(mmap_path.as_ref().unwrap().as_str())));
+                    } else {
+                        columns.push(Box::new(LCStringColumn::open(col_path.as_str())));
+                    }
                 }
                 DataType::Double => {
                     columns.push(Box::new(DoubleColumn::open(col_path.as_str())));
@@ -251,4 +279,5 @@ impl Table {
 }
 
 unsafe impl Sync for Table {}
+
 unsafe impl Send for Table {}

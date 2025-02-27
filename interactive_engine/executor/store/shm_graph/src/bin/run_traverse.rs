@@ -39,6 +39,12 @@ fn main() {
                 .required(true)
                 .takes_value(true)
                 .index(2),
+            Arg::with_name("mmap_dir")
+                .short("m")
+                .long_help("The directory to place mmap files")
+                .required(true)
+                .takes_value(true)
+                .index(3),
             Arg::with_name("no_corner")
                 .long("no_corner")
                 .long_help("Whether shm graph data has corner vertex")
@@ -54,14 +60,18 @@ fn main() {
         .value_of("output_dir")
         .unwrap()
         .to_string();
+    let mmap_dir = matches
+        .value_of("mmap_dir")
+        .unwrap()
+        .to_string();
     let no_corner = matches.is_present("no_corner");
 
     let partition_num = get_partition_num(&graph_data_dir);
 
     let name = "/SHM_GRAPH_STORE_SF10";
     for i in 0..partition_num {
-        GraphDB::<usize, usize>::load(graph_data_dir.as_str(), i, name);
-        let db = GraphDB::<usize, usize>::open(name, i);
+        GraphDB::<usize, usize>::load(graph_data_dir.as_str(), i, name, Some(&mmap_dir));
+        let db = GraphDB::<usize, usize>::open(name, Some(&mmap_dir), i);
 
         if no_corner {
             traverse(&db, format!("{}/part_{}/", output_dir, i).as_str(), false);

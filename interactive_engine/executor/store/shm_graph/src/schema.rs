@@ -85,12 +85,12 @@ pub struct EdgeLabelTuple {
 
 pub trait Schema {
     /// Get the header for the certain type of vertex if any
-    fn get_vertex_header(&self, vertex_type_id: LabelId) -> Option<&[(String, DataType)]>;
+    fn get_vertex_header(&self, vertex_type_id: LabelId) -> Option<&[(String, DataType, bool)]>;
 
     /// Get the header for the certain type of edge if any
     fn get_edge_header(
         &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
-    ) -> Option<&[(String, DataType)]>;
+    ) -> Option<&[(String, DataType, bool)]>;
 
     /// Get the schema for the certain type of vertex if any.
     fn get_vertex_schema(&self, vertex_type_id: LabelId) -> Option<&HashMap<String, (DataType, usize)>>;
@@ -116,11 +116,11 @@ pub struct CsrGraphSchema {
     pub edge_type_to_id: HashMap<String, LabelId>,
     /// Map from vertex/edge (labelid) to its property name, data types and index in the row
     vertex_prop_meta: HashMap<LabelId, HashMap<String, (DataType, usize)>>,
-    vertex_prop_vec: HashMap<LabelId, Vec<(String, DataType)>>,
+    vertex_prop_vec: HashMap<LabelId, Vec<(String, DataType, bool)>>,
     vertex_partition_type: HashMap<LabelId, PartitionType>,
 
     edge_prop_meta: HashMap<(LabelId, LabelId, LabelId), HashMap<String, (DataType, usize)>>,
-    edge_prop_vec: HashMap<(LabelId, LabelId, LabelId), Vec<(String, DataType)>>,
+    edge_prop_vec: HashMap<(LabelId, LabelId, LabelId), Vec<(String, DataType, bool)>>,
     edge_single_ie: HashSet<(LabelId, LabelId, LabelId)>,
     edge_single_oe: HashSet<(LabelId, LabelId, LabelId)>,
 }
@@ -282,7 +282,7 @@ impl CsrGraphSchema {
     }
 
     pub fn add_vertex_index_prop(
-        &mut self, index_name: String, vertex_label: LabelId, data_type: DataType,
+        &mut self, index_name: String, vertex_label: LabelId, data_type: DataType, low_usage: bool
     ) -> Option<usize> {
         if let Some(prop_meta) = self.vertex_prop_meta.get_mut(&vertex_label) {
             if let Some(prop_list) = self.vertex_prop_vec.get_mut(&vertex_label) {
@@ -291,7 +291,7 @@ impl CsrGraphSchema {
                 } else {
                     let index_label = prop_list.len();
                     prop_meta.insert(index_name.clone(), (data_type, index_label));
-                    prop_list.push((index_name.clone(), data_type));
+                    prop_list.push((index_name.clone(), data_type, low_usage));
                     return Some(index_label);
                 }
             }
@@ -308,12 +308,12 @@ impl CsrGraphSchema {
                     let mut new_prop_list = vec![];
                     for i in 0..prop_list.len() {
                         if i != idx {
-                            new_prop_list.push((prop_list[i].0.clone(), prop_list[i].1));
+                            new_prop_list.push((prop_list[i].0.clone(), prop_list[i].1, prop_list[i].2));
                         }
                     }
 
                     let mut new_prop_meta = HashMap::new();
-                    for (i, (n, d)) in new_prop_list.iter().enumerate() {
+                    for (i, (n, d, _)) in new_prop_list.iter().enumerate() {
                         new_prop_meta.insert(n.clone(), (*d, i));
                     }
 
@@ -333,7 +333,7 @@ impl CsrGraphSchema {
 
     pub fn add_edge_index_prop(
         &mut self, index_name: String, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
-        data_type: DataType,
+        data_type: DataType, low_usage: bool
     ) -> Option<usize> {
         if let Some(prop_meta) = self
             .edge_prop_meta
@@ -348,7 +348,7 @@ impl CsrGraphSchema {
                 } else {
                     let index_label = prop_list.len();
                     prop_meta.insert(index_name.clone(), (data_type, index_label));
-                    prop_list.push((index_name.clone(), data_type));
+                    prop_list.push((index_name.clone(), data_type, low_usage));
                     return Some(index_label);
                 }
             }
@@ -373,12 +373,12 @@ impl CsrGraphSchema {
                     let mut new_prop_list = vec![];
                     for i in 0..prop_list.len() {
                         if i != idx {
-                            new_prop_list.push((prop_list[i].0.clone(), prop_list[i].1));
+                            new_prop_list.push((prop_list[i].0.clone(), prop_list[i].1, prop_list[i].2));
                         }
                     }
 
                     let mut new_prop_meta = HashMap::new();
-                    for (i, (n, d)) in new_prop_list.iter().enumerate() {
+                    for (i, (n, d, _)) in new_prop_list.iter().enumerate() {
                         new_prop_meta.insert(n.clone(), (*d, i));
                     }
 
@@ -471,11 +471,11 @@ impl<'a> From<&'a CsrGraphSchemaJson> for CsrGraphSchema {
         }
         let mut vertex_prop_meta: HashMap<LabelId, HashMap<String, (DataType, usize)>> =
             HashMap::with_capacity(schema_json.vertex.len());
-        let mut vertex_prop_vec: HashMap<LabelId, Vec<(String, DataType)>> =
+        let mut vertex_prop_vec: HashMap<LabelId, Vec<(String, DataType, bool)>> =
             HashMap::with_capacity(schema_json.vertex.len());
         let mut edge_prop_meta: HashMap<(LabelId, LabelId, LabelId), HashMap<String, (DataType, usize)>> =
             HashMap::with_capacity(schema_json.edge.len());
-        let mut edge_prop_vec: HashMap<(LabelId, LabelId, LabelId), Vec<(String, DataType)>> =
+        let mut edge_prop_vec: HashMap<(LabelId, LabelId, LabelId), Vec<(String, DataType, bool)>> =
             HashMap::with_capacity(schema_json.edge.len());
         let mut edge_single_ie = HashSet::new();
         let mut edge_single_oe = HashSet::new();
@@ -491,7 +491,11 @@ impl<'a> From<&'a CsrGraphSchemaJson> for CsrGraphSchema {
 
             for (index, column) in vertex_info.properties.iter().enumerate() {
                 vertex_map.insert(column.name.clone(), (column.data_type.clone(), index));
-                vertex_vec.push((column.name.clone(), column.data_type.clone()));
+                if let Some(low_usage) = column.low_usage {
+                    vertex_vec.push((column.name.clone(), column.data_type.clone(), low_usage));
+                } else {
+                    vertex_vec.push((column.name.clone(), column.data_type.clone(), false));
+                }
             }
         }
 
@@ -521,7 +525,11 @@ impl<'a> From<&'a CsrGraphSchemaJson> for CsrGraphSchema {
             if let Some(properties) = &edge_info.properties {
                 for (index, column) in properties.iter().enumerate() {
                     edge_map.insert(column.name.clone(), (column.data_type.clone(), index));
-                    edge_vec.push((column.name.clone(), column.data_type.clone()));
+                    if let Some(low_usage) = column.low_usage {
+                        edge_vec.push((column.name.clone(), column.data_type.clone(), low_usage));
+                    } else {
+                        edge_vec.push((column.name.clone(), column.data_type.clone(), false));
+                    }
                 }
             }
         }
@@ -666,6 +674,8 @@ impl InputSchema {
 struct ColumnInfo {
     name: String,
     data_type: DataType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    low_usage: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -739,8 +749,8 @@ impl<'a> From<&'a CsrGraphSchema> for CsrGraphSchemaJson {
             let partition_type = schema.vertex_partition_type.get(label).unwrap();
             if let Some(column) = schema.vertex_prop_vec.get(label) {
                 let mut properties = vec![];
-                for (col_name, data_type) in column {
-                    properties.push(ColumnInfo { name: col_name.clone(), data_type: data_type.clone() });
+                for (col_name, data_type, low_usage) in column {
+                    properties.push(ColumnInfo { name: col_name.clone(), data_type: data_type.clone(), low_usage: Some(*low_usage) });
                 }
                 vertex_info_vec[*label as usize] = VertexInfo {
                     label: vertex_label.clone(),
@@ -776,8 +786,8 @@ impl<'a> From<&'a CsrGraphSchema> for CsrGraphSchemaJson {
             };
             if columns.len() > 0 {
                 let mut properties = vec![];
-                for (col_name, data_type) in columns {
-                    properties.push(ColumnInfo { name: col_name.clone(), data_type: data_type.clone() });
+                for (col_name, data_type, low_usage) in columns {
+                    properties.push(ColumnInfo { name: col_name.clone(), data_type: data_type.clone(), low_usage: Some(*low_usage) });
                 }
                 edge_info_vec.push(EdgeInfo {
                     src_label: src_label_name,
@@ -806,14 +816,14 @@ impl<'a> From<&'a CsrGraphSchema> for CsrGraphSchemaJson {
 }
 
 impl Schema for CsrGraphSchema {
-    fn get_vertex_header(&self, vertex_type_id: LabelId) -> Option<&[(String, DataType)]> {
+    fn get_vertex_header(&self, vertex_type_id: LabelId) -> Option<&[(String, DataType, bool)]> {
         self.vertex_prop_vec
             .get(&vertex_type_id)
             .map(|vec| vec.as_slice())
     }
     fn get_edge_header(
         &self, src_label: LabelId, edge_label: LabelId, dst_label: LabelId,
-    ) -> Option<&[(String, DataType)]> {
+    ) -> Option<&[(String, DataType, bool)]> {
         self.edge_prop_vec
             .get(&(src_label, edge_label, dst_label))
             .map(|vec| vec.as_slice())

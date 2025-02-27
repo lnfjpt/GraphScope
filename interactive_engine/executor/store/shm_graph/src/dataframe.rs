@@ -964,9 +964,9 @@ impl DataFrame {
         std::mem::replace(&mut self.columns, Vec::new())
     }
 
-    pub fn new(header: &[(String, DataType)]) -> Self {
+    pub fn new(header: &[(String, DataType, bool)]) -> Self {
         let mut columns = vec![];
-        for (name, dt) in header.iter() {
+        for (name, dt, _) in header.iter() {
             columns.push(ColumnMetadata {
                 data: create_column(*dt),
                 column_name: name.clone(),

@@ -818,7 +818,7 @@ fn insert_vertices<G, I>(
         .get_vertex_header(vertex_label)
         .unwrap()
         .to_vec();
-    for (name, _) in vertex_table_header.iter() {
+    for (name, _, _) in vertex_table_header.iter() {
         if !column_map.contains_key(name) {
             graph.remove_vertex_index_prop(name, vertex_label);
         }
@@ -851,7 +851,7 @@ fn insert_vertices<G, I>(
                     .graph_schema
                     .get_vertex_header(vertex_label)
                 {
-                    for (i, (property_name, _)) in vertex_header.iter().enumerate() {
+                    for (i, (property_name, _, _)) in vertex_header.iter().enumerate() {
                         if let Some((column_index, _)) = column_map.get(property_name) {
                             mappings[*column_index as usize] = i as i32;
                         }
@@ -919,7 +919,7 @@ pub fn insert_edges<G, I>(
         .get_edge_header(src_label, edge_label, dst_label)
         .unwrap()
         .to_vec();
-    for (name, _) in edge_table_header.iter() {
+    for (name, _, _) in edge_table_header.iter() {
         if !column_map.contains_key(name) {
             graph.remove_edge_index_prop(name, src_label, edge_label, dst_label);
         }
@@ -960,7 +960,7 @@ pub fn insert_edges<G, I>(
                     .graph_schema
                     .get_edge_header(src_label, edge_label, dst_label)
                 {
-                    for (i, (property_name, _)) in edge_header.iter().enumerate() {
+                    for (i, (property_name, _, _)) in edge_header.iter().enumerate() {
                         if let Some((column_index, _)) = column_map.get(property_name) {
                             mappings[*column_index as usize] = i as i32;
                         }
@@ -1272,7 +1272,7 @@ pub fn set_vertices(
                     } else {
                         let idx = graph
                             .graph_schema
-                            .add_vertex_index_prop(k.clone(), vertex_label, column_data_type)
+                            .add_vertex_index_prop(k.clone(), vertex_label, column_data_type, false)
                             .unwrap();
                         graph.schema_updated = true;
                         let vp_prefix = format!(
@@ -1350,6 +1350,7 @@ pub fn set_edges(
                                     edge_label,
                                     dst_label,
                                     column_data_type,
+                                    false
                                 )
                                 .unwrap();
                             graph.schema_updated = true;
@@ -1425,6 +1426,7 @@ pub fn set_edges(
                                     edge_label,
                                     dst_label,
                                     column_data_type,
+                                    false,
                                 )
                                 .unwrap();
                             graph.schema_updated = true;

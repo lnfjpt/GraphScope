@@ -63,6 +63,7 @@ fn main() {
     let config: Config = Config::from_args();
 
     let name = "/SHM_GRAPH_STORE";
+    let default_mmap_path = "/data";
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
@@ -140,7 +141,7 @@ fn main() {
         if let Ok(inputs_string) = fs::read_to_string(file_path.clone()) {
             if !inputs_string.is_empty() {
                 if shm_graph.is_none() {
-                    shm_graph = Some(Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, config.partition_id))));
+                    shm_graph = Some(Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, Some(default_mmap_path), config.partition_id))));
                 }
                 println!("Get input {}", inputs_string);
                 let inputs: Vec<String> = inputs_string.split('|').map(|s| s.to_string()).collect();

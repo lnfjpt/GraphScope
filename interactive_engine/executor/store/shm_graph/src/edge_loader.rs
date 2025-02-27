@@ -299,19 +299,20 @@ pub fn load_raw_edge(
     let writer_handle = thread::spawn({
         let col_types = col_types.clone();
         move || {
-        let mut src_list = vec![];
-        let mut dst_list = vec![];
-        let mut properties = RecordBatch::new(&col_types);
+            let mut src_list = vec![];
+            let mut dst_list = vec![];
+            let mut properties = RecordBatch::new(&col_types);
 
-        while let Ok(batch) = rx_table.recv() {
-            let batch_len = batch.src.len();
-            src_list.extend(batch.src);
-            dst_list.extend(batch.dst);
-            properties.append_rb(batch.properties);
+            while let Ok(batch) = rx_table.recv() {
+                let batch_len = batch.src.len();
+                src_list.extend(batch.src);
+                dst_list.extend(batch.dst);
+                properties.append_rb(batch.properties);
+            }
+
+            (src_list, dst_list, properties)
         }
-
-        (src_list, dst_list, properties)
-    }});
+    });
 
     let reader_handles: Vec<_> = (0..reader_num)
         .map(|i| {
@@ -376,11 +377,11 @@ pub fn load_edge(
 
     if !is_src_static {
         let start = Instant::now();
-        let mut src_list_cloned : Vec<usize> = src_list.par_iter().cloned().collect();
+        let mut src_list_cloned: Vec<usize> = src_list.par_iter().cloned().collect();
         src_list_cloned.par_sort();
         src_list_cloned.dedup();
         let src_vm = &vertex_maps[src_label as usize];
-        let src_corner : Vec<usize> = src_list_cloned.par_iter().filter(|v| {
+        let src_corner: Vec<usize> = src_list_cloned.par_iter().filter(|v| {
             src_vm.get_internal_id(**v).is_none()
         }).cloned().collect();
         vertex_maps[src_label as usize].add_corner_vertices2(src_corner);
@@ -388,11 +389,11 @@ pub fn load_edge(
     }
     if !is_dst_static {
         let start = Instant::now();
-        let mut dst_list_cloned : Vec<usize> = dst_list.par_iter().cloned().collect();
+        let mut dst_list_cloned: Vec<usize> = dst_list.par_iter().cloned().collect();
         dst_list_cloned.par_sort();
         dst_list_cloned.dedup();
         let dst_vm = &vertex_maps[dst_label as usize];
-        let dst_corner : Vec<usize> = dst_list_cloned.par_iter().filter(|v| {
+        let dst_corner: Vec<usize> = dst_list_cloned.par_iter().filter(|v| {
             dst_vm.get_internal_id(**v).is_none()
         }).cloned().collect();
         vertex_maps[dst_label as usize].add_corner_vertices2(dst_corner);
@@ -411,7 +412,7 @@ pub fn load_edge(
         |mut acc, x| {
             *acc.entry(x).or_insert(0) += 1;
             acc
-        }
+        },
     ).collect();
     let local_dst_counts: Vec<HashMap<usize, i32>> = dst_list.par_iter_mut().filter_map(|x| {
         *x = vertex_maps[dst_label as usize].get_internal_id(*x).unwrap();
@@ -425,7 +426,7 @@ pub fn load_edge(
         |mut acc, x| {
             *acc.entry(x).or_insert(0) += 1;
             acc
-        }
+        },
     ).collect();
     for local_count in local_src_counts {
         for (key, count) in local_count {
@@ -439,8 +440,6 @@ pub fn load_edge(
     }
     (src_list, dst_list, odegree, idegree, properties)
 }
-
-
 
 
 fn prefix_sum(deg: &Vec<i32>) -> (Vec<usize>, usize) {
@@ -464,7 +463,7 @@ fn generate_degree(v: &Vec<usize>, vm: &RTVertexMap) -> Vec<i32> {
         |mut acc, x| {
             *acc.entry(x).or_insert(0) += 1;
             acc
-        }
+        },
     ).collect();
 
     for local_count in local_counts {

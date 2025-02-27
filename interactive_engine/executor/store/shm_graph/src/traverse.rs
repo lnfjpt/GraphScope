@@ -33,7 +33,7 @@ fn output_vertices<G, I>(graph: &GraphDB<G, I>, output_dir: &str)
             let mut file = File::create(output_dir_path.join(n.as_str().to_string() + ".csv")).unwrap();
             let mut writer = BufWriter::new(file);
             write!(writer, "id").unwrap();
-            for (file_name, _) in header.iter() {
+            for (file_name, _, _) in header.iter() {
                 write!(writer, "|{}", file_name).unwrap();
             }
             writeln!(writer).unwrap();

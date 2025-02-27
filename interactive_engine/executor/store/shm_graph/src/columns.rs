@@ -12,6 +12,7 @@ use pegasus_common::io::{ReadExt, WriteExt};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use shm_container::{SharedStringVec, SharedVec};
+use mmap_container::{MmapStringVec, MmapVec};
 
 use crate::csr_trait::SafeMutPtr;
 use crate::dataframe::*;
@@ -404,7 +405,7 @@ impl<'a> RefItem<'a> {
 }
 
 pub fn parse_properties_by_mappings(
-    record: &StringRecord, header: &[(String, DataType)], mappings: &Vec<i32>,
+    record: &StringRecord, header: &[(String, DataType, bool)], mappings: &Vec<i32>,
 ) -> GDBResult<Vec<Item>> {
     let mut properties = vec![];
     for (index, val) in record.iter().enumerate() {
@@ -473,6 +474,7 @@ pub struct NullColumn {
 }
 
 unsafe impl Send for NullColumn {}
+
 unsafe impl Sync for NullColumn {}
 
 impl NullColumn {
@@ -517,8 +519,7 @@ impl Column for NullColumn {
 
     fn inplace_parallel_chunk_move(
         &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
-    ) {
-    }
+    ) {}
 
     fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {}
 }
@@ -528,6 +529,7 @@ pub struct Int32Column {
 }
 
 unsafe impl Send for Int32Column {}
+
 unsafe impl Sync for Int32Column {}
 
 impl Int32Column {
@@ -1154,6 +1156,78 @@ impl Column for StringColumn {
     }
 }
 
+pub struct LowUsageStringColumn {
+    pub data: MmapStringVec,
+}
+
+impl LowUsageStringColumn {
+    pub fn load(path: &str, name: &str) {
+        MmapStringVec::load(path, name);
+    }
+
+    pub fn open(path: &str) -> Self {
+        Self { data: MmapStringVec::open(path).expect("Failed to open LowUsageStringColumn") }
+    }
+}
+
+unsafe impl Send for LowUsageStringColumn {}
+
+unsafe impl Sync for LowUsageStringColumn {}
+
+impl Column for LowUsageStringColumn {
+    fn get_type(&self) -> DataType {
+        DataType::String
+    }
+
+    fn get(&self, index: usize) -> Option<RefItem> {
+        self.data.get(index).map(|x| RefItem::String(x))
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        panic!("not implemented...");
+    }
+
+    fn resize(&mut self, new_size: usize) {
+        self.data.resize(new_size);
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        panic!("not implemented...");
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
+        if col.as_any().is::<StringHColumn>() {
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<StringHColumn>()
+                .unwrap();
+            self.data.batch_set(index, &casted_col.data);
+        }
+    }
+
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        panic!("not implemented...");
+    }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        panic!("not implemented...");
+    }
+}
+
 pub struct LCStringColumn {
     pub index: SharedVec<u16>,
     pub data: SharedStringVec,
@@ -1196,7 +1270,6 @@ impl Column for LCStringColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-
         if index < self.index.len() {
             Some(RefItem::String(
                 self.data
@@ -1273,6 +1346,131 @@ impl Column for LCStringColumn {
 }
 
 impl Index<usize> for LCStringColumn {
+    type Output = str;
+
+    #[inline(always)]
+    fn index(&self, index: usize) -> &Self::Output {
+        let idx = self.index[index];
+        self.data.get_unchecked(idx as usize)
+    }
+}
+
+pub struct LowUsageLCStringColumn {
+    pub index: MmapVec<u16>,
+    pub data: MmapStringVec,
+    pub table: HashMap<String, u16>,
+}
+
+impl LowUsageLCStringColumn {
+    pub fn load(path: &str, name: &str) {
+        MmapVec::<u16>::load(format!("{}_index", path).as_str(), format!("{}_index", name).as_str());
+        MmapStringVec::load(format!("{}_data", path).as_str(), format!("{}_data", name).as_str());
+    }
+
+    pub fn open(path: &str) -> Self {
+        let data = MmapStringVec::open(format!("{}_data", path).as_str()).expect("Failed to open data of LowUsageLCStringColumn");
+        let mut table = HashMap::new();
+        let len = data.len();
+        for i in 0..len {
+            table.insert(data.get_unchecked(i).to_string(), i as u16);
+        }
+        Self { index: MmapVec::<u16>::open(format!("{}_index", path).as_str()).expect("Failed to open index of LowUsageLCStringColumn"), data, table }
+    }
+
+    pub fn get_index(&self, content: &String) -> Option<usize> {
+        for i in 0..self.data.len() {
+            if self.data.get_unchecked(i) == content.as_str() {
+                return Some(i);
+            }
+        }
+        None
+    }
+}
+
+unsafe impl Send for LowUsageLCStringColumn {}
+
+unsafe impl Sync for LowUsageLCStringColumn {}
+
+impl Column for LowUsageLCStringColumn {
+    fn get_type(&self) -> DataType {
+        DataType::LCString
+    }
+
+    fn get(&self, index: usize) -> Option<RefItem> {
+        if index < self.index.len() {
+            Some(RefItem::String(
+                self.data
+                    .get_unchecked(self.index[index] as usize),
+            ))
+        } else {
+            None
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.index.len()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn reshuffle(&mut self, indices: &Vec<(usize, usize)>) {
+        panic!("not implemented...");
+    }
+
+    fn resize(&mut self, new_size: usize) {
+        self.index.resize(new_size);
+    }
+
+    fn set(&mut self, index: usize, val: Item) {
+        match val {
+            Item::String(v) => {
+                let value = self.table.get(&v).unwrap();
+                self.index[index] = *value;
+            }
+            _ => {
+                self.index[index] = 0;
+            }
+        }
+    }
+
+    fn set_column_batch(&mut self, index: &Vec<usize>, col: &Box<dyn HeapColumn>) {
+        if col.as_any().is::<StringHColumn>() {
+            let casted_col = col
+                .as_any()
+                .downcast_ref::<StringHColumn>()
+                .unwrap();
+            let mut_self_data = SafeMutPtr::new(&mut self.index);
+            index
+                .par_iter()
+                .enumerate()
+                .for_each(|(idx, val)| {
+                    if *val != usize::MAX {
+                        assert!(*val < self.index.len());
+                        let value = self.table.get(&casted_col.data[idx]).unwrap();
+                        mut_self_data.get_mut()[*val] = *value;
+                    }
+                });
+        }
+    }
+
+    fn inplace_parallel_chunk_move(
+        &mut self, new_size: usize, old_offsets: &[usize], old_degree: &[i32], new_offsets: &[usize],
+    ) {
+        panic!("not implemented...");
+    }
+
+    fn inplace_parallel_range_move(&mut self, new_size: usize, range_diff: &[(usize, usize, i64)]) {
+        panic!("not implemented...");
+    }
+}
+
+impl Index<usize> for LowUsageLCStringColumn {
     type Output = str;
 
     #[inline(always)]

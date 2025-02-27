@@ -25,22 +25,22 @@ impl RecordBatch {
             match *col {
                 DataType::Date => {
                     columns.push(Box::new(DateHColumn::new()));
-                },
+                }
                 DataType::DateTime => {
                     columns.push(Box::new(DateTimeHColumn::new()));
-                },
+                }
                 DataType::Int32 => {
                     columns.push(Box::new(I32HColumn::new()));
-                },
+                }
                 DataType::String => {
                     columns.push(Box::new(StringHColumn::new()));
-                },
+                }
                 DataType::LCString => {
                     columns.push(Box::new(StringHColumn::new()));
-                },
+                }
                 DataType::ID => {
                     columns.push(Box::new(IDHColumn::new()));
-                },
+                }
                 _ => {
                     panic!("RecordBatch::new type - {:?} not support", *col);
                 }
@@ -89,6 +89,7 @@ impl RecordBatch {
 }
 
 unsafe impl Send for RecordBatch {}
+
 unsafe impl Sync for RecordBatch {}
 
 impl Serialize for RecordBatch {
@@ -113,7 +114,7 @@ impl Serialize for RecordBatch {
                         .unwrap()
                         .data;
                     seq.serialize_element(buf)?;
-                },
+                }
                 DataType::Date => {
                     let buf = &col
                         .as_any()
@@ -121,7 +122,7 @@ impl Serialize for RecordBatch {
                         .unwrap()
                         .data;
                     seq.serialize_element(buf)?;
-                },
+                }
                 DataType::DateTime => {
                     let buf = &col
                         .as_any()
@@ -129,7 +130,7 @@ impl Serialize for RecordBatch {
                         .unwrap()
                         .data;
                     seq.serialize_element(buf)?;
-                },
+                }
                 DataType::String => {
                     let buf = &col
                         .as_any()
@@ -137,7 +138,7 @@ impl Serialize for RecordBatch {
                         .unwrap()
                         .data;
                     seq.serialize_element(buf)?;
-                },
+                }
                 DataType::ID => {
                     let buf = &col
                         .as_any()
@@ -145,10 +146,10 @@ impl Serialize for RecordBatch {
                         .unwrap()
                         .data;
                     seq.serialize_element(buf)?;
-                },
+                }
                 _ => {
                     panic!("RecordBatch::serialize type - {:?} not support", dt);
-                },
+                }
             }
         }
         seq.end()
@@ -177,33 +178,33 @@ impl<'de> Deserialize<'de> for RecordBatch {
                         DataType::Date => {
                             let col: Vec<Date> = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(col_idx + 1, &self))?;
                             columns.push(Box::new(DateHColumn::from(col)));
-                        },
+                        }
                         DataType::DateTime => {
                             let col: Vec<DateTime> = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(col_idx + 1, &self))?;
                             columns.push(Box::new(DateTimeHColumn::from(col)));
-                        },
+                        }
                         DataType::Int32 => {
                             let col: Vec<i32> = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(col_idx + 1, &self))?;
                             columns.push(Box::new(I32HColumn::from(col)));
-                        },
+                        }
                         DataType::Int64 => {
                             let col: Vec<i64> = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(col_idx + 1, &self))?;
                             columns.push(Box::new(I64HColumn::from(col)));
-                        },
+                        }
                         DataType::String => {
                             let col: Vec<String> = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(col_idx + 1, &self))?;
                             columns.push(Box::new(StringHColumn::from(col)));
-                        },
+                        }
                         DataType::ID => {
                             let col: Vec<DefaultId> = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(col_idx + 1, &self))?;
                             columns.push(Box::new(IDHColumn::from(col)));
-                        },
+                        }
                         _ => {
                             panic!("RecordBatch::deserialize type - {:?} not support", col_type);
                         }
                     }
                 }
-                Ok(RecordBatch {columns})
+                Ok(RecordBatch { columns })
             }
         }
 
@@ -267,7 +268,7 @@ impl HeapColumnWriter for PodColumnWriter {
                 for v in buf.iter() {
                     self.append_i32(*v);
                 }
-            },
+            }
             DataType::Date => {
                 let buf = &col
                     .as_any()
@@ -277,7 +278,7 @@ impl HeapColumnWriter for PodColumnWriter {
                 for v in buf.iter() {
                     self.append_date(*v);
                 }
-            },
+            }
             DataType::DateTime => {
                 let buf = &col
                     .as_any()
@@ -287,7 +288,7 @@ impl HeapColumnWriter for PodColumnWriter {
                 for v in buf.iter() {
                     self.append_datetime(*v);
                 }
-            },
+            }
             DataType::ID => {
                 let buf = &col
                     .as_any()
@@ -297,7 +298,7 @@ impl HeapColumnWriter for PodColumnWriter {
                 for v in buf.iter() {
                     self.append_usize(*v);
                 }
-            },
+            }
             _ => {
                 panic!("PodColumnWriter::write type - {:?} not support", dt);
             }
@@ -359,7 +360,7 @@ impl HeapColumnWriter for StringColumnWriter {
             }
             _ => {
                 info!("StringColumnWriter::write type - {:?} not support...", dt);
-            } 
+            }
         }
     }
     fn flush(&mut self) {
@@ -417,12 +418,11 @@ impl HeapColumnWriter for LCStringColumnWriter {
                 for v in buf.iter() {
                     self.append_impl(v);
                 }
-            },
+            }
             _ => {
                 info!("LCStringColumnWriter::write type - {:?} not support...", dt);
-            },
+            }
         }
-        
     }
 
     fn flush(&mut self) {
@@ -458,22 +458,22 @@ impl RecordBatchWriter {
             match *col {
                 DataType::Date => {
                     writers.push(Box::new(PodColumnWriter::new(&col_prefix)));
-                },
+                }
                 DataType::DateTime => {
                     writers.push(Box::new(PodColumnWriter::new(&col_prefix)));
-                },
+                }
                 DataType::Int32 => {
                     writers.push(Box::new(PodColumnWriter::new(&col_prefix)));
-                },
+                }
                 DataType::String => {
                     writers.push(Box::new(StringColumnWriter::new(&col_prefix)));
-                },
+                }
                 DataType::LCString => {
                     writers.push(Box::new(LCStringColumnWriter::new(&col_prefix)));
-                },
+                }
                 DataType::ID => {
                     writers.push(Box::new(PodColumnWriter::new(&col_prefix)));
-                },
+                }
                 _ => {
                     panic!("RecordBatchWriter::new type - {:?} not support...", *col);
                 }
