@@ -1158,15 +1158,18 @@ impl Column for StringColumn {
 
 pub struct LowUsageStringColumn {
     pub data: MmapStringVec,
+    pub append_data: SharedStringVec,
 }
 
 impl LowUsageStringColumn {
     pub fn load(path: &str, name: &str) {
-        MmapStringVec::load(path, name);
+        SharedStringVec::create(name, 0);
     }
 
-    pub fn open(path: &str) -> Self {
-        Self { data: MmapStringVec::open(path).expect("Failed to open LowUsageStringColumn") }
+    pub fn open(mmap_path: &str, shm_path: &str) -> Self {
+        let data = MmapStringVec::open(mmap_path).expect("Failed to open LowUsageStringColumn");
+        let append_data = SharedStringVec::open(shm_path);
+        Self { data, append_data }
     }
 }
 
@@ -1180,11 +1183,17 @@ impl Column for LowUsageStringColumn {
     }
 
     fn get(&self, index: usize) -> Option<RefItem> {
-        self.data.get(index).map(|x| RefItem::String(x))
+        if index < self.data.len() {
+            self.data.get(index).map(|x| RefItem::String(x))
+        } else if index < self.data.len() + self.append_data.len() {
+            self.append_data.get(index - self.data.len()).map(|x| RefItem::String(x))
+        } else {
+            None
+        }
     }
 
     fn len(&self) -> usize {
-        self.data.len()
+        self.data.len() + self.append_data.len()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -1200,7 +1209,12 @@ impl Column for LowUsageStringColumn {
     }
 
     fn resize(&mut self, new_size: usize) {
-        self.data.resize(new_size);
+        if new_size > self.data.len() {
+            self.append_data.resize(new_size - self.data.len());
+        } else {
+            self.data.resize(new_size);
+            self.append_data.resize(0);
+        }
     }
 
     fn set(&mut self, index: usize, val: Item) {
@@ -1213,7 +1227,12 @@ impl Column for LowUsageStringColumn {
                 .as_any()
                 .downcast_ref::<StringHColumn>()
                 .unwrap();
-            self.data.batch_set(index, &casted_col.data);
+            let mut new_index = vec![];
+            for i in index.iter() {
+                assert!(*i > self.data.len());
+                new_index.push(*i - self.data.len());
+            }
+            self.data.batch_set(&new_index, &casted_col.data);
         }
     }
 
@@ -1357,24 +1376,26 @@ impl Index<usize> for LCStringColumn {
 
 pub struct LowUsageLCStringColumn {
     pub index: MmapVec<u16>,
+    pub append_index: SharedVec<u16>,
     pub data: MmapStringVec,
     pub table: HashMap<String, u16>,
 }
 
 impl LowUsageLCStringColumn {
     pub fn load(path: &str, name: &str) {
-        MmapVec::<u16>::load(format!("{}_index", path).as_str(), format!("{}_index", name).as_str());
-        MmapStringVec::load(format!("{}_data", path).as_str(), format!("{}_data", name).as_str());
+        SharedVec::<u16>::create(format!("{}_index", name).as_str(), 0);
     }
 
-    pub fn open(path: &str) -> Self {
-        let data = MmapStringVec::open(format!("{}_data", path).as_str()).expect("Failed to open data of LowUsageLCStringColumn");
+    pub fn open(mmap_path: &str, shm_path: &str) -> Self {
+        let data = MmapStringVec::open(format!("{}_data", mmap_path).as_str()).expect("Failed to open data of LowUsageLCStringColumn");
         let mut table = HashMap::new();
         let len = data.len();
         for i in 0..len {
             table.insert(data.get_unchecked(i).to_string(), i as u16);
         }
-        Self { index: MmapVec::<u16>::open(format!("{}_index", path).as_str()).expect("Failed to open index of LowUsageLCStringColumn"), data, table }
+        let index = MmapVec::<u16>::open(format!("{}_index", path).as_str()).expect("Failed to open index of LowUsageLCStringColumn");
+        let append_index = SharedVec::<u16>::open(format!("{}_index", shm_path).as_str());
+        Self { index, append_index, data, table }
     }
 
     pub fn get_index(&self, content: &String) -> Option<usize> {
@@ -1402,6 +1423,11 @@ impl Column for LowUsageLCStringColumn {
                 self.data
                     .get_unchecked(self.index[index] as usize),
             ))
+        } else if index < self.index.len() + self.append_index.len() {
+            Some(RefItem::String(
+                self.data
+                    .get_unchecked(self.append_index[index - self.index.len()] as usize),
+            ))
         } else {
             None
         }
@@ -1424,7 +1450,12 @@ impl Column for LowUsageLCStringColumn {
     }
 
     fn resize(&mut self, new_size: usize) {
-        self.index.resize(new_size);
+        if new_size > self.index.len() {
+            self.append_index.resize(new_size - self.index.len());
+        } else {
+            self.index.resize(new_size);
+            self.append_index.resize(0);
+        }
     }
 
     fn set(&mut self, index: usize, val: Item) {

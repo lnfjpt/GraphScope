@@ -23,11 +23,12 @@ pub struct SharedVec<T: Copy + Sized> {
 }
 
 unsafe impl<T: Copy + Sized> Sync for SharedVec<T> {}
+
 unsafe impl<T: Copy + Sized> Send for SharedVec<T> {}
 
 impl<T> SharedVec<T>
-where
-    T: Copy + Sized,
+    where
+        T: Copy + Sized,
 {
     pub fn new() -> Self {
         Self { fd: -1, name: "".to_string(), addr: ptr::null_mut(), size: 0 }
@@ -223,8 +224,8 @@ where
 }
 
 impl<T> SharedVec<T>
-where
-    T: Copy + Sized + Send + Sync,
+    where
+        T: Copy + Sized + Send + Sync,
 {
     pub fn parallel_move(&mut self, indices: &Vec<(usize, usize)>) {
         let safe_mut_slice = SafeMutPtr::new(self);
@@ -356,8 +357,8 @@ where
 }
 
 impl<T> SharedVec<T>
-where
-    T: Copy + Sized + Send + Sync + Eq + Hash,
+    where
+        T: Copy + Sized + Send + Sync + Eq + Hash,
 {
     pub fn parallel_replace_within(&mut self, set: &HashSet<T>, val: T) {
         let ms = unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) };
@@ -424,6 +425,14 @@ impl SharedStringVec {
             offset: SharedVec::<usize>::open(format!("{}_offset", name).as_str()),
             length: SharedVec::<u16>::open(format!("{}_length", name).as_str()),
             content: SharedVec::<u8>::open(format!("{}_content", name).as_str()),
+        }
+    }
+
+    pub fn create(name: &str, len: usize) -> Self {
+        Self {
+            offset: SharedVec::<usize>::create(format!("{}_offset", name).as_str(), 0),
+            length: SharedVec::<u16>::create(format!("{}_length", name).as_str(), 0),
+            content: SharedVec::<u8>::create(format!("{}_content", name).as_str(), 0),
         }
     }
 

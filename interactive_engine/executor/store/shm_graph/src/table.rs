@@ -40,7 +40,7 @@ impl Table {
                 }
                 DataType::String => {
                     if low_usage && mmap_name.is_some() {
-                        LowUsageStringColumn::load(col_path.as_str(), mmap_name.as_ref().unwrap().as_str());
+                        LowUsageStringColumn::load(col_path.as_str(), col_name.as_ref().unwrap().as_str());
                     } else {
                         StringColumn::load(col_path.as_str(), col_name.as_str());
                     }
@@ -106,14 +106,14 @@ impl Table {
                 }
                 DataType::String => {
                     if low_usage && mmap_path.is_some() {
-                        columns.push(Box::new(LowUsageStringColumn::open(mmap_path.as_ref().unwrap().as_str())));
+                        columns.push(Box::new(LowUsageStringColumn::open(mmap_path.as_ref().unwrap().as_str(), col_path.as_str())));
                     } else {
                         columns.push(Box::new(StringColumn::open(col_path.as_str())));
                     }
                 }
                 DataType::LCString => {
                     if low_usage && mmap_path.is_some() {
-                        columns.push(Box::new(LowUsageLCStringColumn::open(mmap_path.as_ref().unwrap().as_str())));
+                        columns.push(Box::new(LowUsageLCStringColumn::open(mmap_path.as_ref().unwrap().as_str(), col_path.as_str())));
                     } else {
                         columns.push(Box::new(LCStringColumn::open(col_path.as_str())));
                     }
