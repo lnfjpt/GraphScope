@@ -40,7 +40,7 @@ impl Table {
                 }
                 DataType::String => {
                     if low_usage && mmap_name.is_some() {
-                        LowUsageStringColumn::load(col_path.as_str(), col_name.as_ref().unwrap().as_str());
+                        LowUsageStringColumn::load(col_path.as_str(), col_name.as_str());
                     } else {
                         StringColumn::load(col_path.as_str(), col_name.as_str());
                     }
