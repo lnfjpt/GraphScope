@@ -1393,7 +1393,7 @@ impl LowUsageLCStringColumn {
         for i in 0..len {
             table.insert(data.get_unchecked(i).to_string(), i as u16);
         }
-        let index = MmapVec::<u16>::open(format!("{}_index", path).as_str()).expect("Failed to open index of LowUsageLCStringColumn");
+        let index = MmapVec::<u16>::open(format!("{}_index", mmap_path).as_str()).expect("Failed to open index of LowUsageLCStringColumn");
         let append_index = SharedVec::<u16>::open(format!("{}_index", shm_path).as_str());
         Self { index, append_index, data, table }
     }
