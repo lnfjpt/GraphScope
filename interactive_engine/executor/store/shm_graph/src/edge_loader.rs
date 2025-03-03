@@ -21,7 +21,7 @@ use crate::record_batch::{RecordBatch, RecordBatchWriter};
 use crate::shuffler::{Message, Shuffler};
 use crate::types::LabelId;
 
-use crate::schema::{CsrGraphSchema, InputSchema, LoadStrategy, Schema};
+use crate::schema::{CsrGraphSchema, InputSchema, Schema};
 
 #[derive(Serialize, Deserialize)]
 struct EdgeBatch {
@@ -49,7 +49,7 @@ fn reader_routine(
     reader_id: usize, files: Vec<PathBuf>, src_label: LabelId, dst_label: LabelId, edge_label: LabelId,
     src_col: usize, dst_col: usize, cols: Vec<usize>, col_types: Vec<DataType>, delim: u8,
     has_header: bool, part_id: usize, part_num: usize, is_src_static: bool, is_dst_static: bool,
-    tx: mpsc::Sender<(usize, Message)>, table_tx: mpsc::Sender<EdgeBatch>, load_strategy: LoadStrategy,
+    tx: mpsc::Sender<(usize, Message)>, table_tx: mpsc::Sender<EdgeBatch>,
 ) {
     let mut batches = vec![];
     for i in 0..part_num {
@@ -314,7 +314,6 @@ pub fn load_raw_edge(
         }
     });
 
-    let load_strategy = graph_schema.get_edge_load_strategy(src_label, edge_label, dst_label);
     let reader_handles: Vec<_> = (0..reader_num)
         .map(|i| {
             let tx_clone = tx.clone();
@@ -341,7 +340,6 @@ pub fn load_raw_edge(
                     is_dst_static,
                     tx_clone,
                     tx_table_clone,
-                    load_strategy,
                 );
             })
         })
