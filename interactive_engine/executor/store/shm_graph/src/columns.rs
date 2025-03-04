@@ -1229,7 +1229,7 @@ impl Column for LowUsageStringColumn {
                 .unwrap();
             let mut new_index = vec![];
             for i in index.iter() {
-                assert!(*i > self.data.len());
+                assert!(*i >= self.data.len());
                 new_index.push(*i - self.data.len());
             }
             self.data.batch_set(&new_index, &casted_col.data);
