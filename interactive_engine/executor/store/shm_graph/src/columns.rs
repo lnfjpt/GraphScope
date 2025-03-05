@@ -1232,7 +1232,7 @@ impl Column for LowUsageStringColumn {
                 assert!(*i >= self.data.len());
                 new_index.push(*i - self.data.len());
             }
-            self.data.batch_set(&new_index, &casted_col.data);
+            self.append_data.batch_set(&new_index, &casted_col.data);
         }
     }
 
@@ -1384,6 +1384,7 @@ pub struct LowUsageLCStringColumn {
 impl LowUsageLCStringColumn {
     pub fn load(path: &str, name: &str) {
         SharedVec::<u16>::create(format!("{}_index", name).as_str(), 0);
+        SharedStringVec::create(format!("{}_data", name).as_str(), 0);
     }
 
     pub fn open(mmap_path: &str, shm_path: &str) -> Self {
@@ -1434,7 +1435,7 @@ impl Column for LowUsageLCStringColumn {
     }
 
     fn len(&self) -> usize {
-        self.index.len()
+        self.index.len() + self.append_index.len()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -1450,7 +1451,7 @@ impl Column for LowUsageLCStringColumn {
     }
 
     fn resize(&mut self, new_size: usize) {
-        if new_size > self.index.len() {
+        if new_size >= self.index.len() {
             self.append_index.resize(new_size - self.index.len());
         } else {
             self.index.resize(new_size);
@@ -1476,15 +1477,15 @@ impl Column for LowUsageLCStringColumn {
                 .as_any()
                 .downcast_ref::<StringHColumn>()
                 .unwrap();
-            let mut_self_data = SafeMutPtr::new(&mut self.index);
+            let mut_self_data = SafeMutPtr::new(&mut self.append_index);
             index
                 .par_iter()
                 .enumerate()
                 .for_each(|(idx, val)| {
                     if *val != usize::MAX {
-                        assert!(*val < self.index.len());
+                        assert!(*val < self.index.len() + self.append_index.len());
                         let value = self.table.get(&casted_col.data[idx]).unwrap();
-                        mut_self_data.get_mut()[*val] = *value;
+                        mut_self_data.get_mut()[*val - self.index.len()] = *value;
                     }
                 });
         }

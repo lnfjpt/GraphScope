@@ -47,7 +47,7 @@ impl Table {
                 }
                 DataType::LCString => {
                     if low_usage && mmap_name.is_some() {
-                        LowUsageLCStringColumn::load(col_path.as_str(), mmap_name.as_ref().unwrap().as_str());
+                        LowUsageLCStringColumn::load(col_path.as_str(), col_name.as_str());
                     } else {
                         LCStringColumn::load(col_path.as_str(), col_name.as_str());
                     }

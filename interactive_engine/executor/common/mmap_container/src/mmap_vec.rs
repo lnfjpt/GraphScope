@@ -65,7 +65,7 @@ impl<T> MmapVec<T>
         })
     }
 
-    pub fn len(&self) -> usize { self.length }
+    pub fn len(&self) -> usize { self.length / std::mem::size_of::<T>() }
 
     pub fn as_ptr(&self) -> *const T {
         let ptr = self.mmap.as_ptr() as *const T;
