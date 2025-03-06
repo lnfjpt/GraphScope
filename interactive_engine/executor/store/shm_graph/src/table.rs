@@ -71,7 +71,7 @@ impl Table {
         }
     }
 
-    pub fn open(prefix: &str, col_headers: &[(String, DataType, bool)], mmap_prefix: Option<&str>) -> Self {
+    pub fn open(prefix: &str, col_headers: &[(String, DataType, bool)], mmap_prefix: Option<&str>, shm_prefix: &str) -> Self {
         let col_num = col_headers.len();
         let mut header = HashMap::new();
         let mut columns = Vec::with_capacity(col_num);
@@ -86,7 +86,7 @@ impl Table {
             header.insert(col_name, col_i);
             let col_path = format!("{}_col_{}", prefix, col_i);
             let mmap_path = if let Some(mmap_prefix) = mmap_prefix {
-                let stripped_prefix = prefix.strip_prefix("/SHM_GRAPH_STORE_").unwrap();
+                let stripped_prefix = prefix.strip_prefix(shm_prefix).unwrap();
                 Some(format!("{}/{}_col_{}", mmap_prefix, stripped_prefix, col_i))
             } else {
                 None

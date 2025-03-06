@@ -280,6 +280,7 @@ impl<G, I> GraphDB<G, I>
                     .get_vertex_header(i as LabelId)
                     .unwrap(),
                 mmap_prefix,
+                name
             ));
         }
 
@@ -321,7 +322,7 @@ impl<G, I> GraphDB<G, I>
                             dst_label as LabelId,
                         ) {
                             if !header.is_empty() {
-                                oe_edge_prop_table.insert(index, Table::open(oep_prefix.as_str(), header, None));
+                                oe_edge_prop_table.insert(index, Table::open(oep_prefix.as_str(), header, None, name));
                             }
                         }
 
@@ -344,7 +345,7 @@ impl<G, I> GraphDB<G, I>
                             dst_label as LabelId,
                         ) {
                             if !header.is_empty() {
-                                ie_edge_prop_table.insert(index, Table::open(iep_prefix.as_str(), header, None));
+                                ie_edge_prop_table.insert(index, Table::open(iep_prefix.as_str(), header, None, name));
                             }
                         }
                     }
