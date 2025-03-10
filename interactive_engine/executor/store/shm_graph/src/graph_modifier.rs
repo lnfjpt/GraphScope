@@ -500,7 +500,6 @@ impl Debug for AliasData {
 impl Encode for AliasData {
     fn write_to<W: WriteExt>(&self, writer: &mut W) -> std::io::Result<()> {
         writer.write_i32(self.alias_index)?;
-        // write_column(&self.column_data, writer)?;
         Ok(())
     }
 }
@@ -509,16 +508,12 @@ impl Decode for AliasData {
     fn read_from<R: ReadExt>(reader: &mut R) -> std::io::Result<Self> {
         let alias_index = reader.read_i32()?;
         Ok(AliasData { alias_index })
-        // let column_data = read_column(reader)?;
-        // Ok(AliasData { alias_index, column_data })
     }
 }
 
 impl Clone for AliasData {
     fn clone(&self) -> Self {
         AliasData { alias_index: self.alias_index }
-        // let column_data = clone_column(&self.column_data);
-        // AliasData { alias_index: self.alias_index, column_data }
     }
 }
 
@@ -1697,28 +1692,9 @@ impl GraphModifier {
         }
         let mut df = DataFrame::new(&header);
         let mut id_list = vec![];
-        // let mut corner_id_list = vec![];
         let t0 = start.elapsed().as_secs_f64();
         let start = Instant::now();
         for vertex_file in vertex_files.iter() {
-            // process_csv_rows(
-            //     vertex_file,
-            //     |record| {
-            //         let vertex_meta = parser.parse_vertex_meta(&record);
-            //         if vertex_meta.global_id.index() % self.partitions == graph.partition {
-            //             if let Ok(properties) = parse_properties_by_mappings(&record, &header, mappings) {
-            //                 df.append(properties);
-            //                 id_list.push(vertex_meta.global_id);
-            //                 // graph.insert_vertex(vertex_meta.label, vertex_meta.global_id, Some(properties));
-            //             }
-            //         } else {
-            //             corner_id_list.push(vertex_meta.global_id);
-            //             // graph.insert_corner_vertex(vertex_meta.label, vertex_meta.global_id);
-            //         }
-            //     },
-            //     self.skip_header,
-            //     self.delim,
-            // );
             let records = collect_csv_rows(vertex_file, self.skip_header, self.delim);
             let (ids, props, corners): (Vec<G>, Vec<Vec<Item>>, Vec<G>) = records
                 .par_iter()
@@ -1729,8 +1705,6 @@ impl GraphModifier {
                         if vertex_meta.global_id.index() % self.partitions == graph.partition {
                             id_vec.push(vertex_meta.global_id);
                             prop_vec.push(parse_properties_by_mappings(&x, &header, mappings).unwrap());
-                        // } else {
-                        //     corner_vec.push(vertex_meta.global_id);
                         }
                         (id_vec, prop_vec, corner_vec)
                     },
@@ -1886,40 +1860,9 @@ impl GraphModifier {
         let t1 = start.elapsed().as_secs_f64();
         let start = Instant::now();
 
-        // let mut corner_src_vertices = HashSet::new();
-        // let mut corner_dst_vertices = HashSet::new();
-        // for (src, dst) in edges.iter() {
-        //     if src.index() % self.partitions != graph.partition {
-        //         corner_src_vertices.insert(*src);
-        //     }
-        //     if dst.index() % self.partitions != graph.partition {
-        //         corner_dst_vertices.insert(*dst);
-        //     }
-        // }
-        // graph.vertex_map.insert_corner_vertices(
-        //     src_label,
-        //     corner_src_vertices
-        //         .into_iter()
-        //         .collect::<Vec<G>>(),
-        // );
-        // graph.vertex_map.insert_corner_vertices(
-        //     dst_label,
-        //     corner_dst_vertices
-        //         .into_iter()
-        //         .collect::<Vec<G>>(),
-        // );
         let t2 = start.elapsed().as_secs_f64();
         let start = Instant::now();
 
-        // let parsed_edges: Vec<(I, I)> = edges
-        //     .into_par_iter()
-        //     .map(|(src, dst)| {
-        //         (
-        //             graph.vertex_map.get_internal_id(src).unwrap().1,
-        //             graph.vertex_map.get_internal_id(dst).unwrap().1,
-        //         )
-        //     })
-        //     .collect();
         let t3 = start.elapsed().as_secs_f64();
         let start = Instant::now();
 
