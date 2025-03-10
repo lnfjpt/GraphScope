@@ -240,10 +240,10 @@ impl RPCServerConfig {
 pub async fn start_all(
     rpc_config: RPCServerConfig, server_config: Configuration, query_register: QueryRegister, pool_size: u32, workers: u32,
     servers: Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, partition_id: usize,
-    server_config_path: String, query_config_path: String
+    server_config_path: String, query_config_path: String, graph_data_dir: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_id = server_config.server_id();
-    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db, partition_id, server_config_path, query_config_path)
+    start_rpc_sever(server_id, rpc_config, query_register, pool_size, workers, &servers, graph_db, partition_id, server_config_path, query_config_path, graph_data_dir)
         .await?;
     Ok(())
 }
@@ -251,7 +251,7 @@ pub async fn start_all(
 pub async fn start_rpc_sever(
     server_id: u64, rpc_config: RPCServerConfig, query_register: QueryRegister, pool_size: u32, workers: u32,
     servers: &Vec<u64>, graph_db: Option<Arc<RwLock<GraphDB<usize, usize>>>>, partition_id: usize,
-    server_config_path: String, query_config_path: String
+    server_config_path: String, query_config_path: String, graph_data_dir: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Try to start rpc server");
     let mut service = JobServiceImpl {
@@ -268,7 +268,8 @@ pub async fn start_rpc_sever(
         last_index: Arc::new(AtomicU32::new(pool_size)),
         server_config_path,
         query_config_path,
-        execute_task: Arc::new(RwLock::new(HashSet::new()))
+        graph_data_dir,
+        execute_task: Arc::new(RwLock::new(HashSet::new())),
     };
     println!("Try to start subprocess");
     service.start_subprocess();
@@ -298,7 +299,8 @@ pub struct JobServiceImpl {
     last_index: Arc<AtomicU32>,
     server_config_path: String,
     query_config_path: String,
-    execute_task: Arc<RwLock<HashSet<String>>>
+    graph_data_dir: Option<String>,
+    execute_task: Arc<RwLock<HashSet<String>>>,
 }
 
 impl JobServiceImpl {
@@ -310,6 +312,11 @@ impl JobServiceImpl {
                 let new_path = parent.join("run_query");
                 run_query_path = new_path.to_str().unwrap().to_string();
             }
+            let graph_data_dir = if self.graph_data_dir.is_some() {
+                self.graph_data_dir.clone().unwrap()
+            } else {
+                "".to_string()
+            };
             println!("run_query_path: {}\nservers_path: {}", run_query_path, self.server_config_path);
             let mut subprocess_write = subprocess.write().expect("subprocess lock poisoned");
             for i in 0..self.pool_size {
@@ -326,6 +333,8 @@ impl JobServiceImpl {
                     .arg(self.partition_id.to_string())
                     .arg("-e")
                     .arg(format!("{}", i))
+                    .arg("-g")
+                    .arg(format!("{}", graph_data_dir))
                     .spawn()
                     .expect("Failed to execute command");
                 subprocess_write.push_back((i, child));
@@ -357,30 +366,30 @@ impl JobServiceImpl {
         if let Some(subprocess) = &self.subprocess {
             {
                 let current_index = self.current_index.load(Ordering::SeqCst);
-                        let file_path = format!("/root/input{}", current_index);
-                        let output_path = format!("/root/output{}", current_index);
+                let file_path = format!("/root/input{}", current_index);
+                let output_path = format!("/root/output{}", current_index);
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .create(true)
+                    .open(file_path.clone()).expect("failed to open file");
+                write!(file, "switch").expect("Failed to write");
+                let mut is_finished = false;
+                loop {
+                    if let Ok(result) = fs::read_to_string(output_path.clone()) {
+                        let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
+                        if result.contains(&"Finished".to_string()) {
+                            is_finished = true;
+                        }
+                    }
+                    if is_finished {
                         let mut file = OpenOptions::new()
                             .write(true)
                             .truncate(true)
-                            .create(true)
-                            .open(file_path.clone()).expect("failed to open file");
-                        write!(file, "switch").expect("Failed to write");
-                            let mut is_finished = false;
-                        loop {
-                            if let Ok(result) = fs::read_to_string(output_path.clone()) {
-                                let result: Vec<String> = result.split('\n').map(|s| s.to_string()).collect();
-                                if result.contains(&"Finished".to_string()) {
-                                    is_finished = true;
-                                }
-                            }
-                            if is_finished {
-                                let mut file = OpenOptions::new()
-                                    .write(true)
-                                    .truncate(true)
-                                    .open(output_path).expect("failed to open file");
-                                break;
-                            }
-                        }
+                            .open(output_path).expect("failed to open file");
+                        break;
+                    }
+                }
             }
             let bin_path = env::current_exe().expect("Failed to get current binary path");
             let mut run_query_path = String::new();
@@ -392,6 +401,11 @@ impl JobServiceImpl {
             if let Some((index, mut child)) = subprocess_write.pop_front() {
                 let _ = child.kill();
             }
+            let graph_data_dir = if self.graph_data_dir.is_some() {
+                self.graph_data_dir.clone().unwrap()
+            } else {
+                "".to_string()
+            };
             let current_index = self.current_index.fetch_add(1, Ordering::SeqCst) + 1;
             let last_index = self.last_index.fetch_add(1, Ordering::SeqCst);
             println!("Current index is {}, last {}", current_index, last_index);
@@ -408,6 +422,8 @@ impl JobServiceImpl {
                 .arg(self.partition_id.to_string())
                 .arg("-e")
                 .arg(format!("{}", last_index))
+                .arg("-g")
+                .arg(format!("{}", graph_data_dir))
                 .spawn()
                 .expect("Failed to execute command");
             subprocess_write.push_back((last_index, child));
@@ -451,10 +467,10 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     _ => "unknown".to_string(),
                 };
                 if task_set.len() >= 1 && !task_set.contains(&query_name) {
-            println!("Start to switch subprocess");
-            self.switch_subprocess();
-            task_set.clear();
-        }
+                    println!("Start to switch subprocess");
+                    self.switch_subprocess();
+                    task_set.clear();
+                }
                 let mut inputs = query_name.clone();
                 let mut params = HashMap::<String, String>::new();
                 for argument in query.arguments {

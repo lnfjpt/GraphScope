@@ -96,7 +96,7 @@ fn output_sub_graph<G, I>(csr: &SubGraph<'_, G, I>, vm: &VertexMap<G, I>, file: 
                         "{}|{}",
                         LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
                             .index(),
-                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, e).unwrap())
+                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, I::new(e.index())).unwrap())
                             .index(),
                     )
                         .unwrap();
@@ -106,7 +106,7 @@ fn output_sub_graph<G, I>(csr: &SubGraph<'_, G, I>, vm: &VertexMap<G, I>, file: 
                         "{}|{}",
                         LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
                             .index(),
-                        LDBCVertexParser::<I>::get_original_id(e).index()
+                        LDBCVertexParser::<G>::get_original_id(e).index()
                     )
                         .unwrap();
                 }
@@ -132,7 +132,7 @@ fn output_single_sub_graph<G, I>(
                         "{}|{}",
                         LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
                             .index(),
-                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, e).unwrap())
+                        LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.dst_label, I::new(e.index())).unwrap())
                             .index(),
                     )
                         .unwrap();
@@ -142,7 +142,7 @@ fn output_single_sub_graph<G, I>(
                         "{}|{}",
                         LDBCVertexParser::<G>::get_original_id(vm.get_global_id(csr.src_label, src).unwrap())
                             .index(),
-                        LDBCVertexParser::<I>::get_original_id(e).index()
+                        LDBCVertexParser::<G>::get_original_id(e).index()
                     )
                         .unwrap();
                 }

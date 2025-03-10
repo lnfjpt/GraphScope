@@ -87,7 +87,7 @@ impl Table {
             let col_path = format!("{}_col_{}", prefix, col_i);
             let mmap_path = if let Some(mmap_prefix) = mmap_prefix {
                 let shm_prefix = format!("{}_", shm_prefix);
-                let stripped_prefix = prefix.strip_prefix(shm_prefix).unwrap();
+                let stripped_prefix = prefix.strip_prefix(&shm_prefix).unwrap();
                 Some(format!("{}/{}_col_{}", mmap_prefix, stripped_prefix, col_i))
             } else {
                 None

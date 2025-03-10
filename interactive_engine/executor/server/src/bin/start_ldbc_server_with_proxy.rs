@@ -79,16 +79,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start = Instant::now();
     let name = "/SHM_GRAPH_STORE";
-    let default_mmap_path = "/data";
-    if let Some(graph_data_path) = config.graph_data {
-        let graph_data_str = graph_data_path.to_str().unwrap();
-        GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name, Some(default_mmap_path));
-        println!("load graph takes: {} s", start.elapsed().as_secs_f64());
-    }
+    let graph_data_dir_path =
+        if let Some(graph_data_path) = config.graph_data {
+            let graph_data_str = graph_data_path.to_str().unwrap();
+            let default_mmap_path = format!("{}/graph_data_bin/partition_{}", graph_data_str, config.partition_id);
+            GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name, Some(&default_mmap_path));
+            println!("load graph takes: {} s", start.elapsed().as_secs_f64());
+            Some(graph_data_str.to_string())
+        } else {
+            None
+        };
     let start = Instant::now();
     println!("open graph takes: {} s", start.elapsed().as_secs_f64());
     let server_config_path = config.servers_config.clone();
     let query_config_path = config.queries_config.clone();
+
 
     let servers_config =
         std::fs::read_to_string(config.servers_config).expect("Failed to read server config");
@@ -154,7 +159,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
         config.partition_id,
         server_config_path.to_str().unwrap().to_string(),
-        query_config_path
+        query_config_path,
+        graph_data_dir_path
     ));
 
     if let Some(proxy_endpoint) = proxy_endpoint {
@@ -169,8 +175,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .service(get_status)
                     .service(submit_query)
             })
-            .bind(&proxy_endpoint)?
-            .run(),
+                .bind(&proxy_endpoint)?
+                .run(),
         );
     }
     let shutdown_handle = tokio::spawn(async {
