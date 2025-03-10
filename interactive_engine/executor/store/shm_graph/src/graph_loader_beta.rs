@@ -17,7 +17,7 @@ use crate::types::DIR_BINARY_DATA;
 use crate::vertex_loader::{load_vertex, load_all_vertex};
 use crate::{schema::InputSchema, shuffler::Shuffler, types::{DIR_GRAPH_SCHEMA, FILE_SCHEMA}};
 
-use crate::schema::{CsrGraphSchema, Schema};
+use crate::schema::{CsrGraphSchema, LoadStrategy, Schema};
 use dashmap::DashMap;
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ pub struct RTVertexMap {
 impl RTVertexMap {
     pub fn new(native_list: Vec<usize>) -> Self {
         let native_num = native_list.len();
-        let mut vertex_list : Vec<(usize, usize)> = native_list.into_par_iter().enumerate().map(|(idx, v)| {
+        let mut vertex_list: Vec<(usize, usize)> = native_list.into_par_iter().enumerate().map(|(idx, v)| {
             (v, idx)
         }).collect();
         vertex_list.par_sort_by_key(|&(key, _)| key);
@@ -102,7 +102,6 @@ pub fn load_graph(
     hosts: Vec<String>,
     part_id: usize,
     part_num: usize,
-
     delim: u8,
     has_header: bool,
     reader_num: usize,
@@ -134,23 +133,23 @@ pub fn load_graph(
         let vertex_ids = if graph_schema.is_static_vertex(v_label_i) {
             load_all_vertex(
                 &input_dir,
-                &partition_dir, 
-                &input_schema, 
-                &graph_schema, 
-                v_label_i, 
-                delim, 
+                &partition_dir,
+                &input_schema,
+                &graph_schema,
+                v_label_i,
+                delim,
                 has_header)
         } else {
             load_vertex(
                 &input_dir,
-                &partition_dir, 
-                &input_schema, 
-                &graph_schema, 
-                v_label_i, 
-                &mut shuffler, 
-                delim, 
-                has_header, 
-                reader_num, 
+                &partition_dir,
+                &input_schema,
+                &graph_schema,
+                v_label_i,
+                &mut shuffler,
+                delim,
+                has_header,
+                reader_num,
                 offset)
         };
         info!("loader: loading vertex - {} takes: {:.2} s", v_label_i as i32, start.elapsed().as_secs_f64());
@@ -170,39 +169,41 @@ pub fn load_graph(
                     let start = Instant::now();
                     info!("start loading edges {} - {} - {}", src_label as i32, edge_label as i32, dst_label as i32);
                     let batches = load_edge(
-                        &input_dir, 
-                        &input_schema, 
-                        &graph_schema, 
-                        src_label, 
-                        edge_label, 
-                        dst_label, 
+                        &input_dir,
+                        &input_schema,
+                        &graph_schema,
+                        src_label,
+                        edge_label,
+                        dst_label,
                         &mut vertex_maps,
-                        &mut shuffler, 
-                        delim, 
-                        has_header, 
-                        reader_num, 
+                        &mut shuffler,
+                        delim,
+                        has_header,
+                        reader_num,
                         offset);
                     info!("finished loading {} edges, takes {:.2} s", batches.0.len(), start.elapsed().as_secs_f64());
                     let is_single_oe = graph_schema.is_single_oe(src_label, edge_label, dst_label);
                     let is_single_ie = graph_schema.is_single_ie(src_label, edge_label, dst_label);
+                    let load_strategy = graph_schema.get_edge_load_strategy(src_label, edge_label, dst_label);
                     let prefix = partition_dir.as_os_str().to_str().unwrap().to_string();
                     if graph_schema.get_edge_header(src_label, edge_label, dst_label).unwrap().len() == 0 {
                         dump_handles.push(thread::spawn(move || {
                             dump_edge_without_properties(
-                                batches.0, 
-                                batches.1, 
+                                batches.0,
+                                batches.1,
                                 batches.2,
                                 batches.3,
                                 format!("{}/oe_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
                                 format!("{}/ie_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
-                                is_single_oe, 
-                                is_single_ie);
+                                is_single_oe,
+                                is_single_ie,
+                                load_strategy);
                         }));
                     } else {
                         dump_handles.push(thread::spawn(move || {
                             dump_edge_with_properties(
-                                batches.0, 
-                                batches.1, 
+                                batches.0,
+                                batches.1,
                                 batches.2,
                                 batches.3,
                                 batches.4,
@@ -210,8 +211,9 @@ pub fn load_graph(
                                 format!("{}/ie_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
                                 format!("{}/oep_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
                                 format!("{}/iep_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
-                                is_single_oe, 
-                                is_single_ie);
+                                is_single_oe,
+                                is_single_ie,
+                                load_strategy);
                         }));
                     }
                 }
@@ -246,7 +248,6 @@ pub fn load_graph_no_corner(
     hosts: Vec<String>,
     part_id: usize,
     part_num: usize,
-
     delim: u8,
     has_header: bool,
     reader_num: usize,
@@ -278,23 +279,23 @@ pub fn load_graph_no_corner(
         let vertex_ids = if graph_schema.is_static_vertex(v_label_i) {
             load_all_vertex(
                 &input_dir,
-                &partition_dir, 
-                &input_schema, 
-                &graph_schema, 
-                v_label_i, 
-                delim, 
+                &partition_dir,
+                &input_schema,
+                &graph_schema,
+                v_label_i,
+                delim,
                 has_header)
         } else {
             load_vertex(
                 &input_dir,
-                &partition_dir, 
-                &input_schema, 
-                &graph_schema, 
-                v_label_i, 
-                &mut shuffler, 
-                delim, 
-                has_header, 
-                reader_num, 
+                &partition_dir,
+                &input_schema,
+                &graph_schema,
+                v_label_i,
+                &mut shuffler,
+                delim,
+                has_header,
+                reader_num,
                 offset)
         };
         info!("loader: loading vertex - {} takes: {:.2} s", v_label_i as i32, start.elapsed().as_secs_f64());
@@ -315,53 +316,76 @@ pub fn load_graph_no_corner(
                     let start = Instant::now();
                     info!("start loading edges {} - {} - {}", src_label as i32, edge_label as i32, dst_label as i32);
                     let batches = load_raw_edge(
-                        &input_dir, 
-                        &input_schema, 
-                        &graph_schema, 
-                        src_label, 
-                        edge_label, 
-                        dst_label, 
-                        &mut shuffler, 
-                        delim, 
-                        has_header, 
-                        reader_num, 
+                        &input_dir,
+                        &input_schema,
+                        &graph_schema,
+                        src_label,
+                        edge_label,
+                        dst_label,
+                        &mut shuffler,
+                        delim,
+                        has_header,
+                        reader_num,
                         offset);
                     info!("finished loading {} edges, takes {:.2} s", batches.0.len(), start.elapsed().as_secs_f64());
                     let is_single_oe = graph_schema.is_single_oe(src_label, edge_label, dst_label);
                     let is_single_ie = graph_schema.is_single_ie(src_label, edge_label, dst_label);
+                    let load_strategy = graph_schema.get_edge_load_strategy(src_label, edge_label, dst_label);
                     let prefix = partition_dir.as_os_str().to_str().unwrap().to_string();
                     if graph_schema.get_edge_header(src_label, edge_label, dst_label).unwrap().len() == 0 {
                         dump_handles.push(thread::spawn({
                             let vm = vertex_maps_arc.clone();
                             move || {
-                            dump_edge_no_corner_without_properties(
-                                vm,
-                                batches.0, 
-                                batches.1, 
-                                src_label, dst_label,
-                                format!("{}/oe_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
-                                format!("{}/ie_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
-                                is_single_oe, 
-                                is_single_ie);
-                        }}));
+                                dump_edge_no_corner_without_properties(
+                                    vm,
+                                    batches.0,
+                                    batches.1,
+                                    src_label, dst_label,
+                                    format!("{}/oe_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
+                                    format!("{}/ie_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
+                                    is_single_oe,
+                                    is_single_ie,
+                                    load_strategy);
+                            }
+                        }));
                     } else {
                         dump_handles.push(thread::spawn({
                             let vm = vertex_maps_arc.clone();
                             move || {
-                            dump_edge_no_corner_with_properties(
+                                dump_edge_no_corner_with_properties(
+                                    vm,
+                                    batches.0,
+                                    batches.1,
+                                    batches.2,
+                                    src_label, dst_label,
+                                    format!("{}/oe_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
+                                    format!("{}/ie_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
+                                    format!("{}/oep_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
+                                    format!("{}/iep_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
+                                    is_single_oe,
+                                    is_single_ie,
+                                    load_strategy);
+                            }
+                        }));
+                    }
+                } else if graph_schema.get_edge_header(src_label, edge_label, dst_label).is_some() {
+                    let prefix = partition_dir.as_os_str().to_str().unwrap().to_string();
+                    let is_single_oe = graph_schema.is_single_oe(src_label, edge_label, dst_label);
+                    let is_single_ie = graph_schema.is_single_ie(src_label, edge_label, dst_label);
+                    let load_strategy = graph_schema.get_edge_load_strategy(src_label, edge_label, dst_label);
+                    dump_handles.push(thread::spawn({
+                        let vm = vertex_maps_arc.clone();
+                        move || {
+                            dump_empty_edges(
                                 vm,
-                                batches.0, 
-                                batches.1, 
-                                batches.2,
                                 src_label, dst_label,
                                 format!("{}/oe_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
                                 format!("{}/ie_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
-                                format!("{}/oep_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
-                                format!("{}/iep_{}_{}_{}", &prefix, src_label as i32, edge_label as i32, dst_label as i32),
-                                is_single_oe, 
-                                is_single_ie);
-                        }}));
-                    }
+                                is_single_oe,
+                                is_single_ie,
+                                load_strategy);
+                        }
+                    }));
                 }
             }
         }
@@ -372,12 +396,13 @@ pub fn load_graph_no_corner(
         dump_handles.push(thread::spawn({
             let vm = vertex_maps_arc.clone();
             move || {
-            vm[label as usize].dump(
-                format!("{}/vm_{}", &prefix, label),
-                format!("{}/vmc_{}", &prefix, label),
-                format!("{}/vm_{}_tomb", &prefix, label),
-            );
-        }}));
+                vm[label as usize].dump(
+                    format!("{}/vm_{}", &prefix, label),
+                    format!("{}/vmc_{}", &prefix, label),
+                    format!("{}/vm_{}_tomb", &prefix, label),
+                );
+            }
+        }));
     }
 
     let start = Instant::now();

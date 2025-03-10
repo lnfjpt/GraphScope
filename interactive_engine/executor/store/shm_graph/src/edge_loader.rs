@@ -21,7 +21,7 @@ use crate::record_batch::{RecordBatch, RecordBatchWriter};
 use crate::shuffler::{Message, Shuffler};
 use crate::types::LabelId;
 
-use crate::schema::{CsrGraphSchema, InputSchema, Schema};
+use crate::schema::{CsrGraphSchema, InputSchema, LoadStrategy, Schema};
 
 #[derive(Serialize, Deserialize)]
 struct EdgeBatch {
@@ -48,7 +48,7 @@ fn deserialize_routine(mut rx: mpsc::Receiver<Message>, tx: mpsc::Sender<EdgeBat
 fn reader_routine(
     reader_id: usize, files: Vec<PathBuf>, src_label: LabelId, dst_label: LabelId, edge_label: LabelId,
     src_col: usize, dst_col: usize, cols: Vec<usize>, col_types: Vec<DataType>, delim: u8,
-    has_header: bool, part_id: usize, part_num: usize, is_src_static: bool, is_dst_static: bool,
+    has_header: bool, part_id: usize, part_num: usize, is_src_static: bool, is_dst_static: bool, load_strategy: LoadStrategy,
     tx: mpsc::Sender<(usize, Message)>, table_tx: mpsc::Sender<EdgeBatch>,
 ) {
     let mut batches = vec![];
@@ -92,7 +92,7 @@ fn reader_routine(
                         batches[part_id]
                             .properties
                             .append(&record, &cols);
-                    } else if is_src_static && !is_dst_static {
+                    } else if (is_src_static && !is_dst_static) || load_strategy == LoadStrategy::OnlyIn {
                         batches[dst_part_id]
                             .src
                             .push(edge_meta.src_global_id);
@@ -102,7 +102,7 @@ fn reader_routine(
                         batches[dst_part_id]
                             .properties
                             .append(&record, &cols);
-                    } else if !is_src_static && is_dst_static {
+                    } else if (!is_src_static && is_dst_static) || load_strategy == LoadStrategy::OnlyOut {
                         batches[src_part_id]
                             .src
                             .push(edge_meta.src_global_id);
@@ -160,7 +160,7 @@ fn reader_routine(
                         batches[part_id]
                             .properties
                             .append(&record, &cols);
-                    } else if is_src_static && !is_dst_static {
+                    } else if (is_src_static && !is_dst_static) || load_strategy == LoadStrategy::OnlyIn {
                         batches[dst_part_id]
                             .src
                             .push(edge_meta.src_global_id);
@@ -170,7 +170,7 @@ fn reader_routine(
                         batches[dst_part_id]
                             .properties
                             .append(&record, &cols);
-                    } else if !is_src_static && is_dst_static {
+                    } else if (!is_src_static && is_dst_static) || load_strategy == LoadStrategy::OnlyOut {
                         batches[src_part_id]
                             .src
                             .push(edge_meta.src_global_id);
@@ -249,6 +249,7 @@ pub fn load_raw_edge(
         .unwrap();
     let is_src_static = graph_schema.is_static_vertex(src_label);
     let is_dst_static = graph_schema.is_static_vertex(dst_label);
+    let load_strategy = graph_schema.get_edge_load_strategy(src_label, edge_label, dst_label);
 
     let part_num = shuffler.worker_num;
     let part_id = shuffler.worker_id;
@@ -338,6 +339,7 @@ pub fn load_raw_edge(
                     part_num,
                     is_src_static,
                     is_dst_static,
+                    load_strategy,
                     tx_clone,
                     tx_table_clone,
                 );
@@ -483,6 +485,7 @@ pub fn dump_edge_without_properties(
     src_list: Vec<usize>, dst_list: Vec<usize>,
     odegree: Vec<i32>, idegree: Vec<i32>, oe_prefix: String,
     ie_prefix: String, is_single_oe: bool, is_single_ie: bool,
+    load_strategy: LoadStrategy,
 ) {
     let src_num = odegree.len();
     let dst_num = idegree.len();
@@ -600,6 +603,7 @@ pub fn dump_edge_no_corner_without_properties(
     src_label: LabelId, dst_label: LabelId,
     oe_prefix: String,
     ie_prefix: String, is_single_oe: bool, is_single_ie: bool,
+    load_strategy: LoadStrategy,
 ) {
     let src_vm = &vertex_maps[src_label as usize];
     let dst_vm = &vertex_maps[dst_label as usize];
@@ -607,46 +611,67 @@ pub fn dump_edge_no_corner_without_properties(
     let dst_num = dst_vm.native_vertex_num();
 
     if !is_single_ie && !is_single_oe {
-        let odegree = generate_degree(&src_list, src_vm);
-        let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
-        let idegree = generate_degree(&dst_list, dst_vm);
-        let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
-
-        dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
-        dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
-        dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
-        dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
-
-        let mut oe_nbrs = vec![usize::MAX; oe_num];
-        let mut ie_nbrs = vec![usize::MAX; ie_num];
+        let (mut oe_offsets, oe_num, mut oe_nbrs) = if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            let odegree = generate_degree(&src_list, src_vm);
+            let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
+            dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
+            dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+            let mut oe_nbrs = vec![usize::MAX; oe_num];
+            (oe_offsets, oe_num, oe_nbrs)
+        } else {
+            (vec![], 0, vec![])
+        };
+        let (mut ie_offsets, ie_num, mut ie_nbrs) = if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            let idegree = generate_degree(&dst_list, dst_vm);
+            let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
+            dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
+            dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+            let mut ie_nbrs = vec![usize::MAX; ie_num];
+            (ie_offsets, ie_num, ie_nbrs)
+        } else {
+            (vec![], 0, vec![])
+        };
 
         for i in 0..src_list.len() {
             let src = src_list[i];
             let dst = dst_list[i];
-            if let Some(src_lid) = src_vm.get_internal_id(src) {
-                let cur_offset = oe_offsets[src_lid];
-                oe_offsets[src_lid] += 1;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                if let Some(src_lid) = src_vm.get_internal_id(src) {
+                    let cur_offset = oe_offsets[src_lid];
+                    oe_offsets[src_lid] += 1;
 
-                oe_nbrs[cur_offset] = dst;
+                    oe_nbrs[cur_offset] = dst;
+                }
             }
-            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
-                let cur_offset = ie_offsets[dst_lid];
-                ie_offsets[dst_lid] += 1;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                    let cur_offset = ie_offsets[dst_lid];
+                    ie_offsets[dst_lid] += 1;
 
-                ie_nbrs[cur_offset] = src;
+                    ie_nbrs[cur_offset] = src;
+                }
             }
         }
 
-        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
-        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
+        }
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+        }
     } else if is_single_ie && !is_single_oe {
-        let odegree = generate_degree(&src_list, src_vm);
-        let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
+        let (mut oe_offsets, oe_num) = if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            let odegree = generate_degree(&src_list, src_vm);
+            let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
 
-        dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
-        dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+            dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
+            dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+            (oe_offsets, oe_num)
+        } else {
+            (vec![], 0)
+        };
 
         let mut oe_nbrs = vec![usize::MAX; oe_num];
         let mut ie_nbrs = vec![usize::MAX; dst_num];
@@ -654,27 +679,40 @@ pub fn dump_edge_no_corner_without_properties(
         for i in 0..src_list.len() {
             let src = src_list[i];
             let dst = dst_list[i];
-            if let Some(src_lid) = src_vm.get_internal_id(src) {
-                let cur_offset = oe_offsets[src_lid];
-                oe_offsets[src_lid] += 1;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                if let Some(src_lid) = src_vm.get_internal_id(src) {
+                    let cur_offset = oe_offsets[src_lid];
+                    oe_offsets[src_lid] += 1;
 
-                oe_nbrs[cur_offset] = dst;
+                    oe_nbrs[cur_offset] = dst;
+                }
             }
-            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
-                ie_nbrs[dst_lid] = src;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                    ie_nbrs[dst_lid] = src;
+                }
             }
         }
 
-        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
-        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
+        }
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+        }
     } else if !is_single_ie && is_single_oe {
-        let idegree = generate_degree(&dst_list, dst_vm);
-        let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
+        let (mut ie_offsets, ie_num) = if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            let idegree = generate_degree(&dst_list, dst_vm);
+            let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
 
-        dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
-        dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+            dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
+            dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+            (ie_offsets, ie_num)
+        } else {
+            (vec![], 0)
+        };
 
         let mut oe_nbrs = vec![usize::MAX; src_num];
         let mut ie_nbrs = vec![usize::MAX; ie_num];
@@ -682,21 +720,29 @@ pub fn dump_edge_no_corner_without_properties(
         for i in 0..src_list.len() {
             let src = src_list[i];
             let dst = dst_list[i];
-            if let Some(src_lid) = src_vm.get_internal_id(src) {
-                oe_nbrs[src_lid] = dst;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                if let Some(src_lid) = src_vm.get_internal_id(src) {
+                    oe_nbrs[src_lid] = dst;
+                }
             }
-            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
-                let cur_offset = ie_offsets[dst_lid];
-                ie_offsets[dst_lid] += 1;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                    let cur_offset = ie_offsets[dst_lid];
+                    ie_offsets[dst_lid] += 1;
 
-                ie_nbrs[cur_offset] = src;
+                    ie_nbrs[cur_offset] = src;
+                }
             }
         }
 
-        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
-        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
+        }
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+        }
     } else {
         let mut oe_nbrs = vec![usize::MAX; src_num];
         let mut ie_nbrs = vec![usize::MAX; dst_num];
@@ -704,18 +750,26 @@ pub fn dump_edge_no_corner_without_properties(
         for i in 0..src_list.len() {
             let src = src_list[i];
             let dst = dst_list[i];
-            if let Some(src_lid) = src_vm.get_internal_id(src) {
-                oe_nbrs[src_lid] = dst;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                if let Some(src_lid) = src_vm.get_internal_id(src) {
+                    oe_nbrs[src_lid] = dst;
+                }
             }
-            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
-                ie_nbrs[dst_lid] = src;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                    ie_nbrs[dst_lid] = src;
+                }
             }
         }
 
-        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
-        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
+        }
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+        }
     }
 }
 
@@ -751,7 +805,7 @@ pub fn dump_edge_with_properties(
     src_list: Vec<usize>, dst_list: Vec<usize>,
     odegree: Vec<i32>, idegree: Vec<i32>, properties: RecordBatch,
     oe_prefix: String, ie_prefix: String, oep_prefix: String, iep_prefix: String, is_single_oe: bool,
-    is_single_ie: bool,
+    is_single_ie: bool, load_strategy: LoadStrategy,
 ) {
     let src_num = odegree.len();
     let dst_num = idegree.len();
@@ -911,6 +965,7 @@ pub fn dump_edge_no_corner_with_properties(
     src_label: LabelId, dst_label: LabelId,
     oe_prefix: String,
     ie_prefix: String, oep_prefix: String, iep_prefix: String, is_single_oe: bool, is_single_ie: bool,
+    load_strategy: LoadStrategy,
 ) {
     let src_vm = &vertex_maps[src_label as usize];
     let dst_vm = &vertex_maps[dst_label as usize];
@@ -925,41 +980,53 @@ pub fn dump_edge_no_corner_with_properties(
     let mut ie_num_x = 0_usize;
 
     if !is_single_ie && !is_single_oe {
-        let odegree = generate_degree(&src_list, src_vm);
-        let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
-        let idegree = generate_degree(&dst_list, dst_vm);
-        let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
+        let (mut oe_offsets, oe_num, mut oe_nbrs) = if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            let odegree = generate_degree(&src_list, src_vm);
+            let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
+            dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
+            dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+            let mut oe_nbrs = vec![usize::MAX; oe_num];
+            (oe_offsets, oe_num, oe_nbrs)
+        } else {
+            (vec![], 0, vec![])
+        };
+        let (mut ie_offsets, ie_num, mut ie_nbrs) = if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            let idegree = generate_degree(&dst_list, dst_vm);
+            let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
+            dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
+            dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+            let mut ie_nbrs = vec![usize::MAX; ie_num];
+            (ie_offsets, ie_num, ie_nbrs)
+        } else {
+            (vec![], 0, vec![])
+        };
         oe_num_x = oe_num;
         ie_num_x = ie_num;
-
-        dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
-        dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
-        dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
-        dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
-
-        let mut oe_nbrs = vec![usize::MAX; oe_num];
-        let mut ie_nbrs = vec![usize::MAX; ie_num];
 
         for i in 0..src_list.len() {
             let src = src_list[i];
             let dst = dst_list[i];
-            if let Some(src_lid) = src_vm.get_internal_id(src) {
-                let cur_offset = oe_offsets[src_lid];
-                oe_prop_index.push(cur_offset);
-                oe_offsets[src_lid] += 1;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                if let Some(src_lid) = src_vm.get_internal_id(src) {
+                    let cur_offset = oe_offsets[src_lid];
+                    oe_prop_index.push(cur_offset);
+                    oe_offsets[src_lid] += 1;
 
-                oe_nbrs[cur_offset] = dst;
-            } else {
-                oe_prop_index.push(usize::MAX);
+                    oe_nbrs[cur_offset] = dst;
+                } else {
+                    oe_prop_index.push(usize::MAX);
+                }
             }
-            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
-                let cur_offset = ie_offsets[dst_lid];
-                ie_prop_index.push(cur_offset);
-                ie_offsets[dst_lid] += 1;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                    let cur_offset = ie_offsets[dst_lid];
+                    ie_prop_index.push(cur_offset);
+                    ie_offsets[dst_lid] += 1;
 
-                ie_nbrs[cur_offset] = src;
-            } else {
-                ie_prop_index.push(usize::MAX);
+                    ie_nbrs[cur_offset] = src;
+                } else {
+                    ie_prop_index.push(usize::MAX);
+                }
             }
         }
 
@@ -968,11 +1035,16 @@ pub fn dump_edge_no_corner_with_properties(
         SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
         SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
     } else if is_single_ie && !is_single_oe {
-        let odegree = generate_degree(&src_list, src_vm);
-        let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
+        let (mut oe_offsets, oe_num) = if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            let odegree = generate_degree(&src_list, src_vm);
+            let (mut oe_offsets, oe_num) = prefix_sum(&odegree);
 
-        dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
-        dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+            dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &odegree);
+            dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offsets);
+            (oe_offsets, oe_num)
+        } else {
+            (vec![], 0)
+        };
 
         let mut oe_nbrs = vec![usize::MAX; oe_num];
         let mut ie_nbrs = vec![usize::MAX; dst_num];
@@ -982,33 +1054,46 @@ pub fn dump_edge_no_corner_with_properties(
         for i in 0..src_list.len() {
             let src = src_list[i];
             let dst = dst_list[i];
-            if let Some(src_lid) = src_vm.get_internal_id(src) {
-                let cur_offset = oe_offsets[src_lid];
-                oe_prop_index.push(cur_offset);
-                oe_offsets[src_lid] += 1;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                if let Some(src_lid) = src_vm.get_internal_id(src) {
+                    let cur_offset = oe_offsets[src_lid];
+                    oe_prop_index.push(cur_offset);
+                    oe_offsets[src_lid] += 1;
 
-                oe_nbrs[cur_offset] = dst;
-            } else {
-                oe_prop_index.push(usize::MAX);
+                    oe_nbrs[cur_offset] = dst;
+                } else {
+                    oe_prop_index.push(usize::MAX);
+                }
             }
-            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
-                ie_nbrs[dst_lid] = src;
-                ie_prop_index.push(dst_lid);
-            } else {
-                ie_prop_index.push(usize::MAX);
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                    ie_nbrs[dst_lid] = src;
+                    ie_prop_index.push(dst_lid);
+                } else {
+                    ie_prop_index.push(usize::MAX);
+                }
             }
         }
 
-        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
-        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![oe_num]);
+        }
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+        }
     } else if !is_single_ie && is_single_oe {
-        let idegree = generate_degree(&dst_list, dst_vm);
-        let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
+        let (mut ie_offsets, ie_num) = if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            let idegree = generate_degree(&dst_list, dst_vm);
+            let (mut ie_offsets, ie_num) = prefix_sum(&idegree);
 
-        dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
-        dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+            dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &idegree);
+            dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offsets);
+            (ie_offsets, ie_num)
+        } else {
+            (vec![], 0)
+        };
 
         let mut oe_nbrs = vec![usize::MAX; src_num];
         let mut ie_nbrs = vec![usize::MAX; ie_num];
@@ -1016,27 +1101,35 @@ pub fn dump_edge_no_corner_with_properties(
         for i in 0..src_list.len() {
             let src = src_list[i];
             let dst = dst_list[i];
-            if let Some(src_lid) = src_vm.get_internal_id(src) {
-                oe_nbrs[src_lid] = dst;
-                oe_prop_index.push(src_lid);
-            } else {
-                oe_prop_index.push(usize::MAX);
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                if let Some(src_lid) = src_vm.get_internal_id(src) {
+                    oe_nbrs[src_lid] = dst;
+                    oe_prop_index.push(src_lid);
+                } else {
+                    oe_prop_index.push(usize::MAX);
+                }
             }
-            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
-                let cur_offset = ie_offsets[dst_lid];
-                ie_prop_index.push(cur_offset);
-                ie_offsets[dst_lid] += 1;
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                    let cur_offset = ie_offsets[dst_lid];
+                    ie_prop_index.push(cur_offset);
+                    ie_offsets[dst_lid] += 1;
 
-                ie_nbrs[cur_offset] = src;
-            } else {
-                ie_prop_index.push(usize::MAX);
+                    ie_nbrs[cur_offset] = src;
+                } else {
+                    ie_prop_index.push(usize::MAX);
+                }
             }
         }
 
-        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
-        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
+        }
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![ie_num]);
+        }
     } else {
         let mut oe_nbrs = vec![usize::MAX; src_num];
         let mut ie_nbrs = vec![usize::MAX; dst_num];
@@ -1044,24 +1137,75 @@ pub fn dump_edge_no_corner_with_properties(
         for i in 0..src_list.len() {
             let src = src_list[i];
             let dst = dst_list[i];
-            if let Some(src_lid) = src_vm.get_internal_id(src) {
-                oe_nbrs[src_lid] = dst;
-                oe_prop_index.push(src_lid);
-            } else {
-                oe_prop_index.push(usize::MAX);
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+                if let Some(src_lid) = src_vm.get_internal_id(src) {
+                    oe_nbrs[src_lid] = dst;
+                    oe_prop_index.push(src_lid);
+                } else {
+                    oe_prop_index.push(usize::MAX);
+                }
             }
-            if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
-                ie_nbrs[dst_lid] = src;
-                ie_prop_index.push(dst_lid);
-            } else {
-                ie_prop_index.push(usize::MAX);
+            if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+                if let Some(dst_lid) = dst_vm.get_internal_id(dst) {
+                    ie_nbrs[dst_lid] = src;
+                    ie_prop_index.push(dst_lid);
+                } else {
+                    ie_prop_index.push(usize::MAX);
+                }
             }
         }
 
-        dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
-        dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
-        SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+            dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
+        }
+        if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+            dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+        }
     }
     dump_properties(properties, oe_prop_index, oep_prefix, oe_num_x, ie_prop_index, iep_prefix, ie_num_x);
+}
+
+pub fn dump_empty_edges(vertex_maps: Arc<Vec<RTVertexMap>>,
+                        src_label: LabelId, dst_label: LabelId,
+                        oe_prefix: String,
+                        ie_prefix: String, is_single_oe: bool, is_single_ie: bool,
+                        load_strategy: LoadStrategy,
+) {
+    let src_vm = &vertex_maps[src_label as usize];
+    let dst_vm = &vertex_maps[dst_label as usize];
+    let src_num = src_vm.native_vertex_num();
+    let dst_num = dst_vm.native_vertex_num();
+    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
+        if !is_single_oe {
+            let mut oe_degrees = vec![0; src_num];
+            let mut oe_offset = vec![0; src_num];
+            dump_pod_vec(format!("{}_degree", oe_prefix).as_str(), &oe_degrees);
+            dump_pod_vec(format!("{}_offsets", oe_prefix).as_str(), &oe_offset);
+            let mut oe_nbrs: Vec<usize> = vec![];
+            dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num, src_num]);
+        } else {
+            let mut oe_nbrs = vec![usize::MAX; src_num];
+            dump_pod_vec(format!("{}_nbrs", oe_prefix).as_str(), &oe_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", oe_prefix).as_str(), &vec![src_num]);
+        }
+    }
+    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
+        let mut ie_nbrs = vec![usize::MAX; dst_num];
+        if !is_single_ie {
+            let mut ie_degrees = vec![0; src_num];
+            let mut ie_offset = vec![0; src_num];
+            dump_pod_vec(format!("{}_degree", ie_prefix).as_str(), &ie_degrees);
+            dump_pod_vec(format!("{}_offsets", ie_prefix).as_str(), &ie_offset);
+            let mut ie_nbrs: Vec<usize> = vec![];
+            dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num, dst_num]);
+        } else {
+            let mut ie_nbrs = vec![usize::MAX; dst_num];
+            dump_pod_vec(format!("{}_nbrs", ie_prefix).as_str(), &ie_nbrs);
+            SharedVec::<usize>::dump_vec(format!("{}_meta", ie_prefix).as_str(), &vec![dst_num]);
+        }
+    }
 }

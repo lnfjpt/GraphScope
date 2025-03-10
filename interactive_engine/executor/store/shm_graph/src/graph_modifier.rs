@@ -1018,48 +1018,6 @@ pub fn insert_edges_by_ids<G, I>(graph: &mut GraphDB<G, I>, src_label: LabelId, 
     let is_src_static = graph.graph_schema.is_static_vertex(src_label);
     let is_dst_static = graph.graph_schema.is_static_vertex(dst_label);
     let load_strategy = graph.graph_schema.get_edge_load_strategy(src_label, edge_label, dst_label);
-
-    let mut corner_src_vertices = HashSet::new();
-    let mut corner_dst_vertices = HashSet::new();
-    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
-        for (src, dst) in edges.iter() {
-            if dst.index() % servers != graph.partition {
-                corner_dst_vertices.insert(*dst);
-            }
-        }
-    }
-    if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
-        for (src, dst) in edges.iter() {
-            if src.index() % servers != graph.partition {
-                corner_src_vertices.insert(*src);
-            }
-        }
-    }
-    graph.vertex_map.insert_corner_vertices(
-        src_label,
-        corner_src_vertices
-            .into_iter()
-            .collect::<Vec<G>>(),
-    );
-    graph.vertex_map.insert_corner_vertices(
-        dst_label,
-        corner_dst_vertices
-            .into_iter()
-            .collect::<Vec<G>>(),
-    );
-    let t0 = start.elapsed().as_secs_f64();
-    let start = Instant::now();
-    let parsed_edges: Vec<(I, I)> = edges
-        .into_par_iter()
-        .map(|(src, dst)| {
-            (
-                graph.vertex_map.get_internal_id(*src).unwrap().1,
-                graph.vertex_map.get_internal_id(*dst).unwrap().1,
-            )
-        })
-        .collect();
-    let t1 = start.elapsed().as_secs_f64();
-    let start = Instant::now();
     let index = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
 
     if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyOut {
@@ -1067,14 +1025,16 @@ pub fn insert_edges_by_ids<G, I>(graph: &mut GraphDB<G, I>, src_label: LabelId, 
         if let Some(csr) = graph.oe.get_mut(&index) {
             csr.insert_edges_beta(
                 new_src_num,
-                &parsed_edges,
+                &edges,
                 None,
                 false,
                 graph.oe_edge_prop_table.get_mut(&index),
+                &graph.vertex_map,
+                src_label
             );
         }
     }
-    let t2 = start.elapsed().as_secs_f64();
+    let t0 = start.elapsed().as_secs_f64();
     let start = Instant::now();
 
     if load_strategy == LoadStrategy::BothOutIn || load_strategy == LoadStrategy::OnlyIn {
@@ -1082,15 +1042,17 @@ pub fn insert_edges_by_ids<G, I>(graph: &mut GraphDB<G, I>, src_label: LabelId, 
         if let Some(csr) = graph.ie.get_mut(&index) {
             csr.insert_edges_beta(
                 new_dst_num,
-                &parsed_edges,
+                &edges,
                 None,
                 true,
                 graph.ie_edge_prop_table.get_mut(&index),
+                &graph.vertex_map,
+                dst_label
             );
         }
     }
-    let t3 = start.elapsed().as_secs_f64();
-    println!("insert edges by id: {}, {}, {}, {}", t0, t1, t2, t3);
+    let t1 = start.elapsed().as_secs_f64();
+    println!("insert edges by id: {}, {}", t0, t1);
 }
 
 pub fn delete_vertices(
