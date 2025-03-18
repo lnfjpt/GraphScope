@@ -42,6 +42,8 @@ pub struct Config {
     partition_id: usize,
     #[structopt(short = "t", long = "pool_size", default_value = "0")]
     pool_size: u32,
+    #[structopt(short = "l", long = "load")]
+    load: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -83,7 +85,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(graph_data_path) = config.graph_data {
             let graph_data_str = graph_data_path.to_str().unwrap();
             let default_mmap_path = format!("{}/graph_data_bin/partition_{}", graph_data_str, config.partition_id);
-            GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name, Some(&default_mmap_path));
+            if config.load {
+                GraphDB::<usize, usize>::load(graph_data_str, config.partition_id, name, Some(&default_mmap_path));
+            }
             println!("load graph takes: {} s", start.elapsed().as_secs_f64());
             Some(graph_data_str.to_string())
         } else {
@@ -160,7 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.partition_id,
         server_config_path.to_str().unwrap().to_string(),
         query_config_path,
-        graph_data_dir_path
+        graph_data_dir_path,
     ));
 
     if let Some(proxy_endpoint) = proxy_endpoint {
