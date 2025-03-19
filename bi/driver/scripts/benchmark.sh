@@ -1,1 +1,0 @@
-java -cp target/ldbc-bi-driver-0.1.0.jar -DSF=100 -Dparameters=pararmeters -Dqueries=queries -Dparameters=parameters -Dendpoint=localhost:1234 -Dengine=INSIGHT -Dworkers=4 com.alibaba.graphscope.ldbc.workload.Benchmark
