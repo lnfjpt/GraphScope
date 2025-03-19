@@ -59,7 +59,7 @@ pub fn start_up<D: ServerDetect + 'static, A: ToSocketAddrs>(
         .spawn(move || {
             while !is_shutdown(server_id) {
                 mgr.refresh();
-                std::thread::sleep(Duration::from_secs(2));
+                std::thread::sleep(Duration::from_millis(2));
             }
             info!("net-manager-{} exit;", server_id);
         })
@@ -141,10 +141,10 @@ pub use manager::ServerDetect;
 pub use manager::SimpleServerDetector;
 #[cfg(feature = "benchmark")]
 pub use message::{MessageHeader, MESSAGE_HEAD_SIZE};
-pub use receive::IPCReceiver;
+pub use receive::{get_recv_register, set_recv_register, IPCReceiver, InboxRegister};
 #[cfg(feature = "benchmark")]
 pub use receive::{MessageDecoder, ReentrantDecoder, ReentrantSlabDecoder, SimpleBlockDecoder};
-pub use send::{check_has_network_error, IPCSender};
+pub use send::{check_has_network_error, get_msg_sender, set_msg_sender, IPCSender, NetData};
 #[cfg(feature = "benchmark")]
 pub use send::{MessageEncoder, SimpleEncoder, SlabEncoder};
 pub use state::check_connect;

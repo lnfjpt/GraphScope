@@ -35,7 +35,9 @@ mod encode;
 pub use encode::{GeneralEncoder, MessageEncoder, SimpleEncoder, SlabEncoder};
 
 mod net_tx;
-use net_tx::{NetData, NetSender};
+
+pub use net_tx::NetData;
+use net_tx::NetSender;
 
 pub struct IPCSender<T: Encode> {
     pub target: SocketAddr,
@@ -112,9 +114,24 @@ impl<T: Encode + 'static> Clone for IPCSender<T> {
 }
 
 lazy_static! {
-    static ref REMOTE_MSG_SENDER: ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>> =
-        ShardedLock::new(HashMap::new());
+    static ref REMOTE_MSG_SENDER: Arc<ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>> =
+        Arc::new(ShardedLock::new(HashMap::new()));
     static ref NETWORK_SEND_ERRORS: Mutex<HashMap<u128, Vec<SocketAddr>>> = Mutex::new(HashMap::new());
+}
+
+#[inline]
+pub fn get_msg_sender() -> Arc<ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>> {
+    return REMOTE_MSG_SENDER.clone();
+}
+
+pub fn set_msg_sender(
+    sender_map: Arc<ShardedLock<HashMap<(u64, u64), (SocketAddr, Weak<Sender<NetData>>)>>>,
+) {
+    let mut sender_write_lock = REMOTE_MSG_SENDER
+        .write()
+        .expect("Msg sender poisoned");
+    let sender_read_lock = sender_map.read().unwrap();
+    *sender_write_lock = sender_read_lock.clone();
 }
 
 #[inline]
@@ -160,16 +177,10 @@ pub(crate) fn add_remote_sender(local_id: u64, server: &Server, tx: &Arc<Sender<
     lock.insert((local_id, server.id), (server.addr, tx));
 }
 
-pub(crate) fn remove_remote_sender(local_id: u64, remote_id: u64, other: &Arc<Sender<NetData>>) {
+pub(crate) fn remove_remote_sender(local_id: u64, remote_id: u64) {
     let mut lock = REMOTE_MSG_SENDER
         .write()
         .expect("REMOTE_MSG_SENDER write lock poisoned");
-    if let Some((_, tx)) = lock.get(&(local_id, remote_id)) {
-        let weak = Arc::downgrade(other);
-        if !Weak::ptr_eq(tx, &weak) {
-            return;
-        }
-    }
     lock.remove(&(local_id, remote_id));
 }
 
@@ -206,12 +217,8 @@ pub(crate) fn start_net_sender(
     let params = params.get_write_params();
     match params.mode {
         BlockMode::Blocking(timeout) => {
-            if timeout.is_none() {
-                is_block = false;
-            } else {
-                conn.set_write_timeout(timeout).ok();
-                is_block = true;
-            }
+            conn.set_write_timeout(timeout).ok();
+            is_block = false;
         }
         _ => (),
     }
@@ -282,5 +289,5 @@ fn busy_send<W: Write>(
         }
     }
     info!("IPC sender to {:?} exit;", remote);
-    remove_remote_sender(local, remote, net_tx.get_outbox_tx().as_ref().expect(""));
+    remove_remote_sender(local, remote);
 }

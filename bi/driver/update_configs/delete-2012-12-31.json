@@ -1,0 +1,381 @@
+{
+  "vertex": [
+    {
+      "label": "PERSON",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Person/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Person/batch_id=2012-12-31/*.csv.gz",
+        "extra_deletes/dynamic/Person/batch_id=2012-12-31/*.csv",
+        "extra_deletes/dynamic/Person/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "label": "COMMENT",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Comment/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Comment/batch_id=2012-12-31/*.csv.gz",
+        "extra_deletes/dynamic/Comment/batch_id=2012-12-31/*.csv",
+        "extra_deletes/dynamic/Comment/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "label": "POST",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Post/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Post/batch_id=2012-12-31/*.csv.gz",
+        "extra_deletes/dynamic/Post/batch_id=2012-12-31/*.csv",
+        "extra_deletes/dynamic/Post/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "label": "FORUM",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Forum/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Forum/batch_id=2012-12-31/*.csv.gz",
+        "extra_deletes/dynamic/Forum/batch_id=2012-12-31/*.csv",
+        "extra_deletes/dynamic/Forum/batch_id=2012-12-31/*.csv.gz"
+      ]
+    }
+  ],
+  "edge": [
+    {
+      "src_label": "COMMENT",
+      "dst_label": "PERSON",
+      "label": "HASCREATOR",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Comment_hasCreator_Person/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Comment_hasCreator_Person/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "POST",
+      "dst_label": "PERSON",
+      "label": "HASCREATOR",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Post_hasCreator_Person/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Post_hasCreator_Person/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "COMMENT",
+      "dst_label": "PLACE",
+      "label": "ISLOCATEDIN",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Comment_isLocatedIn_Country/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Comment_isLocatedIn_Country/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "POST",
+      "dst_label": "PLACE",
+      "label": "ISLOCATEDIN",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Post_isLocatedIn_Country/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Post_isLocatedIn_Country/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "COMMENT",
+      "dst_label": "COMMENT",
+      "label": "REPLYOF",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Comment_replyOf_Comment/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Comment_replyOf_Comment/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "COMMENT",
+      "dst_label": "POST",
+      "label": "REPLYOF",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Comment_replyOf_Post/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Comment_replyOf_Post/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "FORUM",
+      "dst_label": "POST",
+      "label": "CONTAINEROF",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Forum_containerOf_Post/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Forum_containerOf_Post/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "FORUM",
+      "dst_label": "PERSON",
+      "label": "HASMEMBER",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Forum_hasMember_Person/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Forum_hasMember_Person/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "FORUM",
+      "dst_label": "PERSON",
+      "label": "HASMODERATOR",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Forum_hasModerator_Person/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Forum_hasModerator_Person/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "PERSON",
+      "dst_label": "PLACE",
+      "label": "ISLOCATEDIN",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Person_isLocatedIn_City/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Person_isLocatedIn_City/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "PERSON",
+      "dst_label": "PERSON",
+      "label": "KNOWS",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Person_knows_Person/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Person_knows_Person/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "PERSON",
+      "dst_label": "COMMENT",
+      "label": "LIKES",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Person_likes_Comment/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Person_likes_Comment/batch_id=2012-12-31/*.csv.gz"
+      ]
+    },
+    {
+      "src_label": "PERSON",
+      "dst_label": "POST",
+      "label": "LIKES",
+      "columns": [
+        {
+          "name": "deletionDate",
+          "data_type": "DateTime"
+        },
+        {
+          "name": "start_id",
+          "data_type": "ID"
+        },
+        {
+          "name": "end_id",
+          "data_type": "ID"
+        }
+      ],
+      "files": [
+        "deletes/dynamic/Person_likes_Post/batch_id=2012-12-31/*.csv",
+        "deletes/dynamic/Person_likes_Post/batch_id=2012-12-31/*.csv.gz"
+      ]
+    }
+  ]
+}

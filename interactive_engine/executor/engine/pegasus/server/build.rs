@@ -16,7 +16,6 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto/job_service.proto");
     println!("cargo:rerun-if-changed=proto/job_plan.proto");
-    println!("cargo:rerun-if-changed=../../../../../proto/error/insight.proto");
     codegen_inplace()
 }
 
@@ -31,14 +30,7 @@ fn codegen_inplace() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(true)
         .out_dir("src/generated")
-        .compile(
-            &[
-                "proto/job_service.proto",
-                "proto/job_plan.proto",
-                "../../../../../proto/error/insight.proto",
-            ],
-            &["proto", "../../../../../proto"],
-        )?;
+        .compile(&["proto/job_service.proto", "proto/job_plan.proto"], &["proto"])?;
     Ok(())
 }
 
@@ -46,14 +38,6 @@ fn codegen_inplace() -> Result<(), Box<dyn std::error::Error>> {
 fn codegen_inplace() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::configure()
         .build_server(true)
-        .build_client(true)
-        .compile(
-            &[
-                "proto/job_service.proto",
-                "proto/job_plan.proto",
-                "../../../../../proto/error/insight.proto",
-            ],
-            &["proto", "../../../../../proto"],
-        )?;
+        .compile(&["proto/job_service.proto", "proto/job_plan.proto"], &["proto"])?;
     Ok(())
 }

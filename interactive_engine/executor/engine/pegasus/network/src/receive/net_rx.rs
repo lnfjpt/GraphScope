@@ -269,7 +269,8 @@ fn decode_next<R: Read, D: MessageDecoder>(reader: &mut R, decoder: &mut D) -> i
 }
 
 #[allow(dead_code)]
-pub(crate) struct InboxRegister {
+#[derive(Clone)]
+pub struct InboxRegister {
     pub addr: SocketAddr,
     inner: Arc<InboxTable>,
 }
@@ -277,10 +278,6 @@ pub(crate) struct InboxRegister {
 impl InboxRegister {
     pub(crate) fn register(&self, channel_id: u128, tx: &MessageSender<Payload>) -> Result<(), NetError> {
         self.inner.register(channel_id, tx.clone())
-    }
-
-    pub(crate) fn from_same_receiver(&self, other: &InboxRegister) -> bool {
-        Arc::ptr_eq(&self.inner, &other.inner)
     }
 }
 

@@ -1,0 +1,51 @@
+[package]
+name = "rpc_server"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pegasus = { path = "../../interactive_engine/executor/engine/pegasus/pegasus" }
+pegasus_common = { path = "../../interactive_engine/executor/engine/pegasus/common" }
+pegasus_network = { path = "../../interactive_engine/executor/engine/pegasus/network" }
+chrono = "0.4"
+tonic = { version = "0.8" }
+prost = "0.11"
+tokio = { version = "1.0", features = ["macros", "sync", "rt-multi-thread"] }
+tokio-stream = "0.1.11"
+toml = "0.5"
+structopt = "0.3"
+hyper = "0.14"
+futures = "0.3.19"
+lazy_static = "1.4.0"
+libloading = "0.8"
+dlopen = "0.1.8"
+dlopen_derive = "0.1.4"
+log = "0.4"
+rand = "0.8.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.8"
+serde_json = "1.0"
+itertools = "0.10.2"
+storage = { path = "../storage" }
+num = "0.4.1"
+mimalloc = {version = "0.1.42", features = ["local_dynamic_tls"], optional = true}
+mimalloc-rust = {version = "0.2.1", features = ["local-dynamic-tls"], optional = true}
+actix-web = "4.0"
+actix-rt = "2.5.0"
+byteorder = "1.5.0"
+crossbeam-channel = "0.5.6"
+crossbeam-utils = "0.8.14"
+clap = "2.32.0"
+env_logger = "0.7.1"
+
+[build-dependencies]
+tonic-build = { version = "0.8" }
+
+[features]
+default = []
+# set to generate code in place(generated codes are in current codebase);
+gcip = []
+use_mimalloc = ["dep:mimalloc"]
+use_mimalloc_rust = ["dep:mimalloc-rust"]
