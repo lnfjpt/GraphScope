@@ -25,7 +25,6 @@ extern crate core;
 
 use std::cell::Cell;
 use std::sync::atomic::AtomicUsize;
-use std::sync::Once;
 use std::sync::{Arc, Mutex, RwLock};
 
 mod config;
@@ -60,8 +59,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use config::{read_from, Configuration, JobConf, ServerConf};
 pub use data::Data;
-use opentelemetry::trace::{TraceContextExt, Tracer};
-use opentelemetry::{global, KeyValue};
 pub use pegasus_common::codec;
 pub use pegasus_memory::alloc::check_current_task_memory;
 pub use pegasus_network::ServerDetect;
@@ -70,8 +67,9 @@ pub use worker::Worker;
 pub use worker_id::{get_current_worker, get_current_worker_checked, set_current_worker, WorkerId};
 
 use crate::api::Source;
-pub use crate::errors::{BuildJobError, CancelError, JobSubmitError, SpawnJobError, StartupError};
-use crate::resource::PartitionedResource;
+use crate::errors::CancelError;
+pub use crate::errors::{BuildJobError, JobSubmitError, SpawnJobError, StartupError};
+use crate::resource::{DistributedParResourceMaps, PartitionedKeydResource, PartitionedResource};
 use crate::result::{ResultSink, ResultStream};
 use crate::worker_id::WorkerIdIter;
 
@@ -263,6 +261,77 @@ where
     Ok(results)
 }
 
+pub fn run_with_keyed_resources<DI, DO, F, FN, R, K>(
+    conf: JobConf, mut resource: Option<R>, mut keyed_resource: Option<K>, func: F,
+) -> Result<ResultStream<DO>, JobSubmitError>
+where
+    DI: Data,
+    DO: Debug + Send + 'static,
+    R: PartitionedResource,
+    K: PartitionedKeydResource,
+    F: Fn() -> FN,
+    FN: FnOnce(&mut Source<DI>, ResultSink<DO>) -> Result<(), BuildJobError> + 'static,
+{
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let sink = ResultSink::new(tx);
+    let cancel_hook = sink.get_cancel_hook().clone();
+    let results = ResultStream::new(conf.job_id, cancel_hook, rx);
+    run_opt(conf, sink, |worker| {
+        let index = worker.id.index as usize;
+        if resource.is_some() {
+            let mut resource = resource
+                .take()
+                .expect("Failed to take resource");
+            if let Some(r) = resource.take_resource(index) {
+                worker.add_resource(r);
+            }
+        }
+        if keyed_resource.is_some() {
+            let mut keyed_resource = keyed_resource
+                .take()
+                .expect("Failed to take resource");
+            if let Some(rs) = keyed_resource.take_keyed_resource(index) {
+                for (k, r) in rs {
+                    worker.add_resource_with_key(k, r);
+                }
+            }
+        }
+        worker.dataflow(func())
+    })?;
+    Ok(results)
+}
+
+pub fn run_with_resource_map<DI, DO, F, FN>(
+    conf: JobConf, mut resource: Option<DistributedParResourceMaps>, func: F,
+) -> Result<ResultStream<DO>, JobSubmitError>
+where
+    DI: Data,
+    DO: Debug + Send + 'static,
+    F: Fn() -> FN,
+    FN: FnOnce(&mut Source<DI>, ResultSink<DO>) -> Result<(), BuildJobError> + 'static,
+{
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let sink = ResultSink::new(tx);
+    let cancel_hook = sink.get_cancel_hook().clone();
+    let results = ResultStream::new(conf.job_id, cancel_hook, rx);
+    run_opt(conf, sink, |worker| {
+        let index = worker.id.index as usize;
+        if resource.is_some() {
+            let mut resource_map = resource
+                .take()
+                .expect("Failed to take resource");
+            if let Some(res) = resource_map.take_resource(index) {
+                worker.set_resources(res);
+            }
+            if let Some(keyed_res) = resource_map.take_keyed_resource(index) {
+                worker.set_resources_with_key(keyed_res);
+            }
+        }
+        worker.dataflow(func())
+    })?;
+    Ok(results)
+}
+
 pub fn run_opt<DI, DO, F>(conf: JobConf, sink: ResultSink<DO>, mut logic: F) -> Result<(), JobSubmitError>
 where
     DI: Data,
@@ -283,22 +352,9 @@ where
         return Ok(());
     }
     let worker_ids = workers.unwrap();
-    let tracer = global::tracer("executor");
-    let current_cx = opentelemetry::Context::current();
-    let current_span = current_cx.span();
-    let trace_id = current_span.span_context().trace_id();
-    let trace_id_hex = format!("{:x}", trace_id);
-
     let mut workers = Vec::new();
-    for worker_id in worker_ids {
-        let mut worker = tracer.in_span(format!("/pegasus::run_opt"), |cx| {
-            cx.span()
-                .set_attribute(KeyValue::new("worker-id", worker_id.index.to_string()));
-            let span = tracer
-                .span_builder(format!("/worker-{}", worker_id.index))
-                .start_with_context(&tracer, &cx);
-            Worker::new(&conf, worker_id, &peer_guard, sink.clone(), span)
-        });
+    for id in worker_ids {
+        let mut worker = Worker::new(&conf, id, &peer_guard, sink.clone());
         let _g = crate::worker_id::guard(worker.id);
         logic(&mut worker)?;
         workers.push(worker);
@@ -308,14 +364,7 @@ where
         return Ok(());
     }
 
-    info!(
-        "trace_id:{}, spawn job_{}({}) with {} workers;",
-        trace_id_hex,
-        conf.job_name,
-        conf.job_id,
-        workers.len()
-    );
-
+    info!("spawn job_{}({}) with {} workers;", conf.job_name, conf.job_id, workers.len());
     match pegasus_executor::spawn_batch(workers) {
         Ok(_) => Ok(()),
         Err(e) => {
@@ -394,6 +443,7 @@ fn allocate_local_worker(conf: &Arc<JobConf>) -> Result<Option<WorkerIdIter>, Bu
     }
 }
 
+use std::sync::Once;
 lazy_static! {
     static ref SINGLETON_INIT: Once = Once::new();
 }

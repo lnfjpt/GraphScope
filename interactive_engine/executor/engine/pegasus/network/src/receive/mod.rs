@@ -29,7 +29,8 @@ use crate::{NetError, Server};
 mod decode;
 mod net_rx;
 pub use decode::{MessageDecoder, ReentrantDecoder, ReentrantSlabDecoder, SimpleBlockDecoder};
-use net_rx::{InboxRegister, NetReceiver};
+pub use net_rx::InboxRegister;
+use net_rx::NetReceiver;
 
 use crate::config::{BlockMode::Blocking, ConnectionParams};
 
@@ -56,8 +57,21 @@ impl<T: Decode> IPCReceiver<T> {
 }
 
 lazy_static! {
-    static ref REMOTE_RECV_REGISTER: ShardedLock<HashMap<(u64, u64), InboxRegister>> =
-        ShardedLock::new(HashMap::new());
+    static ref REMOTE_RECV_REGISTER: Arc<ShardedLock<HashMap<(u64, u64), InboxRegister>>> =
+        Arc::new(ShardedLock::new(HashMap::new()));
+}
+
+#[inline]
+pub fn get_recv_register() -> Arc<ShardedLock<HashMap<(u64, u64), InboxRegister>>> {
+    return REMOTE_RECV_REGISTER.clone();
+}
+
+pub fn set_recv_register(register_map: Arc<ShardedLock<HashMap<(u64, u64), InboxRegister>>>) {
+    let mut register_write_lock = REMOTE_RECV_REGISTER
+        .write()
+        .expect("Msg sender poisoned");
+    let register_read_lock = register_map.read().unwrap();
+    *register_write_lock = register_read_lock.clone();
 }
 
 pub fn check_remotes_read_ready(local: u64, remotes: &[u64]) -> bool {
@@ -82,15 +96,10 @@ fn add_remote_register(local: u64, remote: u64, register: InboxRegister) {
     lock.insert((local, remote), register);
 }
 
-fn remove_remote_register(local: u64, remote: u64, other: InboxRegister) -> Option<InboxRegister> {
+fn remove_remote_register(local: u64, remote: u64) -> Option<InboxRegister> {
     let mut lock = REMOTE_RECV_REGISTER
         .write()
         .expect("failure to lock REMOTE_RECV_REGISTER");
-    if let Some(register) = lock.get(&(local, remote)) {
-        if !register.from_same_receiver(&other) {
-            return None;
-        }
-    }
     lock.remove(&(local, remote))
 }
 
@@ -140,7 +149,7 @@ pub fn start_net_receiver(
                     break;
                 }
             }
-            remove_remote_register(local, remote.id, net_recv.get_inbox_register());
+            remove_remote_register(local, remote.id);
             info!("IPC receiver recv from {:?} exit;", remote);
         })
         .expect("start net recv thread failure;");

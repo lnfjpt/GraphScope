@@ -107,7 +107,7 @@ use intra_thread::{ThreadPull, ThreadPush};
 
 use crate::config::ServerConf;
 
-#[enum_dispatch(Push<T>)]
+#[enum_dispatch(Push < T >)]
 pub enum GeneralPush<T: Data> {
     IntraThread(ThreadPush<T>),
     IntraProcess(IntraProcessPush<T>),
@@ -124,7 +124,7 @@ impl<T: Data> GeneralPush<T> {
     }
 }
 
-#[enum_dispatch(Pull<T>)]
+#[enum_dispatch(Pull < T >)]
 pub enum GeneralPull<T: Data> {
     IntraThread(ThreadPull<T>),
     IntraProcess(IntraProcessPull<T>),

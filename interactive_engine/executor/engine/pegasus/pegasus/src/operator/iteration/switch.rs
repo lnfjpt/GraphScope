@@ -12,12 +12,13 @@ use crate::Data;
 
 struct IterateState {
     iterating: bool,
+    reach_end: bool,
     src_end: Option<EndOfScope>,
 }
 
 impl IterateState {
     fn new() -> Self {
-        IterateState { iterating: true, src_end: None }
+        IterateState { iterating: true, reach_end: false, src_end: None }
     }
 
     fn set_end(&mut self, end: EndOfScope) {
@@ -30,6 +31,10 @@ impl IterateState {
 
     fn leave_iteration(&mut self) {
         self.iterating = false;
+    }
+
+    fn reach_end(&mut self) {
+        self.reach_end = true;
     }
 }
 
@@ -47,10 +52,13 @@ pub(crate) struct SwitchOperator<D> {
     iterate_states: TidyTagMap<IterateState>,
     parent_parent_scope_ends: Vec<Vec<EndOfScope>>,
     has_synchronized: bool,
+    worker_index: u32,
 }
 
 impl<D> SwitchOperator<D> {
-    pub fn new(scope_level: u32, emit_kind: Option<EmitKind>, cond: IterCondition<D>) -> Self {
+    pub fn new(
+        scope_level: u32, emit_kind: Option<EmitKind>, cond: IterCondition<D>, worker_index: u32,
+    ) -> Self {
         assert!(scope_level > 0);
         let mut parent_parent_scope_ends = Vec::with_capacity(scope_level as usize + 1);
         for _ in 0..scope_level + 1 {
@@ -63,6 +71,7 @@ impl<D> SwitchOperator<D> {
             iterate_states: TidyTagMap::new(scope_level - 1),
             parent_parent_scope_ends,
             has_synchronized: false,
+            worker_index,
         }
     }
 }
@@ -123,9 +132,15 @@ impl<D: Data> OperatorCore for SwitchOperator<D> {
 
             if let Some(end) = batch.take_end() {
                 let p = batch.tag.to_parent_uncheck();
-                trace_worker!("detect scope {:?} in iteration;", batch.tag);
-                self.iterate_states
-                    .insert(p, IterateState::new());
+                trace_worker!("detect scope {:?} in iteration; {}", batch.tag, self.worker_index);
+                if self.iterate_states.contains_key(&p) {
+                    if self.iterate_states.get(&p).unwrap().reach_end {
+                        self.iterate_states.remove(&p);
+                    }
+                } else {
+                    self.iterate_states
+                        .insert(p, IterateState::new());
+                }
                 enter.notify_end(end)?;
             }
 
@@ -141,7 +156,7 @@ impl<D: Data> OperatorCore for SwitchOperator<D> {
                     leave.push_batch_mut(batch)?;
                 }
                 if let Some(_) = end {
-                    trace_worker!("detect {:?} leave iteration;", batch.tag);
+                    trace_worker!("detect {:?} leave iteration; {}", batch.tag, self.worker_index);
                     let p = batch.tag.to_parent_uncheck();
                     if let Some(mut state) = self.iterate_states.remove(&p) {
                         state.leave_iteration();
@@ -151,12 +166,20 @@ impl<D: Data> OperatorCore for SwitchOperator<D> {
                             }
                             enter.notify_end(end)?;
                         } else {
-                            warn_worker!("{:?} not end while {:?} leave iteration;", p, batch.tag);
+                            warn_worker!(
+                                "{:?} not end while {:?} leave iteration; {}",
+                                p,
+                                batch.tag,
+                                self.worker_index
+                            );
                             self.iterate_states.insert(p, state);
                         }
                     } else {
-                        error_worker!("iteration for {:?} not found;", p);
-                        panic!("iteration for {:?} not found", p);
+                        error_worker!("iteration for {:?} not found; {}", p, self.worker_index);
+                        let mut state = IterateState::new();
+                        state.leave_iteration();
+                        self.iterate_states.insert(p, state);
+                        // panic!("iteration for {:?} not found; {}", p, self.worker_index);
                     }
 
                     if self.iterate_states.is_empty() {
@@ -222,7 +245,7 @@ impl<D: Data> OperatorCore for SwitchOperator<D> {
                 if let Some(end) = batch.take_end() {
                     let p = batch.tag.to_parent_uncheck();
                     if !self.iterate_states.contains_key(&p) {
-                        trace_worker!("detect scope {:?} in iteration;", batch.tag);
+                        info_worker!("detect scope {:?} in iteration; {}", batch.tag, self.worker_index);
                         self.iterate_states
                             .insert(p, IterateState::new());
                     }
@@ -243,12 +266,19 @@ impl<D: Data> Notifiable for SwitchOperator<D> {
             trace_worker!("iteration: switch on notify end of {:?};", n.tag());
             if level == self.scope_level - 1 {
                 if let Some(mut state) = self.iterate_states.remove(n.tag()) {
+                    state.reach_end();
                     if state.iterating {
                         let tag = n.tag().clone();
-                        trace_worker!("iteration: switch stash end of {:?}", tag);
+                        info_worker!("iteration: switch stash end of {:?} {}", tag, self.worker_index);
                         state.set_end(n.take());
                         self.iterate_states.insert(tag, state);
                     } else {
+                        let tag = n.tag().clone();
+                        info_worker!(
+                            "iteration: switch leave before end of {:?} {}",
+                            tag,
+                            self.worker_index
+                        );
                         if !n.tag().is_root() {
                             outputs[0].notify_end(n.end.clone())?;
                         }
@@ -268,7 +298,7 @@ impl<D: Data> Notifiable for SwitchOperator<D> {
                         }
                     }
                 } else {
-                    panic!("iteration of {:?} not found;", n.tag())
+                    panic!("iteration of {:?} not found; {}", n.tag(), self.worker_index)
                 }
             } else {
                 // parent of parent scope end;

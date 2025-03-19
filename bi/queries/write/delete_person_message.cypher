@@ -1,0 +1,4 @@
+LOAD CSV FROM $csv_path AS row FIELDTERMINATOR '|'
+MATCH (person:PERSON {id: row[1]})
+OPTIONAL MATCH (person)<-[:HASCREATOR]-(:COMMENT|POST)<-[:REPLYOF * 0..20]-(message:COMMENT|POST)
+DETACH DELETE message

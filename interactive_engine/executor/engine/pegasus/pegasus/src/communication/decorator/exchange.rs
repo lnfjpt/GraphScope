@@ -19,7 +19,7 @@ use pegasus_common::buffer::ReadBuffer;
 
 use crate::api::function::{BatchRouteFunction, FnResult, RouteFunction};
 use crate::channel_id::ChannelInfo;
-use crate::communication::buffer::ScopeBufferPool;
+use crate::communication::buffer::{BufSlotPtr, ScopeBufferPool};
 use crate::communication::cancel::{CancelHandle, MultiConsCancelPtr, SingleConsCancel};
 use crate::communication::channel::BatchRoute;
 use crate::communication::decorator::evented::EventEmitPush;
@@ -229,9 +229,14 @@ impl<D: Data> ExchangeByDataPush<D> {
     fn push_inner(&mut self, mut batch: MicroBatch<D>) -> IOResult<()> {
         let mut has_block = false;
         let tag = batch.tag().clone();
+        let mut buffers: Vec<BufSlotPtr<D>> = vec![];
+        for buf in self.buffers.iter_mut() {
+            buffers.push(buf.fetch_slot_ptr(&tag));
+        }
+
         for item in batch.drain() {
             let target = self.route.route(&item)? as usize;
-            match self.buffers[target].push(&tag, item) {
+            match buffers[target].push(item) {
                 Ok(Some(buf)) => {
                     self.push_to(target, tag.clone(), buf)?;
                 }
@@ -241,7 +246,7 @@ impl<D: Data> ExchangeByDataPush<D> {
                         self.blocks
                             .get_mut_or_insert(&tag)
                             .push_back(BlockEntry::Single((target, x)));
-                        trace_worker!("output[{:?}] blocked when push data of {:?} ;", self.port, tag);
+                        info_worker!("output[{:?}] blocked when push data of {:?} ;", self.port, tag);
                         break;
                     }
                 }
@@ -251,7 +256,7 @@ impl<D: Data> ExchangeByDataPush<D> {
 
         if has_block {
             if !batch.is_empty() || batch.is_last() {
-                trace_worker!(
+                info_worker!(
                     "output[{:?}] blocking on push batch(len={}) of {:?} ;",
                     self.port,
                     batch.len(),

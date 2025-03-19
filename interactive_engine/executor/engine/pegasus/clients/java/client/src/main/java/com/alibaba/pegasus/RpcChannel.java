@@ -15,11 +15,8 @@
  */
 package com.alibaba.pegasus;
 
-import io.grpc.Channel;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.instrumentation.grpc.v1_6.GrpcTelemetry;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,9 +26,9 @@ import java.util.concurrent.TimeUnit;
 public class RpcChannel {
     private static final Logger logger = LoggerFactory.getLogger(RpcChannel.class);
 
-    private final Channel channel;
+    private final ManagedChannel channel;
 
-    public RpcChannel(Channel channel) {
+    public RpcChannel(ManagedChannel channel) {
         this.channel = channel;
     }
 
@@ -39,26 +36,12 @@ public class RpcChannel {
         this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
     }
 
-    public RpcChannel(String host, int port, OpenTelemetry openTelemetry) {
-        GrpcTelemetry grpcTelemetry = GrpcTelemetry.create(openTelemetry);
-        this.channel =
-                ManagedChannelBuilder.forAddress(host, port)
-                        .usePlaintext()
-                        .intercept(grpcTelemetry.newClientInterceptor())
-                        .build();
-    }
-
-    public Channel getChannel() {
+    public ManagedChannel getChannel() {
         return channel;
     }
 
     public void shutdown() throws InterruptedException {
-        if (this.channel instanceof ManagedChannel) {
-            String name = channel.authority();
-            ManagedChannel managedChannel = (ManagedChannel) this.channel;
-            managedChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
-            logger.info("rpc channel {} shutdown successfully", name);
-        }
+        this.channel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
     }
 
     public String toString() {
