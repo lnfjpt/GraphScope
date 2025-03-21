@@ -80,9 +80,7 @@ fn main() {
             Arg::with_name("offset")
                 .long("offset")
                 .long_help("offset of files read by this worker")
-                .required(true)
-                .takes_value(true)
-                .index(9),
+                .takes_value(true),
             Arg::with_name("delimiter")
                 .short("t")
                 .long_help(
@@ -132,6 +130,10 @@ fn main() {
         .unwrap_or("pipe")
         .to_uppercase();
 
+    let offset_str = matches
+        .value_of("offset")
+        .unwrap_or("0");
+
     let skip_header = matches.is_present("skip_header");
 
     let no_corner = matches.is_present("no_corner");
@@ -146,7 +148,7 @@ fn main() {
 
     let hostfile = matches.value_of("hostfile").unwrap().to_string();
     let reader_num = matches.value_of("read_concurrency").unwrap().parse::<usize>().expect("read concurrency should be a number");
-    let offset = matches.value_of("offset").unwrap().parse::<usize>().expect("offset should be a number");
+    let offset = offset_str.parse::<usize>().expect("offset should be a number");
 
     let addrs = read_hostfile(&hostfile);
     let input_dir = PathBuf::from(raw_data_dir);
