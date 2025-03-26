@@ -124,7 +124,7 @@ fn main() {
 
     pegasus::startup(server_conf.clone()).ok();
     pegasus::wait_servers_ready(&ServerConf::All);
-    let output_path = format!("/root/output{}", executor_index);
+    let output_path = format!("/tmp/output{}", executor_index);
     let mut ready_file = OpenOptions::new()
         .write(true)
         .create(true)
@@ -139,7 +139,7 @@ fn main() {
 
     let mut shm_graph = None;
     while true {
-        let file_path = format!("/root/input{}", executor_index);
+        let file_path = format!("/tmp/input{}", executor_index);
         if let Ok(inputs_string) = fs::read_to_string(file_path.clone()) {
             if !inputs_string.is_empty() {
                 if shm_graph.is_none() {
@@ -152,7 +152,7 @@ fn main() {
                     let mut shared_graph = shm_graph.as_ref().unwrap().write().unwrap();
                     shared_graph.apply_delete_neighbors();
                     drop(shared_graph);
-                    let output_path = format!("/root/output{}", executor_index);
+                    let output_path = format!("/tmp/output{}", executor_index);
                     let mut file = OpenOptions::new()
                         .write(true)
                         .create(true)
@@ -201,7 +201,7 @@ fn main() {
                             )
                                 .expect("submit query failure")
                         };
-                        let output_path = format!("/root/output{}", executor_index);
+                        let output_path = format!("/tmp/output{}", executor_index);
                         let mut file = OpenOptions::new()
                             .write(true)
                             .create(true)

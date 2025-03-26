@@ -340,7 +340,7 @@ impl JobServiceImpl {
                 subprocess_write.push_back((i, child));
             }
             let mut is_ready = false;
-            let output_path = "/root/output0";
+            let output_path = "/tmp/output0";
             println!("wait for subprocess ready");
             loop {
                 if let Ok(result) = fs::read_to_string(output_path.clone()) {
@@ -366,8 +366,8 @@ impl JobServiceImpl {
         if let Some(subprocess) = &self.subprocess {
             {
                 let current_index = self.current_index.load(Ordering::SeqCst);
-                let file_path = format!("/root/input{}", current_index);
-                let output_path = format!("/root/output{}", current_index);
+                let file_path = format!("/tmp/input{}", current_index);
+                let output_path = format!("/tmp/output{}", current_index);
                 let mut file = OpenOptions::new()
                     .write(true)
                     .truncate(true)
@@ -428,7 +428,7 @@ impl JobServiceImpl {
                 .expect("Failed to execute command");
             subprocess_write.push_back((last_index, child));
             let mut is_ready = false;
-            let output_path = format!("/root/output{}", current_index);
+            let output_path = format!("/tmp/output{}", current_index);
             println!("Try to check subprocess state {}", output_path);
             loop {
                 if let Ok(result) = fs::read_to_string(output_path.clone()) {
@@ -506,8 +506,8 @@ impl pb::job_service_server::JobService for JobServiceImpl {
                     for query in queries.into_iter() {
                         let start = Instant::now();
                         let current_index = self.current_index.load(Ordering::SeqCst);
-                        let file_path = format!("/root/input{}", current_index);
-                        let output_path = format!("/root/output{}", current_index);
+                        let file_path = format!("/tmp/input{}", current_index);
+                        let output_path = format!("/tmp/output{}", current_index);
                         let mut file = OpenOptions::new()
                             .write(true)
                             .truncate(true)
