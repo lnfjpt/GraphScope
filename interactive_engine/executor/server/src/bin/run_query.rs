@@ -238,7 +238,6 @@ fn main() {
         } else {
             std::thread::sleep(Duration::from_millis(200));
         }
-        println!("try read query, index {}", executor_index);
     }
     pegasus::shutdown_all();
     println!("run_query exits");
