@@ -1030,7 +1030,8 @@ pub fn insert_edges_by_ids<G, I>(graph: &mut GraphDB<G, I>, src_label: LabelId, 
                 false,
                 graph.oe_edge_prop_table.get_mut(&index),
                 &graph.vertex_map,
-                src_label
+                src_label,
+                graph.is_distributed_graph
             );
         }
     }
@@ -1047,7 +1048,8 @@ pub fn insert_edges_by_ids<G, I>(graph: &mut GraphDB<G, I>, src_label: LabelId, 
                 true,
                 graph.ie_edge_prop_table.get_mut(&index),
                 &graph.vertex_map,
-                dst_label
+                dst_label,
+                graph.is_distributed_graph
             );
         }
     }
@@ -1190,7 +1192,12 @@ pub fn delete_vertices_by_ids<G, I>(graph: &mut GraphDB<G, I>, vertex_label: Lab
         if let Some(internal_id) = graph.vertex_map.get_internal_id(*v) {
             lids.insert(internal_id.1);
         }
-        neighbors.insert(*v);
+        if graph.is_distributed_graph {
+            neighbors.insert(*v);
+        } else {
+            neighbors.insert(G::new(graph.get_internal_id(*v).index()));
+        }
+
     }
     let t0 = start.elapsed().as_secs_f64();
     let mut t1 = 0_f64;
@@ -1703,13 +1710,13 @@ impl GraphModifier {
 
         let index = graph.edge_label_to_index(src_label, dst_label, edge_label, Direction::Outgoing);
         if let Some(csr) = graph.oe.get_mut(&index) {
-            let shuffle_indices = csr.delete_edges(&delete_edge_set, false, &graph.vertex_map);
+            let shuffle_indices = csr.delete_edges(&delete_edge_set, false, &graph.vertex_map, graph.is_distributed_graph);
             if let Some(table) = graph.oe_edge_prop_table.get_mut(&index) {
                 table.parallel_move(&shuffle_indices);
             }
         }
         if let Some(csr) = graph.ie.get_mut(&index) {
-            let shuffle_indices = csr.delete_edges(&delete_edge_set, true, &graph.vertex_map);
+            let shuffle_indices = csr.delete_edges(&delete_edge_set, true, &graph.vertex_map, graph.is_distributed_graph);
             if let Some(table) = graph.ie_edge_prop_table.get_mut(&index) {
                 table.parallel_move(&shuffle_indices);
             }
@@ -1955,6 +1962,7 @@ impl GraphModifier {
                 prop_table.as_ref(),
                 false,
                 graph.oe_edge_prop_table.get_mut(&index), &graph.vertex_map, src_label,
+                graph.is_distributed_graph
             );
         }
         let t4 = start.elapsed().as_secs_f64();
@@ -1969,6 +1977,7 @@ impl GraphModifier {
                 prop_table.as_ref(),
                 true,
                 graph.ie_edge_prop_table.get_mut(&index), &graph.vertex_map, dst_label,
+                graph.is_distributed_graph
             );
         }
         let t5 = start.elapsed().as_secs_f64();

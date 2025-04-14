@@ -42,7 +42,7 @@ pub struct Config {
     partition_id: usize,
     #[structopt(short = "t", long = "pool_size", default_value = "0")]
     pool_size: u32,
-    #[structopt(short = "l", long = "load")]
+    #[structopt(long = "load")]
     load: bool,
 }
 

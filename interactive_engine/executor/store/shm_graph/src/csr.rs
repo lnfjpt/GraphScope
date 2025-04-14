@@ -115,14 +115,14 @@ fn generate_new_offsets<I: IndexType>(
         e_range_diff,
         offsets[vertex_num - 1]
             + (if vertex_num == old_vertex_num {
-                if let Some(diff) = diff_table.get(&(old_vertex_num - 1)) {
-                    (old_degree[old_vertex_num - 1] + *diff) as usize
-                } else {
-                    old_degree[old_vertex_num - 1] as usize
-                }
+            if let Some(diff) = diff_table.get(&(old_vertex_num - 1)) {
+                (old_degree[old_vertex_num - 1] + *diff) as usize
             } else {
-                new_vertex_degree[vertex_num - old_vertex_num - 1] as usize
-            }),
+                old_degree[old_vertex_num - 1] as usize
+            }
+        } else {
+            new_vertex_degree[vertex_num - old_vertex_num - 1] as usize
+        }),
     )
 }
 
@@ -200,27 +200,38 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
         }
     }
 
-    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>) -> Vec<(usize, usize)> {
+    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>,
+                    is_distributed_graph: bool) -> Vec<(usize, usize)> {
         let offsets_slice = self.offsets.as_slice();
 
         let mut delete_map = HashMap::<G, HashSet<G>>::new();
         if reverse {
             for (src, dst) in edges.iter() {
+                let neighbor = if is_distributed_graph {
+                    *src
+                } else {
+                    G::new(vertex_map.get_internal_id(*src).unwrap().1.index())
+                };
                 if let Some(set) = delete_map.get_mut(&dst) {
-                    set.insert(*src);
+                    set.insert(neighbor);
                 } else {
                     let mut set = HashSet::<G>::new();
-                    set.insert(*src);
+                    set.insert(neighbor);
                     delete_map.insert(*dst, set);
                 }
             }
         } else {
             for (src, dst) in edges.iter() {
+                let neighbor = if is_distributed_graph {
+                    *dst
+                } else {
+                    G::new(vertex_map.get_internal_id(*dst).unwrap().1.index())
+                };
                 if let Some(set) = delete_map.get_mut(&src) {
-                    set.insert(*dst);
+                    set.insert(neighbor);
                 } else {
                     let mut set = HashSet::<G>::new();
-                    set.insert(*dst);
+                    set.insert(neighbor);
                     delete_map.insert(*src, set);
                 }
             }
@@ -395,6 +406,7 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
     fn insert_edges_beta(
         &mut self, vertex_num: usize, edges: &Vec<(G, G)>, insert_edges_prop: Option<&DataFrame>,
         reverse: bool, edges_prop: Option<&mut Table>, vertex_map: &VertexMap<G, I>, label: LabelId,
+        is_distributed_graph: bool,
     ) {
         let start = Instant::now();
         let old_vertex_num = self.degree.len();
@@ -461,7 +473,12 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
                             self.degree[v] += 1;
                             let offset = self.offsets[v] + x;
                             insert_offsets.push(offset);
-                            self.neighbors[offset] = edges[i].0;
+                            let neighbor = if is_distributed_graph {
+                                edges[i].0
+                            } else {
+                                G::new(vertex_map.get_internal_id(edges[i].0).unwrap().1.index())
+                            };
+                            self.neighbors[offset] = neighbor;
                         }
                     }
                 } else {
@@ -474,7 +491,12 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
                             self.degree[v] += 1;
                             let offset = self.offsets[v] + x;
                             insert_offsets.push(offset);
-                            self.neighbors[offset] = edges[i].1;
+                            let neighbor = if is_distributed_graph {
+                                edges[i].1
+                            } else {
+                                G::new(vertex_map.get_internal_id(edges[i].1).unwrap().1.index())
+                            };
+                            self.neighbors[offset] = neighbor;
                         }
                     }
                 }
@@ -498,7 +520,12 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
                         let x = self.degree[v] as usize;
                         self.degree[v] += 1;
                         let offset = self.offsets[v] + x;
-                        self.neighbors[offset] = edges[i].0;
+                        let neighbor = if is_distributed_graph {
+                            edges[i].0
+                        } else {
+                            G::new(vertex_map.get_internal_id(edges[i].0).unwrap().1.index())
+                        };
+                        self.neighbors[offset] = neighbor;
                     }
                 }
             } else {
@@ -508,7 +535,12 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for Csr<G, I> {
                         let x = self.degree[v] as usize;
                         self.degree[v] += 1;
                         let offset = self.offsets[v] + x;
-                        self.neighbors[offset] = edges[i].1;
+                        let neighbor = if is_distributed_graph {
+                            edges[i].1
+                        } else {
+                            G::new(vertex_map.get_internal_id(edges[i].1).unwrap().1.index())
+                        };
+                        self.neighbors[offset] = neighbor;
                     }
                 }
             }

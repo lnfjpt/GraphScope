@@ -132,6 +132,7 @@ pub struct GraphDB<G: Send + Sync + IndexType = DefaultId, I: Send + Sync + Inde
     pub partition_prefix: String,
 
     pub pending_to_delete: HashMap<LabelId, HashSet<G>>,
+    pub is_distributed_graph: bool
 }
 
 fn dump_schema_to_shm(name: &str, schema: &CsrGraphSchema) {
@@ -273,7 +274,7 @@ impl<G, I> GraphDB<G, I>
         VertexMap::<G, I>::load(partition_prefix.as_str(), vertex_label_num, shm_name);
     }
 
-    pub fn open(shm_name: &str, mmap_prefix: Option<&str>, partition: usize) -> Self {
+    pub fn open(shm_name: &str, mmap_prefix: Option<&str>, partition: usize, is_distributed_graph: bool) -> Self {
         let graph_schema = load_schema_from_shm(format!("{}_schema", shm_name).as_str());
         let vertex_label_num = graph_schema.vertex_type_to_id.len();
 
@@ -358,6 +359,7 @@ impl<G, I> GraphDB<G, I>
             }
         }
 
+
         Self {
             partition,
 
@@ -379,6 +381,7 @@ impl<G, I> GraphDB<G, I>
             partition_prefix: shm_name.to_string(),
 
             pending_to_delete: HashMap::new(),
+            is_distributed_graph
         }
     }
 

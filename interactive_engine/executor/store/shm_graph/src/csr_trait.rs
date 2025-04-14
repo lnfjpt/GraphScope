@@ -71,7 +71,7 @@ pub trait CsrTrait<G: IndexType, I: IndexType>: Send + Sync {
     fn get_edges(&self, u: I) -> Option<NbrIter<G>>;
     fn get_edges_with_offset(&self, u: I) -> Option<NbrOffsetIter<G>>;
 
-    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>) -> Vec<(usize, usize)>;
+    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>, is_distributed_graph: bool) -> Vec<(usize, usize)>;
 
     fn delete_vertices(&mut self, vertices: &HashSet<I>);
     fn delete_neighbors(&mut self, neighbors: &HashSet<G>);
@@ -80,11 +80,13 @@ pub trait CsrTrait<G: IndexType, I: IndexType>: Send + Sync {
     fn insert_edges_beta(
         &mut self, vertex_num: usize, edges: &Vec<(G, G)>, insert_edges_prop: Option<&DataFrame>,
         reverse: bool, edges_prop: Option<&mut Table>, vertex_map: &VertexMap<G, I>, label: LabelId,
+        is_distributed_graph: bool,
     );
 
     fn as_any(&self) -> &dyn Any;
     fn as_mut_any(&mut self) -> &mut dyn Any;
 }
+
 pub struct SafePtr<I>(*const I, PhantomData<I>);
 
 unsafe impl<I> Send for SafePtr<I> {}

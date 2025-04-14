@@ -103,7 +103,8 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for SCsr<G, I> {
         }
     }
 
-    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>) -> Vec<(usize, usize)> {
+    fn delete_edges(&mut self, edges: &Vec<(G, G)>, reverse: bool, vertex_map: &VertexMap<G, I>,
+    is_distributed_graph: bool) -> Vec<(usize, usize)> {
         let mut delete_map = HashMap::<G, HashSet<G>>::new();
         if reverse {
             for (src, dst) in edges.iter() {
@@ -180,6 +181,7 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for SCsr<G, I> {
         &mut self, vertex_num: usize, edges: &Vec<(G, G)>,
         insert_edges_prop: Option<&crate::dataframe::DataFrame>, reverse: bool,
         edges_prop: Option<&mut Table>, vertex_map: &VertexMap<G, I>, label: LabelId,
+        is_distributed_graph: bool
     ) {
         let start = Instant::now();
         let old_length = self.nbr_list.len();
@@ -230,7 +232,12 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for SCsr<G, I> {
                         if self.nbr_list[v] == <G as IndexType>::max() {
                             insert_counter += 1;
                         }
-                        self.nbr_list[v] = edges[i].0;
+                        let neighbor = if is_distributed_graph {
+                            edges[i].0
+                        } else {
+                            G::new(vertex_map.get_internal_id(edges[i].0).unwrap().1.index())
+                        };
+                        self.nbr_list[v] = neighbor;
                         insert_offsets.push(v);
                     }
                 }
@@ -243,7 +250,12 @@ impl<G: IndexType, I: IndexType> CsrTrait<G, I> for SCsr<G, I> {
                         if self.nbr_list[v] == <G as IndexType>::max() {
                             insert_counter += 1;
                         }
-                        self.nbr_list[v] = edges[i].1;
+                        let neighbor = if is_distributed_graph {
+                            edges[i].1
+                        } else {
+                            G::new(vertex_map.get_internal_id(edges[i].1).unwrap().1.index())
+                        };
+                        self.nbr_list[v] = neighbor;
                         insert_offsets.push(v);
                     }
                 }

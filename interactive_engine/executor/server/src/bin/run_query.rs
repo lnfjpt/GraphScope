@@ -98,6 +98,7 @@ fn main() {
         server_conf.network = Some(network);
     }
     let servers_len = servers.len();
+    let is_distributed_graph = { servers.len() != 1 };
 
     println!("Read query config");
     let file = File::open(config.queries_config.clone()).unwrap();
@@ -143,7 +144,7 @@ fn main() {
         if let Ok(inputs_string) = fs::read_to_string(file_path.clone()) {
             if !inputs_string.is_empty() {
                 if shm_graph.is_none() {
-                    shm_graph = Some(Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, Some(&default_mmap_path), config.partition_id))));
+                    shm_graph = Some(Arc::new(RwLock::new(GraphDB::<usize, usize>::open(name, Some(&default_mmap_path), config.partition_id, is_distributed_graph))));
                 }
                 println!("Get input {}", inputs_string);
                 let inputs: Vec<String> = inputs_string.split('|').map(|s| s.to_string()).collect();
